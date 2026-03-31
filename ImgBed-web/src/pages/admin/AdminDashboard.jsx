@@ -12,7 +12,7 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
-    { text: '系统配置', icon: <SettingsIcon />, path: '/admin/settings' },
+    { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },
   ];
 
   return (

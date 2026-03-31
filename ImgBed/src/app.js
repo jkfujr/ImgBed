@@ -31,6 +31,10 @@ app.route('/api/files', filesRouter);
 const dirsRouter = require('./routes/directories');
 app.route('/api/directories', dirsRouter);
 
+// 挂载系统配置路由
+const systemRouter = require('./routes/system');
+app.route('/api/system', systemRouter);
+
 // 挂载图片直读路由到根路径 (放在 API 路由之后，避免冲突)
 const viewRouter = require('./routes/view');
 app.route('/', viewRouter);

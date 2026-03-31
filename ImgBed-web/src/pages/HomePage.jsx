@@ -1,152 +1,257 @@
-import React, { useState } from 'react';
-import { Box, Card, Typography, Button, Snackbar, Alert, CircularProgress, IconButton } from '@mui/material';
+import React, { useState, useRef } from 'react';
+import {
+  Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
+  IconButton, LinearProgress, Chip, Tooltip, List, ListItem, Divider
+} from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
 import api from '../api';
 
-export default function HomePage() {
-  const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [toast, setToast] = useState({ open: false, msg: '', type: 'info' });
+// 单个文件的状态：idle | uploading | done | error
+const createFileEntry = (file) => ({
+  id: Math.random().toString(36).slice(2),
+  file,
+  status: 'idle',   // idle | uploading | done | error
+  result: null,     // 成功时的响应数据
+  errorMsg: null,
+});
 
-  const handleDisplayToast = (msg, type = 'info') => {
-    setToast({ open: true, msg, type });
-  };
+export default function HomePage() {
+  const [entries, setEntries] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [toast, setToast] = useState({ open: false, msg: '', type: 'info' });
+  const inputRef = useRef(null);
+
+  const showToast = (msg, type = 'info') => setToast({ open: true, msg, type });
+
+  // 更新某个 entry 的部分字段
+  const patchEntry = (id, patch) =>
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-       const selected = e.target.files[0];
-       if (!selected.type.startsWith('image/')) {
-          handleDisplayToast('抱歉，本站仅支持图片上传', 'error');
-          e.target.value = null;
-          return;
-       }
-       setFile(selected);
-       setResult(null);
+    const files = Array.from(e.target.files || []);
+    const valid = files.filter((f) => {
+      if (!f.type.startsWith('image/')) {
+        showToast(`「${f.name}」不是图片，已跳过`, 'warning');
+        return false;
+      }
+      return true;
+    });
+    if (valid.length > 0) {
+      setEntries((prev) => [...prev, ...valid.map(createFileEntry)]);
     }
+    // 清空 input，允许重复选择同一文件
+    e.target.value = null;
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const res = await api.post('/api/upload', formData, {
-         headers: { 'Content-Type': 'multipart/form-data' }
-      });
+  const handleRemove = (id) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+  };
 
-      if (res.code === 0) {
-         handleDisplayToast('上传成功！', 'success');
-         const fullUrl = window.location.origin + res.data.url;
-         setResult({ ...res.data, fullUrl });
-         setFile(null); // 上传完释放暂存以便继续
-      } else {
-         handleDisplayToast(res.message || '上传异常', 'error');
-      }
-    } catch (err) {
-      handleDisplayToast(err.response?.data?.message || err.message || '网络连接错误或后端未响应', 'error');
-    } finally {
-      setUploading(false);
-    }
+  const handleClearDone = () => {
+    setEntries((prev) => prev.filter((e) => e.status !== 'done'));
   };
 
   const handleCopy = (text) => {
-     navigator.clipboard.writeText(text);
-     handleDisplayToast('已复制到剪贴板', 'success');
+    navigator.clipboard.writeText(text);
+    showToast('已复制到剪贴板', 'success');
   };
+
+  // 上传单个 entry
+  const uploadOne = async (entry) => {
+    patchEntry(entry.id, { status: 'uploading' });
+    try {
+      const formData = new FormData();
+      formData.append('file', entry.file);
+      const res = await api.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.code === 0) {
+        const fullUrl = window.location.origin + res.data.url;
+        patchEntry(entry.id, { status: 'done', result: { ...res.data, fullUrl } });
+      } else {
+        patchEntry(entry.id, { status: 'error', errorMsg: res.message || '上传失败' });
+      }
+    } catch (err) {
+      patchEntry(entry.id, {
+        status: 'error',
+        errorMsg: err.response?.data?.message || err.message || '网络错误',
+      });
+    }
+  };
+
+  const handleUploadAll = async () => {
+    const pending = entries.filter((e) => e.status === 'idle' || e.status === 'error');
+    if (pending.length === 0) return;
+    setUploading(true);
+    // 逐个串行上传，避免并发过多
+    for (const entry of pending) {
+      await uploadOne(entry);
+    }
+    setUploading(false);
+    showToast('全部上传完成', 'success');
+  };
+
+  const pendingCount = entries.filter((e) => e.status === 'idle' || e.status === 'error').length;
+  const doneCount = entries.filter((e) => e.status === 'done').length;
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
-        <Card sx={{ maxWidth: 600, width: '100%', p: 4, textAlign: 'center', boxShadow: 3, borderRadius: 3 }}>
-           <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-               ImgBed
-           </Typography>
-           <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-               点击按钮或拖拽图片文件进行上传
-           </Typography>
+      <Card sx={{ maxWidth: 640, width: '100%', p: 4, boxShadow: 3, borderRadius: 3 }}>
+        <Typography variant="h5" fontWeight="bold" textAlign="center" mb={1}>
+          图片上传
+        </Typography>
+        <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
+          支持 JPG、PNG、GIF、WebP 等常见图片格式，可多选批量上传
+        </Typography>
+        {/* 拖拽 / 点击上传区 */}
+        <Box
+          onClick={() => !uploading && inputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (uploading) return;
+            const files = Array.from(e.dataTransfer.files || []);
+            const valid = files.filter((f) => {
+              if (!f.type.startsWith('image/')) {
+                showToast(`「${f.name}」不是图片，已跳过`, 'warning');
+                return false;
+              }
+              return true;
+            });
+            if (valid.length > 0) setEntries((prev) => [...prev, ...valid.map(createFileEntry)]);
+          }}
+          sx={{
+            border: '2px dashed',
+            borderColor: 'primary.light',
+            borderRadius: 2,
+            p: 4,
+            textAlign: 'center',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            bgcolor: 'grey.50',
+            '&:hover': { bgcolor: uploading ? 'grey.50' : 'primary.50', borderColor: 'primary.main' },
+            transition: 'background 0.2s',
+          }}
+        >
+          <CloudUploadIcon sx={{ fontSize: 48, color: 'primary.light', mb: 1 }} />
+          <Typography variant="body1" color="text.secondary">
+            点击选择图片，或将图片拖放至此处
+          </Typography>
+          <Typography variant="caption" color="text.disabled">
+            支持多选
+          </Typography>
+        </Box>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
 
-           {/* 简易拖拽/上传区模拟 */}
-           <Box 
-             sx={{ 
-                border: '2px dashed', 
-                borderColor: 'divider', 
-                bgcolor: 'action.hover', 
-                borderRadius: 2, 
-                p: 6,
-                mb: 3,
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                    borderColor: 'primary.main',
-                    bgcolor: 'primary.50'
-                }
-             }}
-             // TODO: 添加实际的 drag & drop 拦截
-             onClick={() => document.getElementById('file-upload-input').click()}
-           >
-              <input 
-                id="file-upload-input" 
-                type="file" 
-                hidden 
-                accept="image/*"
-                onChange={handleFileChange} 
-              />
-              <CloudUploadIcon sx={{ fontSize: 60, color: file ? 'primary.main' : 'text.disabled', mb: 1 }} />
-              
-              <Typography variant="h6" color={file ? 'primary' : 'textSecondary'}>
-                  {file ? file.name : '选择文件或拖曳至此'}
+        {/* 文件列表 */}
+        {entries.length > 0 && (
+          <Box mt={2}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+              <Typography variant="body2" color="text.secondary">
+                共 {entries.length} 个文件
+                {doneCount > 0 && `，已完成 ${doneCount} 个`}
               </Typography>
-              {file && (
-                 <Typography variant="caption" display="block">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                 </Typography>
+              {doneCount > 0 && (
+                <Button size="small" color="inherit" onClick={handleClearDone}>
+                  清除已完成
+                </Button>
               )}
-           </Box>
+            </Box>
+            <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+              {entries.map((entry, idx) => (
+                <React.Fragment key={entry.id}>
+                  {idx > 0 && <Divider />}
+                  <ListItem
+                    disablePadding
+                    sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                  >
+                    {/* 缩略图 */}
+                    <Box
+                      component="img"
+                      src={URL.createObjectURL(entry.file)}
+                      alt={entry.file.name}
+                      sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, flexShrink: 0 }}
+                    />
+                    {/* 文件名 + 状态 */}
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography variant="body2" noWrap title={entry.file.name}>
+                        {entry.file.name}
+                      </Typography>
+                      {entry.status === 'uploading' && <LinearProgress sx={{ mt: 0.5, height: 3, borderRadius: 1 }} />}
+                      {entry.status === 'error' && (
+                        <Typography variant="caption" color="error">{entry.errorMsg}</Typography>
+                      )}
+                      {entry.status === 'done' && entry.result && (
+                        <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 240 }}>
+                            {entry.result.fullUrl}
+                          </Typography>
+                          <Tooltip title="复制链接">
+                            <IconButton size="small" onClick={() => handleCopy(entry.result.fullUrl)}>
+                              <ContentCopyIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      )}
+                    </Box>
+                    {/* 状态图标 */}
+                    {entry.status === 'done' && <CheckCircleIcon color="success" fontSize="small" />}
+                    {entry.status === 'error' && <ErrorIcon color="error" fontSize="small" />}
+                    {/* 移除按钮 */}
+                    {entry.status !== 'uploading' && (
+                      <Tooltip title="移除">
+                        <IconButton size="small" onClick={() => handleRemove(entry.id)} disabled={uploading && entry.status === 'uploading'}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </ListItem>
+                </React.Fragment>
+              ))}
+            </List>
+          </Box>
+        )}
 
-           <Button 
-               variant="contained" 
-               color="primary" 
-               size="large" 
-               disabled={!file || uploading} 
-               onClick={handleUpload}
-               startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-               fullWidth
-               sx={{ py: 1.5, fontSize: '1.1rem', borderRadius: 2 }}
-           >
-               {uploading ? '正在上传...' : '上传'}
-           </Button>
+        {/* 操作按钮 */}
+        <Box mt={3} display="flex" gap={2} justifyContent="center">
+          <Button
+            variant="outlined"
+            onClick={() => !uploading && inputRef.current?.click()}
+            disabled={uploading}
+          >
+            继续添加
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleUploadAll}
+            disabled={uploading || pendingCount === 0}
+            startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : <CloudUploadIcon />}
+          >
+            {uploading ? '上传中…' : `上传${pendingCount > 0 ? `（${pendingCount}）` : ''}`}
+          </Button>
+        </Box>
+      </Card>
 
-           {/* 返回结果面板 */}
-           {result && (
-              <Box sx={{ mt: 4, p: 3, bgcolor: 'success.50', borderRadius: 2, textAlign: 'left', border: '1px solid', borderColor: 'success.200' }}>
-                 <Typography variant="subtitle1" fontWeight="bold" color="success.800" gutterBottom>
-                     上传成功
-                 </Typography>
-                 <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'background.paper', p: 1, borderRadius: 1, my: 1 }}>
-                     <Typography variant="body2" sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                         {result.fullUrl}
-                     </Typography>
-                     <IconButton size="small" onClick={() => handleCopy(result.fullUrl)}>
-                         <ContentCopyIcon fontSize="small"/>
-                     </IconButton>
-                 </Box>
-                 {result.fullUrl.match(/\.(jpg|jpeg|png|webp|gif|svg|bmp|ico)/i) && (
-                     <Box sx={{ mt: 2, textAlign: 'center' }}>
-                         <img src={result.fullUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                     </Box>
-                 )}
-              </Box>
-           )}
-        </Card>
-
-        <Snackbar open={toast.open} autoHideDuration={4000} onClose={() => setToast({...toast, open: false})} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-             <Alert severity={toast.type} onClose={() => setToast({...toast, open: false})} sx={{ width: '100%' }}>
-                  {toast.msg}
-             </Alert>
-        </Snackbar>
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={4000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={toast.type} onClose={() => setToast({ ...toast, open: false })} sx={{ width: '100%' }}>
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
 import SettingsPage from './pages/admin/SettingsPage';
+import SystemPage from './pages/admin/SystemPage';
 import { AuthProvider } from './contexts/AuthProvider';
 import RequireAuth from './components/RequireAuth';
 
@@ -54,6 +55,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                            <Route index element={<Navigate to="files" replace />} />
                            <Route path="files" element={<FilesAdmin />} />
                            <Route path="settings" element={<SettingsPage />} />
+                           <Route path="system" element={<SystemPage />} />
                       </Route>
                       <Route path="*" element={<Navigate to="/" replace/>} />
                   </Route>
