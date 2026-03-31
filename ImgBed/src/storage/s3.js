@@ -2,7 +2,7 @@ const StorageProvider = require('./base');
 
 // 注意: 需要运行 npm install @aws-sdk/client-s3 后使用，此时作为示例代码
 // 因为目前还未 npm 安装 s3 sdk，这里使用动态 require 并做错误提示
-let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand;
+let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
 try {
     const s3 = require('@aws-sdk/client-s3');
     S3Client = s3.S3Client;
@@ -10,6 +10,7 @@ try {
     GetObjectCommand = s3.GetObjectCommand;
     DeleteObjectCommand = s3.DeleteObjectCommand;
     HeadObjectCommand = s3.HeadObjectCommand;
+    HeadBucketCommand = s3.HeadBucketCommand;
 } catch (e) {
     // defer throw to usage
 }
@@ -110,6 +111,20 @@ class S3Storage extends StorageProvider {
                 return false;
             }
             throw error;
+        }
+    }
+
+    /**
+     * 测试连接：使用 HeadBucketCommand 检查 bucket 是否存在且可访问
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        try {
+            const command = new HeadBucketCommand({ Bucket: this.bucket });
+            await this.s3.send(command);
+            return { ok: true, message: `Bucket "${this.bucket}" 连接成功` };
+        } catch (err) {
+            return { ok: false, message: `连接失败: ${err.message}` };
         }
     }
 }

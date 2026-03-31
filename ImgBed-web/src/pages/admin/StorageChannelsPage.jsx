@@ -79,6 +79,8 @@ export default function StorageChannelsPage() {
   const [showSensitive, setShowSensitive] = useState({});
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   // 删除确认弹窗
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -129,7 +131,7 @@ export default function StorageChannelsPage() {
     setDialogOpen(true);
   };
 
-  const closeDialog = () => { setDialogOpen(false); setFormError(null); };
+  const closeDialog = () => { setDialogOpen(false); setFormError(null); setTestResult(null); };
 
   // 表单字段更新
   const setField = (key, val) => setForm((f) => ({ ...f, [key]: val }));
@@ -176,6 +178,20 @@ export default function StorageChannelsPage() {
       setFormError(e.response?.data?.message || '网络错误');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 测试连接
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await StorageDocs.test({ type: form.type, config: form.config });
+      setTestResult({ ok: res.code === 0, message: res.message });
+    } catch (e) {
+      setTestResult({ ok: false, message: e.response?.data?.message || '网络错误' });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -316,6 +332,11 @@ export default function StorageChannelsPage() {
         <DialogTitle>{editTarget ? `编辑渠道：${editTarget.id}` : '新增存储渠道'}</DialogTitle>
         <DialogContent dividers>
           {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
+          {testResult && (
+            <Alert severity={testResult.ok ? 'success' : 'error'} sx={{ mb: 2 }}>
+              {testResult.message}
+            </Alert>
+          )}
 
           {/* 步骤 0：选择类型（仅新增时显示） */}
           {step === 0 && (
@@ -382,10 +403,15 @@ export default function StorageChannelsPage() {
         <DialogActions>
           <Button onClick={closeDialog}>取消</Button>
           {step > 0 && !editTarget && <Button onClick={() => setStep((s) => s - 1)}>上一步</Button>}
+          {step === 2 && (
+            <Button onClick={handleTestConnection} disabled={testing || saving}>
+              {testing ? <CircularProgress size={18} /> : '测试连接'}
+            </Button>
+          )}
           {step < 2 ? (
             <Button variant="contained" onClick={() => setStep((s) => s + 1)}>下一步</Button>
           ) : (
-            <Button variant="contained" onClick={handleSubmit} disabled={saving}>
+            <Button variant="contained" onClick={handleSubmit} disabled={saving || testing}>
               {saving ? <CircularProgress size={18} color="inherit" /> : '保存'}
             </Button>
           )}

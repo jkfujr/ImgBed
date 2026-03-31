@@ -183,6 +183,31 @@ class HuggingFaceStorage extends StorageProvider {
             return false;
         }
     }
+
+    /**
+     * 测试连接：调用数据集 API 验证 Token 和 Repo 有效性
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        try {
+            const response = await fetch(this.baseURL, {
+                headers: { 'Authorization': `Bearer ${this.token}` },
+                signal: AbortSignal.timeout(10000)
+            });
+            if (response.ok) {
+                return { ok: true, message: `数据集 "${this.repo}" 连接成功` };
+            }
+            if (response.status === 401 || response.status === 403) {
+                return { ok: false, message: `认证失败: Token 无效或无权访问该数据集` };
+            }
+            if (response.status === 404) {
+                return { ok: false, message: `数据集 "${this.repo}" 不存在` };
+            }
+            return { ok: false, message: `连接失败: ${response.status} ${response.statusText}` };
+        } catch (err) {
+            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
+        }
+    }
 }
 
 module.exports = HuggingFaceStorage;

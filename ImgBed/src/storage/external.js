@@ -51,6 +51,30 @@ class ExternalStorage extends StorageProvider {
             return false;
         }
     }
+
+    /**
+     * 测试连接：HEAD 请求 baseUrl 验证网络可达性
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        if (!this.baseUrl) {
+            return { ok: false, message: '未配置 baseUrl' };
+        }
+        try {
+            const response = await fetch(this.baseUrl, {
+                method: 'HEAD',
+                redirect: 'follow',
+                signal: AbortSignal.timeout(10000)
+            });
+            // 即使返回 404 也说明网络可达
+            if (response.ok || response.status === 404) {
+                return { ok: true, message: `网络可达: ${this.baseUrl}` };
+            }
+            return { ok: false, message: `连接失败: ${response.status} ${response.statusText}` };
+        } catch (err) {
+            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
+        }
+    }
 }
 
 module.exports = ExternalStorage;

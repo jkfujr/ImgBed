@@ -48,6 +48,15 @@ class StorageProvider {
    * @returns {Promise<boolean>}
    */
   async exists(id) { throw new Error('Not implemented: exists()'); }
+
+  /**
+   * 测试连接是否可用
+   * 子类应覆盖此方法以提供特定的连接测试逻辑
+   * @returns {Promise<{ok: boolean, message: string}>}
+   */
+  async testConnection() {
+    throw new Error('该存储类型不支持连接测试');
+  }
 }
 
 module.exports = StorageProvider;

@@ -96,6 +96,24 @@ class LocalStorage extends StorageProvider {
         const filePath = this._getPhysicalPath(id);
         return fs.existsSync(filePath);
     }
+
+    /**
+     * 测试连接：检查目录是否存在且可写
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        try {
+            // 检查目录是否存在
+            if (!fs.existsSync(this.basePath)) {
+                return { ok: false, message: `目录不存在: ${this.basePath}` };
+            }
+            // 检查是否可写
+            await fs.promises.access(this.basePath, fs.constants.W_OK);
+            return { ok: true, message: `目录可写: ${this.basePath}` };
+        } catch (err) {
+            return { ok: false, message: `目录不可写: ${err.message}` };
+        }
+    }
 }
 
 module.exports = LocalStorage;

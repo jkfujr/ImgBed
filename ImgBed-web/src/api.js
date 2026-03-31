@@ -63,6 +63,7 @@ export const StorageDocs = {
   remove:     (id)       => api.delete(`/api/system/storages/${id}`),
   setDefault: (id)       => api.put(`/api/system/storages/${id}/default`),
   toggle:     (id)       => api.put(`/api/system/storages/${id}/toggle`),
+  test:       (data)     => api.post('/api/system/storages/test', data),
 };
 
 // 导出默认实例

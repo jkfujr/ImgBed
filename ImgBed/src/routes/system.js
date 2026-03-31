@@ -98,6 +98,33 @@ systemApp.get('/storages', (c) => {
 });
 
 /**
+ * 测试存储渠道连接（临时创建实例，不修改配置）
+ * POST /api/system/storages/test
+ * Body: { type: string, config: object }
+ */
+systemApp.post('/storages/test', async (c) => {
+  try {
+    const { type, config: storageConfig } = await c.req.json();
+
+    // 校验存储类型
+    const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
+    if (!type || !VALID_TYPES.includes(type)) {
+      return c.json({ code: 400, message: `不支持的存储类型: ${type}` }, 400);
+    }
+
+    // 调用管理器测试连接
+    const result = await storageManager.testConnection(type, storageConfig || {});
+    if (result.ok) {
+      return c.json({ code: 0, message: '连接成功', data: result });
+    } else {
+      return c.json({ code: 400, message: result.message }, 400);
+    }
+  } catch (err) {
+    return c.json({ code: 500, message: '测试连接失败: ' + err.message }, 500);
+  }
+});
+
+/**
  * 新增存储渠道
  * POST /api/system/storages
  */

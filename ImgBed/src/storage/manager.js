@@ -131,6 +131,22 @@ class StorageManager {
         }
         console.log('[StorageManager] 存储渠道配置已热加载，当前实例:', [...this.instances.keys()]);
     }
+
+    /**
+     * 测试存储渠道连接（临时创建实例，不写入配置）
+     * @param {string} type 存储类型
+     * @param {Object} config 存储配置
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection(type, config) {
+        try {
+            const instance = this._createInstance(type, config || {});
+            const result = await instance.testConnection();
+            return result;
+        } catch (err) {
+            return { ok: false, message: err.message };
+        }
+    }
 }
 
 // 导出单例实例，以确保只解析和持有一次配置

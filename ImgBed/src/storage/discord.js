@@ -192,6 +192,27 @@ class DiscordStorage extends StorageProvider {
         const msg = await this.getMessage(channelId, messageId);
         return !!msg;
     }
+
+    /**
+     * 测试连接：调用 /users/@me 验证 Bot Token 有效性
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        try {
+            const response = await fetch(`${this.baseURL}/users/@me`, {
+                headers: this.defaultHeaders,
+                signal: AbortSignal.timeout(10000)
+            });
+            if (response.ok) {
+                const data = await response.json();
+                return { ok: true, message: `Bot "${data.username}" 连接成功` };
+            }
+            const errData = await response.json().catch(() => ({}));
+            return { ok: false, message: `连接失败: ${response.status} - ${errData.message || response.statusText}` };
+        } catch (err) {
+            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
+        }
+    }
 }
 
 module.exports = DiscordStorage;

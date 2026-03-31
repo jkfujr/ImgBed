@@ -157,6 +157,26 @@ class TelegramStorage extends StorageProvider {
         const path = await this.getFilePath(fileId);
         return !!path;
     }
+
+    /**
+     * 测试连接：调用 getMe API 验证 Bot Token 有效性
+     * @returns {Promise<{ok: boolean, message: string}>}
+     */
+    async testConnection() {
+        try {
+            const response = await fetch(`${this.baseURL}/getMe`, {
+                headers: this.defaultHeaders,
+                signal: AbortSignal.timeout(10000)
+            });
+            const data = await response.json();
+            if (data.ok && data.result) {
+                return { ok: true, message: `Bot "${data.result.first_name}" (@${data.result.username}) 连接成功` };
+            }
+            return { ok: false, message: `连接失败: ${data.description || '未知错误'}` };
+        } catch (err) {
+            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
+        }
+    }
 }
 
 module.exports = TelegramStorage;
