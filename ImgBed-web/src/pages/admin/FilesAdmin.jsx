@@ -24,8 +24,8 @@ export default function FilesAdmin() {
       // API expected 1-indexed page
       const res = await FileDocs.list({ page: page + 1, pageSize: rowsPerPage });
       if (res.code === 0 && res.data) {
-          setData(res.data.records || []);
-          setTotal(res.data.total || 0);
+          setData(res.data.list || []);
+          setTotal(res.data.pagination?.total || 0);
       }
     } catch (err) {
       console.error('Failed to fetch files:', err);
@@ -61,7 +61,7 @@ export default function FilesAdmin() {
        fetchFiles();
     } catch (e) {
        console.error(e);
-       alert('删除由于内部故障失败，见由于网络终端输出');
+        alert('删除失败，请检查网络或控制台日志');
     } finally {
        setDeleting(false);
     }
@@ -77,10 +77,6 @@ export default function FilesAdmin() {
 
   return (
     <Box>
-       <Typography variant="h5" fontWeight="bold" gutterBottom color="textPrimary">
-           图片档案库
-       </Typography>
-       
        <Paper sx={{ width: '100%', mb: 2, borderRadius: 2, overflow: 'hidden' }} elevation={2}>
            {/* 加载拦截顶层悬浮 */}
            {loading && (
@@ -95,12 +91,12 @@ export default function FilesAdmin() {
                    <Table stickyHeader size="medium">
                        <TableHead>
                            <TableRow>
-                               <TableCell width={80}>缩略图</TableCell>
-                               <TableCell>原名称</TableCell>
+                               <TableCell width={80}>预览</TableCell>
+                               <TableCell>名称</TableCell>
                                <TableCell>渠道</TableCell>
-                               <TableCell>目录</TableCell>
-                               <TableCell>体积</TableCell>
-                               <TableCell>录入时间</TableCell>
+                               <TableCell>路径</TableCell>
+                               <TableCell>大小</TableCell>
+                               <TableCell>上传时间</TableCell>
                                <TableCell align="right">操作</TableCell>
                            </TableRow>
                        </TableHead>
@@ -139,7 +135,7 @@ export default function FilesAdmin() {
                                        <Tooltip title="不支持实时修改，未来规划">
                                             <IconButton size="small" color="primary" disabled><EditIcon fontSize="small"/></IconButton>
                                        </Tooltip>
-                                       <Tooltip title="物理销毁">
+                                       <Tooltip title="删除">
                                             <IconButton size="small" color="error" onClick={() => triggerDelete(row)}>
                                                 <DeleteIcon fontSize="small"/>
                                             </IconButton>
@@ -150,7 +146,7 @@ export default function FilesAdmin() {
                            {data.length === 0 && (
                                <TableRow>
                                    <TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}>
-                                       暂未搜索到任何落库文件
+                                       暂未搜索到任何文件
                                    </TableCell>
                                </TableRow>
                            )}
@@ -170,21 +166,21 @@ export default function FilesAdmin() {
            )}
        </Paper>
 
-       {/* 删除确认保护模态框 */}
-       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({...deleteDialog, open: false})}>
-           <DialogTitle>彻底双向删除警告</DialogTitle>
-           <DialogContent dividers>
-               您正在尝试强制物理卸载文件：<b>{deleteDialog.fileName}</b>。
-               <br />
-               该操作不仅会从当前微型数据库内抹除足迹，还会调用储物引擎向实体云商（如AWS3，Github等等）施加粉碎动作。请确认这不是一场误触。
-           </DialogContent>
-           <DialogActions>
-               <Button onClick={() => setDeleteDialog({...deleteDialog, open: false})} disabled={deleting}>中止操作</Button>
-               <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-                   {deleting ? '正处清理线...' : '证实且不可逆销毁'}
-               </Button>
-           </DialogActions>
-       </Dialog>
+        {/* 删除确认保护模态框 */}
+        <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({...deleteDialog, open: false})}>
+            <DialogTitle>确认删除文件</DialogTitle>
+            <DialogContent dividers>
+                确定要彻底删除文件 <b>{deleteDialog.fileName}</b> 吗？
+                <br />
+                此操作将同时从数据库和云存储中永久移除该文件，且不可恢复。
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={() => setDeleteDialog({...deleteDialog, open: false})} disabled={deleting}>取消</Button>
+                <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
+                    {deleting ? '正在删除...' : '确认删除'}
+                </Button>
+            </DialogActions>
+        </Dialog>
     </Box>
   );
 }
