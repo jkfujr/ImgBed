@@ -1,16 +1,16 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthDocs, api } from '../api';
+import { AuthContext } from '../hooks/useAuth';
 
-const AuthContext = createContext();
-
-export const useAuth = () => useContext(AuthContext);
-
+/**
+ * 身份验证提供者组件：
+ * 仅导出此组件以满足 Fast Refresh 规则
+ */
 export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // 验证登录令牌
     const checkLoginState = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -42,7 +42,6 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (credentials) => {
-        // 调用登录接口
         const res = await AuthDocs.login(credentials);
         if (res.code !== 0) {
             throw new Error(res.message);
@@ -51,7 +50,6 @@ export const AuthProvider = ({ children }) => {
         const token = res.data?.token;
         if (token) {
             localStorage.setItem('token', token);
-            // 立即附加上全局请求头
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
             await checkLoginState();
         }
@@ -61,7 +59,7 @@ export const AuthProvider = ({ children }) => {
          try {
             await AuthDocs.logout();
          } catch {
-            // 忽略登出请求失败
+            // 忽略失败
          }
          
          localStorage.removeItem('token');

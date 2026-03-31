@@ -8,12 +8,13 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
+import RequireAuth from './components/RequireAuth';
 
 // 主题配置
 const theme = createTheme({
     palette: {
-      mode: 'light', // TODO 可以以后跟随系统
+      mode: 'light',
       primary: {
         main: '#1976d2',
       },
@@ -27,21 +28,10 @@ const theme = createTheme({
     typography: {
       fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
       button: {
-         textTransform: 'none', // 取消全角大写以保证简朴
+         textTransform: 'none',
       }
     },
 });
-
-/**
- * 路由守卫：
- * 如果未登录则重定向到 /login
- */
-function RequireAuth({ children }) {
-    const { isAuthenticated, loading } = useAuth();
-    if (loading) return <div>正在验证...</div>;
-    if (!isAuthenticated) return <Navigate to="/login" replace />;
-    return children;
-}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

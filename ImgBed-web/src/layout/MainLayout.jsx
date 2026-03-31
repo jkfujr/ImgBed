@@ -4,8 +4,8 @@ import { Box, Toolbar, Typography, Button, IconButton, Menu, MenuItem, ListItemI
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
-import { useAuth } from '../contexts/AuthContext';
-import { Container, AppBar } from '@mui/material';
+import { useAuth } from '../hooks/useAuth';
+import { AppBar } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LoginIcon from '@mui/icons-material/Login';
 
