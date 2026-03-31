@@ -4,6 +4,7 @@ import { Box, Toolbar, Typography, Button, IconButton, Menu, MenuItem, ListItemI
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { useAuth } from '../hooks/useAuth';
 import { AppBar } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -47,6 +48,13 @@ export default function MainLayout() {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold', cursor: 'pointer' }} onClick={() => navigate('/')}>
             ImgBed
           </Typography>
+
+          {/* 设置按钮（仅登录后显示） */}
+          {isAuthenticated && (
+            <IconButton size="large" color="primary" onClick={() => navigate('/admin/settings')} sx={{ mr: 0.5 }}>
+              <SettingsIcon />
+            </IconButton>
+          )}
 
           {/* User / Authentication Dropdown Area */}
           <IconButton

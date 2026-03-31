@@ -2,6 +2,7 @@ const { Hono } = require('hono');
 const config = require('../config');
 const { signToken } = require('../utils/jwt');
 const { adminAuth } = require('../middleware/auth');
+const { db } = require('../database');
 
 const authApp = new Hono();
 
@@ -23,8 +24,18 @@ authApp.post('/login', async (c) => {
     }, 400);
   }
 
+  // 优先从 system_settings 读取覆盖密码（通过 PUT /api/auth/password 修改后存入）
+  let effectivePassword = adminConfig.password;
+  try {
+    const row = await db.selectFrom('system_settings')
+      .select('value')
+      .where('key', '=', 'admin_password')
+      .executeTakeFirst();
+    if (row) effectivePassword = row.value;
+  } catch (_) { /* 数据库未就绪时降级为 config 密码 */ }
+
   // 对比系统配置中的 admin 账号 (支持单用户模式)
-  if (username === adminConfig.username && password === adminConfig.password) {
+  if (username === adminConfig.username && password === effectivePassword) {
     // 生成包含角色为 admin 的 JWT 载荷
     const payload = {
       role: 'admin',
@@ -80,6 +91,43 @@ authApp.post('/logout', adminAuth, async (c) => {
     message: '登出成功',
     data: {}
   });
+});
+
+/**
+ * 修改管理员密码
+ * PUT /api/auth/password
+ */
+authApp.put('/password', adminAuth, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { newPassword } = body;
+
+  if (!newPassword || newPassword.length < 6) {
+    return c.json({ code: 400, message: '新密码不能为空且长度不能少于6位', error: {} }, 400);
+  }
+
+  try {
+    // 写入或更新 system_settings 中的 admin_password
+    const existing = await db.selectFrom('system_settings')
+      .select('key')
+      .where('key', '=', 'admin_password')
+      .executeTakeFirst();
+
+    if (existing) {
+      await db.updateTable('system_settings')
+        .set({ value: newPassword })
+        .where('key', '=', 'admin_password')
+        .execute();
+    } else {
+      await db.insertInto('system_settings')
+        .values({ key: 'admin_password', value: newPassword, category: 'auth', description: '管理员密码（覆盖 config.json）' })
+        .execute();
+    }
+
+    return c.json({ code: 0, message: '密码修改成功', data: {} });
+  } catch (err) {
+    console.error('[Auth API] 修改密码失败:', err);
+    return c.json({ code: 500, message: '密码修改失败：' + err.message, error: err.message }, 500);
+  }
 });
 
 module.exports = authApp;

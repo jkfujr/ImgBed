@@ -41,7 +41,8 @@ api.interceptors.response.use(
 export const AuthDocs = {
    login: (data) => api.post('/api/auth/login', data),
    me: () => api.get('/api/auth/me'),
-   logout: () => api.post('/api/auth/logout')
+   logout: () => api.post('/api/auth/logout'),
+   changePassword: (payload) => api.put('/api/auth/password', payload)
 };
 
 export const FileDocs = {
@@ -49,6 +50,10 @@ export const FileDocs = {
    update: (id, payload) => api.put(`/api/files/${id}`, payload),
    delete: (id) => api.delete(`/api/files/${id}`),
    batch: (payload) => api.post('/api/files/batch', payload)
+};
+
+export const DirectoryDocs = {
+   list: (params) => api.get('/api/directories', { params }),
 };
 
 // 导出默认实例

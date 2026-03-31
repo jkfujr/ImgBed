@@ -8,6 +8,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
+import SettingsPage from './pages/admin/SettingsPage';
 import { AuthProvider } from './contexts/AuthProvider';
 import RequireAuth from './components/RequireAuth';
 
@@ -52,7 +53,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                       }>
                            <Route index element={<Navigate to="files" replace />} />
                            <Route path="files" element={<FilesAdmin />} />
-                           <Route path="settings" element={<div>功能开发中</div>} />
+                           <Route path="settings" element={<SettingsPage />} />
                       </Route>
                       <Route path="*" element={<Navigate to="/" replace/>} />
                   </Route>

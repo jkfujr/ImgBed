@@ -1,186 +1,326 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { 
-   Box, Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
-   IconButton, Tooltip, Link, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import {
+  Box, Typography, ImageList, ImageListItem, Checkbox,
+  IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
+  DialogActions, Button, CircularProgress, TextField, InputAdornment,
+  Paper, Breadcrumbs, Link, TablePagination, useMediaQuery, useTheme, Alert
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import { FileDocs } from '../../api';
+import SearchIcon from '@mui/icons-material/Search';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import FolderIcon from '@mui/icons-material/Folder';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import { FileDocs, DirectoryDocs } from '../../api';
 
 export default function FilesAdmin() {
+  const theme = useTheme();
+  const isXl = useMediaQuery(theme.breakpoints.up('xl'));
+  const isLg = useMediaQuery(theme.breakpoints.up('lg'));
+  const isMd = useMediaQuery(theme.breakpoints.up('md'));
+
+  const prefCols = parseInt(localStorage.getItem('pref_masonry_cols') || '0');
+  const autoCols = isXl ? 5 : isLg ? 4 : isMd ? 3 : 2;
+  const cols = prefCols > 0 ? prefCols : autoCols;
+
+  const prefPageSize = parseInt(localStorage.getItem('pref_page_size') || '20');
+
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0); // MUI Pagination is 0-indexed
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(prefPageSize);
   const [loading, setLoading] = useState(true);
-
-  // 删除对话框状态
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null, fileName: '' });
+  const [directories, setDirectories] = useState([]);
+  const [currentDir, setCurrentDir] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [hoveredId, setHoveredId] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, ids: [], label: '' });
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState(null);
+  const debounceRef = useRef(null);
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearchInput(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearchDebounced(val);
+      setPage(0);
+    }, 300);
+  };
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      // API expected 1-indexed page
-      const res = await FileDocs.list({ page: page + 1, pageSize: rowsPerPage });
+      const params = { page: page + 1, pageSize: rowsPerPage };
+      if (currentDir) params.directory = currentDir;
+      if (searchDebounced) params.search = searchDebounced;
+      const res = await FileDocs.list(params);
       if (res.code === 0 && res.data) {
-          setData(res.data.list || []);
-          setTotal(res.data.pagination?.total || 0);
+        setData(res.data.list || []);
+        setTotal(res.data.pagination?.total || 0);
       }
     } catch (err) {
-      console.error('Failed to fetch files:', err);
+      setError('获取文件列表失败');
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, currentDir, searchDebounced]);
+
+  const fetchDirectories = useCallback(async () => {
+    try {
+      const res = await DirectoryDocs.list({ type: 'flat' });
+      if (res.code === 0 && res.data) {
+        const allDirs = res.data.list || res.data || [];
+        const parentPath = currentDir || '/';
+        const children = allDirs.filter(d => {
+          if (d.path === parentPath) return false;
+          const prefix = parentPath === '/' ? '/' : parentPath + '/';
+          if (!d.path.startsWith(prefix)) return false;
+          const suffix = d.path.slice(prefix.length);
+          return suffix.length > 0 && !suffix.includes('/');
+        });
+        children.sort((a, b) => a.name.localeCompare(b.name));
+        setDirectories(children);
+      }
+    } catch (err) {
+      console.error('获取目录失败', err);
+      setDirectories([]);
+    }
+  }, [currentDir]);
 
   useEffect(() => {
+    setSelected(new Set());
     fetchFiles();
-  }, [fetchFiles]);
+    fetchDirectories();
+  }, [fetchFiles, fetchDirectories]);
 
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+  const handleChangePage = (_, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
     setPage(0);
   };
 
-  const triggerDelete = (item) => {
-    setDeleteDialog({ open: true, id: item.id, fileName: item.original_name || item.file_name });
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
+  const triggerDelete = (ids, label) => setDeleteDialog({ open: true, ids, label });
+  const closeDeleteDialog = () => { if (!deleting) setDeleteDialog({ open: false, ids: [], label: '' }); };
+
   const confirmDelete = async () => {
-    if (!deleteDialog.id) return;
+    if (!deleteDialog.ids.length) return;
     setDeleting(true);
     try {
-       await FileDocs.delete(deleteDialog.id);
-       // Reset and fetch
-       setDeleteDialog({ open: false, id: null, fileName: '' });
-       fetchFiles();
+      if (deleteDialog.ids.length === 1) {
+        await FileDocs.delete(deleteDialog.ids[0]);
+      } else {
+        await FileDocs.batch({ action: 'delete', ids: deleteDialog.ids });
+      }
+      setDeleteDialog({ open: false, ids: [], label: '' });
+      setSelected(new Set());
+      fetchFiles();
     } catch (e) {
-       console.error(e);
-        alert('删除失败，请检查网络或控制台日志');
+      console.error(e);
     } finally {
-       setDeleting(false);
+      setDeleting(false);
     }
   };
 
-  const formatSize = (bytes) => {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const breadcrumbs = currentDir ? currentDir.split('/').filter(Boolean) : [];
+
+  const navigateToDir = (path) => {
+    setCurrentDir(path || null);
+    setPage(0);
+    setSelected(new Set());
+    setSearchInput('');
+    setSearchDebounced('');
+  };
+
+  const fmtDate = (str) => {
+    if (!str) return '-';
+    return new Date(str).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' });
   };
 
   return (
-    <Box>
-       <Paper sx={{ width: '100%', mb: 2, borderRadius: 2, overflow: 'hidden' }} elevation={2}>
-           {/* 加载拦截顶层悬浮 */}
-           {loading && (
-               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', p: 4 }}>
-                   <CircularProgress />
-               </Box>
-           )}
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
+      {/* 顶部工具栏 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <TextField
+          size="small"
+          placeholder="搜索文件名..."
+          value={searchInput}
+          onChange={handleSearchChange}
+          sx={{ flex: 1, maxWidth: 320 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            )
+          }}
+        />
+        <Tooltip title="刷新">
+          <IconButton onClick={() => { setPage(0); fetchFiles(); fetchDirectories(); }}>
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
+      </Box>
 
-           {!loading && (
-             <>
-               <TableContainer sx={{ maxHeight: '70vh' }}>
-                   <Table stickyHeader size="medium">
-                       <TableHead>
-                           <TableRow>
-                               <TableCell width={80}>预览</TableCell>
-                               <TableCell>名称</TableCell>
-                               <TableCell>渠道</TableCell>
-                               <TableCell>路径</TableCell>
-                               <TableCell>大小</TableCell>
-                               <TableCell>上传时间</TableCell>
-                               <TableCell align="right">操作</TableCell>
-                           </TableRow>
-                       </TableHead>
-                       <TableBody>
-                           {data?.map((row) => (
-                               <TableRow hover key={row.id}>
-                                   <TableCell>
-                                       {/* 这里使用公共路由渲染缩略，如果图片极大则可能损耗加载速度 */}
-                                       {row.mime_type?.startsWith('image/') ? (
-                                            <Box 
-                                                component="img" 
-                                                src={`/${row.id}`} 
-                                                alt="preview"
-                                                sx={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 1 }}
-                                            />
-                                       ) : (
-                                            <Box sx={{ width: 44, height: 44, bgcolor: 'divider', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                               MISC
-                                            </Box>
-                                       )}
-                                   </TableCell>
-                                   <TableCell>
-                                       <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace:'nowrap' }}>
-                                          <Link href={`/${row.id}`} target="_blank" underline="hover" color="primary">
-                                             {row.original_name || row.file_name}
-                                          </Link>
-                                       </Typography>
-                                   </TableCell>
-                                   <TableCell>
-                                       <Chip label={row.storage_channel || '未知'} size="small" variant="outlined" color="secondary" />
-                                   </TableCell>
-                                   <TableCell>{row.directory || '/'}</TableCell>
-                                   <TableCell>{formatSize(row.size)}</TableCell>
-                                   <TableCell>{new Date(row.created_at).toLocaleString()}</TableCell>
-                                   <TableCell align="right">
-                                       <Tooltip title="不支持实时修改，未来规划">
-                                            <IconButton size="small" color="primary" disabled><EditIcon fontSize="small"/></IconButton>
-                                       </Tooltip>
-                                       <Tooltip title="删除">
-                                            <IconButton size="small" color="error" onClick={() => triggerDelete(row)}>
-                                                <DeleteIcon fontSize="small"/>
-                                            </IconButton>
-                                       </Tooltip>
-                                   </TableCell>
-                               </TableRow>
-                           ))}
-                           {data.length === 0 && (
-                               <TableRow>
-                                   <TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}>
-                                       暂未搜索到任何文件
-                                   </TableCell>
-                               </TableRow>
-                           )}
-                       </TableBody>
-                   </Table>
-               </TableContainer>
-               <TablePagination
-                   component="div"
-                   count={total}
-                   page={page}
-                   onPageChange={handleChangePage}
-                   rowsPerPage={rowsPerPage}
-                   onRowsPerPageChange={handleChangeRowsPerPage}
-                   labelRowsPerPage="每页行数:"
-               />
-             </>
-           )}
-       </Paper>
+      {/* 面包屑导航 */}
+      <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} sx={{ fontSize: 14 }}>
+        <Link
+          component="button"
+          underline="hover"
+          color={currentDir ? 'inherit' : 'text.primary'}
+          onClick={() => navigateToDir(null)}
+          sx={{ cursor: 'pointer', fontWeight: !currentDir ? 'bold' : 'normal', fontSize: 14, border: 'none', background: 'none', p: 0 }}
+        >
+          根目录
+        </Link>
+        {breadcrumbs.map((seg, i) => {
+          const path = '/' + breadcrumbs.slice(0, i + 1).join('/');
+          const isLast = i === breadcrumbs.length - 1;
+          return isLast ? (
+            <Typography key={path} fontSize={14} fontWeight="bold" color="text.primary">{seg}</Typography>
+          ) : (
+            <Link
+              key={path}
+              component="button"
+              underline="hover"
+              color="inherit"
+              onClick={() => navigateToDir(path)}
+              sx={{ cursor: 'pointer', fontSize: 14, border: 'none', background: 'none', p: 0 }}
+            >{seg}</Link>
+          );
+        })}
+      </Breadcrumbs>
 
-        {/* 删除确认保护模态框 */}
-        <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({...deleteDialog, open: false})}>
-            <DialogTitle>确认删除文件</DialogTitle>
-            <DialogContent dividers>
-                确定要彻底删除文件 <b>{deleteDialog.fileName}</b> 吗？
-                <br />
-                此操作将同时从数据库和云存储中永久移除该文件，且不可恢复。
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={() => setDeleteDialog({...deleteDialog, open: false})} disabled={deleting}>取消</Button>
-                <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-                    {deleting ? '正在删除...' : '确认删除'}
-                </Button>
-            </DialogActions>
-        </Dialog>
+      {/* 批量选中工具栏 */}
+      {selected.size > 0 && (
+        <Paper variant="outlined" sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'primary.50' }}>
+          <Typography variant="body2" sx={{ flex: 1 }}>已选 {selected.size} 项</Typography>
+          <Button size="small" color="error" variant="contained" startIcon={<DeleteIcon />}
+            onClick={() => triggerDelete([...selected], `${selected.size} 个文件`)}>
+            批量删除
+          </Button>
+          <Button size="small" onClick={() => setSelected(new Set())}>取消选择</Button>
+        </Paper>
+      )}
+
+      {error && <Alert severity="error">{error}</Alert>}
+
+      {/* 内容区 */}
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          {/* 目录卡片 */}
+          {directories.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 1 }}>
+              {directories.map(dir => (
+                <Paper key={dir.path} variant="outlined"
+                  onClick={() => navigateToDir(dir.path)}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.5,
+                    cursor: 'pointer', borderRadius: 2,
+                    '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
+                    transition: 'all 0.15s' }}
+                >
+                  <FolderIcon color="warning" />
+                  <Typography variant="body2" fontWeight="medium">{dir.name}</Typography>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          {/* 图片瀑布流 */}
+          {data.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
+              <Typography>暂无文件</Typography>
+            </Box>
+          ) : (
+            <ImageList variant="masonry" cols={cols} gap={12}>
+              {data.map(item => (
+                <ImageListItem key={item.id}
+                  onMouseEnter={() => setHoveredId(item.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}
+                >
+                  <img
+                    src={`/${item.id}`}
+                    alt={item.original_name || item.file_name}
+                    loading="lazy"
+                    style={{ display: 'block', width: '100%', borderRadius: 8 }}
+                  />
+                  {/* 左上角复选框 */}
+                  <Box sx={{ position: 'absolute', top: 4, left: 4,
+                    opacity: (hoveredId === item.id || selected.has(item.id)) ? 1 : 0,
+                    transition: 'opacity 0.15s' }}>
+                    <Checkbox size="small" checked={selected.has(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                      sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, p: 0.3,
+                        '&:hover': { bgcolor: 'white' } }}
+                    />
+                  </Box>
+                  {/* 底部信息条 */}
+                  <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0,
+                    bgcolor: 'rgba(0,0,0,0.55)', color: 'white', px: 1, py: 0.5,
+                    display: 'flex', alignItems: 'center',
+                    opacity: hoveredId === item.id ? 1 : 0,
+                    transition: 'opacity 0.15s' }}>
+                    <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                      <Typography variant="caption" noWrap sx={{ display: 'block' }}>
+                        {item.original_name || item.file_name}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                        {fmtDate(item.created_at)}
+                      </Typography>
+                    </Box>
+                    <Tooltip title="删除">
+                      <IconButton size="small"
+                        sx={{ color: 'white', '&:hover': { color: '#ff6b6b' } }}
+                        onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </ImageListItem>
+              ))}
+            </ImageList>
+          )}
+
+          <TablePagination component="div" count={total} page={page}
+            onPageChange={handleChangePage} rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[20, 40, 60, 100]}
+            labelRowsPerPage="每页数量:"
+          />
+        </>
+      )}
+
+      {/* 删除确认弹窗 */}
+      <Dialog open={deleteDialog.open} onClose={closeDeleteDialog}>
+        <DialogTitle>确认删除</DialogTitle>
+        <DialogContent dividers>
+          确定要彻底删除 <b>{deleteDialog.label}</b> 吗？<br />
+          此操作将同时从数据库和云存储中永久移除，且不可恢复。
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteDialog} disabled={deleting}>取消</Button>
+          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
+            {deleting ? <CircularProgress size={18} color="inherit" /> : '确认删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
