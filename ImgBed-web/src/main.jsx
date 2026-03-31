@@ -8,7 +8,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthProvider';
 import RequireAuth from './components/RequireAuth';
 
 // 主题配置
