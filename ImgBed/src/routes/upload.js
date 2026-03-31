@@ -33,8 +33,17 @@ uploadApp.post('/', adminAuth, async (c) => {
        return c.json({ code: 413, message: '文件体积超出服务器限制', error: {} }, 413);
     }
 
-    // 确定存储渠道实例
-    let channelId = body['channel'] || storageManager.getDefaultStorageId();
+    // 确定存储渠道实例（优先级：用户指定 > 负载均衡策略 > 默认渠道）
+    let channelId = body['channel'];
+    if (!channelId) {
+        const strategy = config.storage?.loadBalanceStrategy || 'default';
+        if (strategy !== 'default') {
+            channelId = storageManager.selectUploadChannel();
+        }
+        if (!channelId) {
+            channelId = storageManager.getDefaultStorageId();
+        }
+    }
     if (!channelId) {
       return c.json({ code: 500, message: '服务端未指定任何默认存储渠道', error: {} }, 500);
     }
@@ -133,6 +142,7 @@ uploadApp.post('/', adminAuth, async (c) => {
         throw insertErr;
     }
 
+    storageManager.recordUpload(channelId);
     console.log(`[Upload] 文件上传成功 - ID: ${fileId}, Channel: ${channelId}`);
     
     // 最后返回成功数据和拼接的访问Url

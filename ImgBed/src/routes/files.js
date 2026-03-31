@@ -179,13 +179,16 @@ filesApp.post('/batch', async (c) => {
             for (const fileRecord of files) {
                 let configObj = {};
                 try { configObj = JSON.parse(fileRecord.storage_config || '{}'); } catch(e){}
-                const storage = storageManager.getStorage(configObj.instance_id);
+                const instanceId = configObj.instance_id;
+                const storage = storageManager.getStorage(instanceId);
                 // 逐笔执行物理销毁
                 if (storage) {
                     await storage.delete(fileRecord.storage_key).catch(() => {});
                 }
                 // 从当前库中移除此图
                 await db.deleteFrom('files').where('id', '=', fileRecord.id).execute();
+                // 记录删除统计
+                if (instanceId) storageManager.recordDelete(instanceId);
                 deletedCount++;
             }
             return c.json({ code: 0, message: `完毕，已成功清除 ${deletedCount} 份上传档案`, data: { deleted: deletedCount }});
@@ -199,11 +202,124 @@ filesApp.post('/batch', async (c) => {
                 .set({ directory: target_directory })
                 .where('id', 'in', ids)
                 .execute();
-            
+
             return c.json({ code: 0, message: `移库完成，已将 ${ids.length} 宗物品改签至 ${target_directory}`, data: {} });
-            
+
+        // 迁移存储渠道批处理
+        } else if (action === 'migrate') {
+            const { target_channel } = body;
+
+            // 参数校验
+            if (!target_channel) {
+                return c.json({ code: 400, message: '迁移操作必须指定 target_channel（目标渠道ID）', error: {} }, 400);
+            }
+
+            // 验证目标渠道是否存在且启用
+            const targetEntry = storageManager.instances.get(target_channel);
+            if (!targetEntry) {
+                return c.json({ code: 404, message: `目标渠道不存在: ${target_channel}`, error: {} }, 404);
+            }
+
+            // 验证目标渠道是否支持写入（只有 local/s3/huggingface 支持 put）
+            if (!storageManager.isUploadAllowed(target_channel)) {
+                return c.json({ code: 403, message: `目标渠道不支持写入: ${target_channel}`, error: {} }, 403);
+            }
+
+            // 验证目标渠道类型是否可写入（排除 telegram/discord/external）
+            if (!['local', 's3', 'huggingface'].includes(targetEntry.type)) {
+                return c.json({ code: 403, message: `目标渠道类型 ${targetEntry.type} 不支持作为迁移目标`, error: {} }, 403);
+            }
+
+            // 获取所有待迁移文件记录
+            const files = await db.selectFrom('files')
+                .selectAll()
+                .where('id', 'in', ids)
+                .execute();
+
+            // 迁移结果统计
+            const results = {
+                total: files.length,
+                success: 0,
+                failed: 0,
+                skipped: 0,
+                errors: []
+            };
+
+            const targetStorage = targetEntry.instance;
+
+            // 逐文件迁移
+            for (const fileRecord of files) {
+                try {
+                    // 解析源渠道配置
+                    let sourceConfig = {};
+                    try { sourceConfig = JSON.parse(fileRecord.storage_config || '{}'); } catch (e) {}
+                    const sourceInstanceId = sourceConfig.instance_id;
+
+                    // 跳过：源渠道和目标渠道相同
+                    if (sourceInstanceId === target_channel) {
+                        results.skipped++;
+                        continue;
+                    }
+
+                    // 获取源渠道实例
+                    const sourceEntry = storageManager.instances.get(sourceInstanceId);
+                    if (!sourceEntry) {
+                        results.failed++;
+                        results.errors.push({ id: fileRecord.id, reason: '源渠道不存在' });
+                        continue;
+                    }
+
+                    const sourceStorage = sourceEntry.instance;
+
+                    // 步骤1：从源渠道下载文件流
+                    const fileStream = await sourceStorage.getStream(fileRecord.storage_key);
+
+                    // 步骤2：将流转为 Buffer（适配 put 接口）
+                    const chunks = [];
+                    for await (const chunk of fileStream) {
+                        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                    }
+                    const fileBuffer = Buffer.concat(chunks);
+
+                    // 步骤3：上传到目标渠道
+                    const uploadResult = await targetStorage.put(fileBuffer, {
+                        id: fileRecord.id,
+                        fileName: fileRecord.file_name,
+                        originalName: fileRecord.original_name,
+                        mimeType: fileRecord.mime_type
+                    });
+
+                    // 步骤4：更新数据库记录
+                    await db.updateTable('files')
+                        .set({
+                            storage_channel: targetEntry.type,
+                            storage_key: uploadResult.id || fileRecord.storage_key,
+                            storage_config: JSON.stringify({
+                                instance_id: target_channel,
+                                extra_result: uploadResult
+                            })
+                        })
+                        .where('id', '=', fileRecord.id)
+                        .execute();
+
+                    results.success++;
+
+                } catch (err) {
+                    console.error(`[Files API] 迁移文件 ${fileRecord.id} 失败:`, err.message);
+                    results.failed++;
+                    results.errors.push({ id: fileRecord.id, reason: err.message });
+                    // 迁移失败时不删除源文件，保持数据安全
+                }
+            }
+
+            return c.json({
+                code: 0,
+                message: `迁移完成：成功 ${results.success}，失败 ${results.failed}，跳过 ${results.skipped}`,
+                data: results
+            });
+
         } else {
-             return c.json({ code: 400, message: '暂不允许执行此处未作解析约定的行为指令(仅支持 delete/move)', error: {} }, 400);
+             return c.json({ code: 400, message: '暂不允许执行此处未作解析约定的行为指令(仅支持 delete/move/migrate)', error: {} }, 400);
         }
     } catch (err) {
         console.error('[Files API] 处理批处理流水线时崩溃:', err);

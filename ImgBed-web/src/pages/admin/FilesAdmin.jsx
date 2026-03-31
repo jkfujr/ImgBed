@@ -5,6 +5,7 @@ import {
   DialogActions, Button, CircularProgress, TextField, InputAdornment,
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
+  FormControl, InputLabel, Select, MenuItem, LinearProgress,
   useTheme, useMediaQuery
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -14,7 +15,8 @@ import FolderIcon from '@mui/icons-material/Folder';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
-import { FileDocs, DirectoryDocs } from '../../api';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
 
 const PAGE_SIZE = 20;
 
@@ -51,6 +53,13 @@ export default function FilesAdmin() {
   // 用 ref 存储最新的 currentDir 和 searchDebounced，避免 loadPage 闭包问题
   const latestParamsRef = useRef({ currentDir: null, searchDebounced: '' });
   latestParamsRef.current = { currentDir, searchDebounced };
+
+  // 迁移相关状态
+  const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
+  const [migrating, setMigrating] = useState(false);
+  const [migrationResult, setMigrationResult] = useState(null);
+  const [targetChannel, setTargetChannel] = useState('');
+  const [availableChannels, setAvailableChannels] = useState([]);
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
@@ -175,6 +184,51 @@ export default function FilesAdmin() {
       console.error(e);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // 获取可迁移渠道列表
+  const fetchWritableChannels = useCallback(async () => {
+    try {
+      const res = await StorageDocs.list();
+      if (res.code === 0) {
+        const writable = (res.data.list || []).filter(
+          s => s.enabled && s.allowUpload && ['local', 's3', 'huggingface'].includes(s.type)
+        );
+        setAvailableChannels(writable);
+      }
+    } catch (err) {
+      console.error('获取可写入渠道失败', err);
+    }
+  }, []);
+
+  // 选中文件时获取渠道列表
+  useEffect(() => {
+    if (selected.size > 0) fetchWritableChannels();
+  }, [selected, fetchWritableChannels]);
+
+  const handleConfirmMigrate = async () => {
+    if (!targetChannel || migrateDialog.ids.length === 0) return;
+    setMigrating(true);
+    setMigrationResult(null);
+    try {
+      const res = await FileDocs.batch({
+        action: 'migrate',
+        ids: migrateDialog.ids,
+        target_channel: targetChannel
+      });
+      if (res.code === 0) {
+        setMigrationResult(res.data);
+        setSelected(new Set());
+        setTimeout(handleRefresh, 1000);
+      } else {
+        setMigrationResult({ success: 0, failed: migrateDialog.ids.length, skipped: 0, errors: [{ reason: res.message }] });
+      }
+    } catch (e) {
+      console.error(e);
+      setMigrationResult({ success: 0, failed: migrateDialog.ids.length, skipped: 0, errors: [{ reason: '网络错误' }] });
+    } finally {
+      setMigrating(false);
     }
   };
 
@@ -328,6 +382,12 @@ export default function FilesAdmin() {
       {selected.size > 0 && (
         <Paper variant="outlined" sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'primary.50', flexShrink: 0 }}>
           <Typography variant="body2" sx={{ flex: 1 }}>已选 {selected.size} 项</Typography>
+          {availableChannels.length > 0 && (
+            <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />}
+              onClick={() => setMigrateDialog({ open: true, ids: [...selected] })}>
+              迁移渠道
+            </Button>
+          )}
           <Button size="small" color="error" variant="contained" startIcon={<DeleteIcon />}
             onClick={() => triggerDelete([...selected], `${selected.size} 个文件`)}>
             批量删除
@@ -516,6 +576,58 @@ export default function FilesAdmin() {
           <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
             {deleting ? <CircularProgress size={18} color="inherit" /> : '确认删除'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 迁移渠道弹窗 */}
+      <Dialog open={migrateDialog.open} onClose={() => !migrating && setMigrateDialog({ open: false, ids: [] })} maxWidth="sm" fullWidth>
+        <DialogTitle>迁移文件渠道</DialogTitle>
+        <DialogContent dividers>
+          <Typography gutterBottom>
+            将 <b>{migrateDialog.ids.length}</b> 个文件迁移到指定渠道：
+          </Typography>
+          <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+            <InputLabel>目标渠道</InputLabel>
+            <Select value={targetChannel} label="目标渠道"
+              onChange={(e) => setTargetChannel(e.target.value)} disabled={migrating}>
+              {availableChannels.map((ch) => (
+                <MenuItem key={ch.id} value={ch.id}>
+                  {ch.name} ({ch.type})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {migrating && (
+            <Box sx={{ mt: 2 }}>
+              <LinearProgress />
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                正在迁移 {migrateDialog.ids.length} 个文件...
+              </Typography>
+            </Box>
+          )}
+          {migrationResult && !migrating && (
+            <Alert severity={migrationResult.failed > 0 ? 'warning' : 'success'} sx={{ mt: 2 }}>
+              成功: {migrationResult.success} | 失败: {migrationResult.failed} | 跳过: {migrationResult.skipped}
+              {migrationResult.errors.length > 0 && (
+                <Typography variant="caption" component="div" sx={{ mt: 1 }}>
+                  失败详情: {migrationResult.errors.map(e => `${e.id}: ${e.reason}`).join(', ')}
+                </Typography>
+              )}
+            </Alert>
+          )}
+          <Alert severity="info" sx={{ mt: 2 }}>
+            迁移成功后源文件将保留作为备份，不会被删除。
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMigrateDialog({ open: false, ids: [] })} disabled={migrating}>
+            {migrationResult ? '关闭' : '取消'}
+          </Button>
+          {!migrationResult && (
+            <Button variant="contained" onClick={handleConfirmMigrate} disabled={migrating || !targetChannel}>
+              {migrating ? <CircularProgress size={18} color="inherit" /> : '开始迁移'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

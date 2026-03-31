@@ -10,6 +10,8 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { StorageDocs } from '../../api';
@@ -231,31 +233,13 @@ export default function StorageChannelsPage() {
       {/* 工具栏：新增按钮（左）+ 渠道选择+刷新（右） */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, gap: 2, flexWrap: 'wrap' }}>
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>新增渠道</Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', bgcolor: 'background.paper', borderRadius: 1, p: 0.5, border: 1, borderColor: 'divider' }}>
-          {/* 默认渠道选择器 */}
-          {storages.length > 0 && (
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>默认渠道</InputLabel>
-              <Select
-                value={defaultId}
-                label="默认渠道"
-                onChange={(e) => handleSetDefault(e.target.value)}
-              >
-                {storages.map((s) => (
-                  <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          {/* 刷新按钮 */}
-          <Tooltip title="刷新列表">
-            <span>
-              <IconButton size="small" onClick={loadStorages} disabled={loading}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Box>
+        <Tooltip title="刷新列表">
+          <span>
+            <IconButton size="small" onClick={loadStorages} disabled={loading}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
@@ -298,6 +282,15 @@ export default function StorageChannelsPage() {
                         </CardContent>
                         <Divider />
                         <CardActions sx={{ px: 1.5, py: 0.5 }}>
+                          <Tooltip title={s.id === defaultId ? '当前默认渠道' : '设为默认渠道'}>
+                            <span>
+                              <IconButton size="small" onClick={() => handleSetDefault(s.id)}
+                                color={s.id === defaultId ? 'warning' : 'default'}
+                                disabled={s.id === defaultId}>
+                                {s.id === defaultId ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
                           <Tooltip title="编辑">
                             <IconButton size="small" onClick={() => openEdit(s)}><EditIcon fontSize="small" /></IconButton>
                           </Tooltip>
@@ -315,6 +308,7 @@ export default function StorageChannelsPage() {
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
                             </span>
+
                           </Tooltip>
                         </CardActions>
                       </Card>

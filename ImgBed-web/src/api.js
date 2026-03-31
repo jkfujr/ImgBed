@@ -64,6 +64,8 @@ export const StorageDocs = {
   setDefault: (id)       => api.put(`/api/system/storages/${id}/default`),
   toggle:     (id)       => api.put(`/api/system/storages/${id}/toggle`),
   test:       (data)     => api.post('/api/system/storages/test', data),
+  getLoadBalance:    ()    => api.get('/api/system/load-balance'),
+  updateLoadBalance: (data) => api.put('/api/system/load-balance', data),
 };
 
 // 导出默认实例

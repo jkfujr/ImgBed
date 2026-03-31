@@ -106,8 +106,6 @@ systemApp.post('/storages/test', async (c) => {
   try {
     const { type, config: storageConfig } = await c.req.json();
 
-    // 校验存储类型
-    const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
     if (!type || !VALID_TYPES.includes(type)) {
       return c.json({ code: 400, message: `不支持的存储类型: ${type}` }, 400);
     }
@@ -121,6 +119,63 @@ systemApp.post('/storages/test', async (c) => {
     }
   } catch (err) {
     return c.json({ code: 500, message: '测试连接失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 获取负载均衡配置
+ * GET /api/system/load-balance
+ */
+systemApp.get('/load-balance', (c) => {
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    return c.json({
+      code: 0,
+      message: 'success',
+      data: {
+        strategy: cfg.storage?.loadBalanceStrategy || 'default',
+        weights: cfg.storage?.loadBalanceWeights || {},
+        stats: storageManager.getUsageStats()
+      }
+    });
+  } catch (err) {
+    return c.json({ code: 500, message: '读取负载均衡配置失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 更新负载均衡配置
+ * PUT /api/system/load-balance
+ */
+systemApp.put('/load-balance', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { strategy, weights } = body;
+
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+
+    if (!cfg.storage) cfg.storage = {};
+
+    if (strategy !== undefined) {
+      const validStrategies = ['default', 'round-robin', 'random', 'least-used', 'weighted'];
+      if (!validStrategies.includes(strategy)) {
+        return c.json({ code: 400, message: `无效的策略: ${strategy}` }, 400);
+      }
+      cfg.storage.loadBalanceStrategy = strategy;
+    }
+
+    if (weights !== undefined) {
+      cfg.storage.loadBalanceWeights = weights;
+    }
+
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+
+    return c.json({ code: 0, message: '负载均衡配置已更新' });
+  } catch (err) {
+    return c.json({ code: 500, message: '更新负载均衡配置失败: ' + err.message }, 500);
   }
 });
 

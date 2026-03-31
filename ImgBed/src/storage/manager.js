@@ -16,7 +16,11 @@ class StorageManager {
     constructor() {
         this.config = config.storage || {};
         this.instances = new Map();
-        
+
+        // 负载均衡状态维护
+        this.roundRobinIndex = 0;
+        this.usageStats = new Map();
+
         // 自动将配置中的已启用存储进行实例化映射
         const configuredStorages = this.config.storages || [];
         for (const storageConfig of configuredStorages) {
@@ -33,6 +37,9 @@ class StorageManager {
                 }
             }
         }
+
+        // 异步初始化使用统计
+        this._initUsageStats().catch(err => console.error('[StorageManager] 初始化使用统计失败:', err.message));
     }
 
     /**
@@ -146,6 +153,160 @@ class StorageManager {
         } catch (err) {
             return { ok: false, message: err.message };
         }
+    }
+
+    /**
+     * 初始化使用统计（从数据库加载各渠道文件数）
+     */
+    async _initUsageStats() {
+        const { db } = require('../database');
+        try {
+            const files = await db
+                .selectFrom('files')
+                .select('storage_config')
+                .execute();
+
+            this.usageStats.clear();
+            for (const file of files) {
+                let config = {};
+                try { config = JSON.parse(file.storage_config || '{}'); } catch (e) {}
+                const instanceId = config.instance_id;
+                if (instanceId) {
+                    const stat = this.usageStats.get(instanceId) || { uploadCount: 0, fileCount: 0 };
+                    stat.fileCount++;
+                    this.usageStats.set(instanceId, stat);
+                }
+            }
+        } catch (err) {
+            console.error('[StorageManager] 初始化使用统计失败:', err.message);
+        }
+    }
+
+    /**
+     * 根据负载均衡策略选择上传渠道
+     * @returns {string|null} 返回选中的渠道 ID，无可用渠道时返回 null
+     */
+    selectUploadChannel() {
+        const strategy = this.config.loadBalanceStrategy || 'default';
+
+        // 获取所有允许上传的渠道
+        const uploadableChannels = Array.from(this.instances.entries())
+            .filter(([id]) => this.isUploadAllowed(id))
+            .map(([id, entry]) => ({ id, type: entry.type }));
+
+        if (uploadableChannels.length === 0) {
+            console.warn('[StorageManager] 没有可用的上传渠道');
+            return null;
+        }
+
+        // 策略路由
+        switch (strategy) {
+            case 'round-robin':
+                return this._selectRoundRobin(uploadableChannels);
+            case 'random':
+                return this._selectRandom(uploadableChannels);
+            case 'least-used':
+                return this._selectLeastUsed(uploadableChannels);
+            case 'weighted':
+                return this._selectWeighted(uploadableChannels);
+            case 'default':
+            default:
+                return this.getDefaultStorageId();
+        }
+    }
+
+    /**
+     * 轮询策略：按顺序循环选择
+     */
+    _selectRoundRobin(channels) {
+        const selected = channels[this.roundRobinIndex % channels.length];
+        this.roundRobinIndex++;
+        return selected.id;
+    }
+
+    /**
+     * 随机策略：随机选择一个渠道
+     */
+    _selectRandom(channels) {
+        const index = Math.floor(Math.random() * channels.length);
+        return channels[index].id;
+    }
+
+    /**
+     * 最少使用策略：选择文件数最少的渠道
+     */
+    _selectLeastUsed(channels) {
+        let minCount = Infinity;
+        let selectedId = channels[0].id;
+
+        for (const { id } of channels) {
+            const stat = this.usageStats.get(id) || { uploadCount: 0, fileCount: 0 };
+            if (stat.fileCount < minCount) {
+                minCount = stat.fileCount;
+                selectedId = id;
+            }
+        }
+        return selectedId;
+    }
+
+    /**
+     * 加权策略：按权重比例选择
+     */
+    _selectWeighted(channels) {
+        const weights = this.config.loadBalanceWeights || {};
+
+        // 计算总权重
+        let totalWeight = 0;
+        const weightedChannels = [];
+
+        for (const { id } of channels) {
+            const w = Number(weights[id]) || 1;
+            totalWeight += w;
+            weightedChannels.push({ id, weight: w, accumulated: totalWeight });
+        }
+
+        if (totalWeight === 0) return channels[0].id;
+
+        // 随机选择
+        const random = Math.random() * totalWeight;
+        for (const { id, accumulated } of weightedChannels) {
+            if (random <= accumulated) return id;
+        }
+
+        return weightedChannels[weightedChannels.length - 1].id;
+    }
+
+    /**
+     * 记录上传操作（更新使用统计）
+     * @param {string} storageId 渠道 ID
+     */
+    recordUpload(storageId) {
+        const stat = this.usageStats.get(storageId) || { uploadCount: 0, fileCount: 0 };
+        stat.uploadCount++;
+        stat.fileCount++;
+        this.usageStats.set(storageId, stat);
+    }
+
+    /**
+     * 记录删除操作（更新使用统计）
+     * @param {string} storageId 渠道 ID
+     */
+    recordDelete(storageId) {
+        const stat = this.usageStats.get(storageId);
+        if (stat && stat.fileCount > 0) {
+            stat.fileCount--;
+        }
+    }
+
+    /**
+     * 获取使用统计信息
+     */
+    getUsageStats() {
+        const stats = {};
+        this.usageStats.forEach((value, key) => {
+            stats[key] = { ...value };
+        });
+        return stats;
     }
 }
 
