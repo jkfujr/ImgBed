@@ -225,13 +225,6 @@ export default function HomePage() {
         {/* 操作按钮 */}
         <Box mt={3} display="flex" gap={2} justifyContent="center">
           <Button
-            variant="outlined"
-            onClick={() => !uploading && inputRef.current?.click()}
-            disabled={uploading}
-          >
-            继续添加
-          </Button>
-          <Button
             variant="contained"
             onClick={handleUploadAll}
             disabled={uploading || pendingCount === 0}

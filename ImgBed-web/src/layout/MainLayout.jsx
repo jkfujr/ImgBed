@@ -4,7 +4,7 @@ import { Box, Toolbar, Typography, Button, IconButton, Menu, MenuItem, ListItemI
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
-import SettingsIcon from '@mui/icons-material/Settings';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import { useAuth } from '../hooks/useAuth';
 import { AppBar } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -38,7 +38,7 @@ export default function MainLayout() {
   const isPublicArea = !location.pathname.startsWith('/admin');
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', width: '100%' }}>
       <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar>
           {/* Logo 区域 */}
@@ -52,7 +52,7 @@ export default function MainLayout() {
           {/* 设置按钮（仅登录后显示） */}
           {isAuthenticated && (
             <IconButton size="large" color="primary" onClick={() => navigate('/admin/settings')} sx={{ mr: 0.5 }}>
-              <SettingsIcon />
+              <ManageAccountsIcon />
             </IconButton>
           )}
 
@@ -109,8 +109,8 @@ export default function MainLayout() {
       </AppBar>
 
       {/* 内容主体 */}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-          <Outlet /> 
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', bgcolor: 'background.default', overflow: 'hidden', minHeight: 0 }}>
+          <Outlet />
       </Box>
     </Box>
   );
