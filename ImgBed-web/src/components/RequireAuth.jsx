@@ -1,5 +1,6 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 
 /**
@@ -8,15 +9,19 @@ import { useAuth } from '../hooks/useAuth';
  */
 const RequireAuth = ({ children }) => {
     const { isAuthenticated, loading } = useAuth();
-    
+
     if (loading) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}>正在验证...</div>;
+        return (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 6 }}>
+                <CircularProgress size={28} />
+            </Box>
+        );
     }
-    
+
     if (!isAuthenticated) {
         return <Navigate to="/login" replace />;
     }
-    
+
     return children;
 };
 
