@@ -55,17 +55,17 @@ export default function HomePage() {
 
   const handleCopy = (text) => {
      navigator.clipboard.writeText(text);
-     handleDisplayToast('以复制到剪贴板！', 'success');
+     handleDisplayToast('已复制到剪贴板', 'success');
   };
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
         <Card sx={{ maxWidth: 600, width: '100%', p: 4, textAlign: 'center', boxShadow: 3, borderRadius: 3 }}>
            <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-               极速图片托管
+               图片托管
            </Typography>
            <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-               点击下方按钮或轻松拖拽来上传精彩一刻。
+               点击按钮或拖拽图片文件进行上传
            </Typography>
 
            {/* 简易拖拽/上传区模拟 */}
@@ -116,14 +116,14 @@ export default function HomePage() {
                fullWidth
                sx={{ py: 1.5, fontSize: '1.1rem', borderRadius: 2 }}
            >
-               {uploading ? '正在努力上传...' : '立即开始上传'}
+               {uploading ? '正在上传...' : '上传'}
            </Button>
 
            {/* 返回结果面板 */}
            {result && (
               <Box sx={{ mt: 4, p: 3, bgcolor: 'success.50', borderRadius: 2, textAlign: 'left', border: '1px solid', borderColor: 'success.200' }}>
                  <Typography variant="subtitle1" fontWeight="bold" color="success.800" gutterBottom>
-                     成功入库！
+                     上传成功
                  </Typography>
                  <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'background.paper', p: 1, borderRadius: 1, my: 1 }}>
                      <Typography variant="body2" sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
