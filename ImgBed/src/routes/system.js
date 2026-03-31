@@ -2,9 +2,36 @@ const { Hono } = require('hono');
 const fs = require('fs');
 const path = require('path');
 const { adminAuth } = require('../middleware/auth');
+const storageManager = require('../storage/manager');
 
 const systemApp = new Hono();
-const configPath = path.resolve(__dirname, '../../../config.json');
+const configPath = path.resolve(__dirname, '../../config.json');
+
+// 敏感字段列表
+const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
+
+// 合法的存储类型
+const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
+
+/**
+ * 对存储渠道的敏感 config 字段进行脱敏处理
+ */
+function maskStorage(s) {
+  const masked = { ...s, config: { ...(s.config || {}) } };
+  for (const k of SENSITIVE_KEYS) {
+    if (masked.config[k] !== undefined) masked.config[k] = '***';
+  }
+  return masked;
+}
+
+/**
+ * 根据 allowUpload 和 enabled 自动重新计算 allowedUploadChannels
+ */
+function syncAllowedUploadChannels(cfg) {
+  cfg.storage.allowedUploadChannels = (cfg.storage.storages || [])
+    .filter((s) => s.allowUpload && s.enabled)
+    .map((s) => s.id);
+}
 
 // 需要管理员权限
 systemApp.use('*', adminAuth);
@@ -56,23 +83,149 @@ systemApp.put('/config', async (c) => {
 });
 
 /**
- * 获取存储渠道列表（供前端下拉框使用）
+ * 获取存储渠道列表（含完整 config，敏感字段脱敏）
  * GET /api/system/storages
  */
 systemApp.get('/storages', (c) => {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
-    const list = (cfg.storage?.storages || []).map((s) => ({
-      id: s.id,
-      name: s.name,
-      type: s.type,
-      enabled: s.enabled,
-      allowUpload: s.allowUpload,
-    }));
+    const list = (cfg.storage?.storages || []).map(maskStorage);
     return c.json({ code: 0, message: 'success', data: { list, default: cfg.storage?.default } });
   } catch (err) {
     return c.json({ code: 500, message: '读取存储渠道失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 新增存储渠道
+ * POST /api/system/storages
+ */
+systemApp.post('/storages', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { id, type, name, enabled = true, allowUpload = false, config: storConfig = {} } = body;
+
+    if (!id || !/^[a-zA-Z0-9-]+$/.test(id))
+      return c.json({ code: 400, message: 'id 不合法，仅允许字母、数字、连字符' }, 400);
+    if (!VALID_TYPES.includes(type))
+      return c.json({ code: 400, message: `type 不合法，支持：${VALID_TYPES.join(', ')}` }, 400);
+    if (!name || !name.trim())
+      return c.json({ code: 400, message: 'name 不能为空' }, 400);
+
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+
+    if ((cfg.storage.storages || []).some((s) => s.id === id))
+      return c.json({ code: 400, message: `渠道 ID "${id}" 已存在` }, 400);
+
+    const newStorage = { id, type, name, enabled: Boolean(enabled), allowUpload: Boolean(allowUpload), config: storConfig };
+    cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
+    syncAllowedUploadChannels(cfg);
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+    return c.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
+  } catch (err) {
+    return c.json({ code: 500, message: '新增渠道失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 编辑存储渠道
+ * PUT /api/system/storages/:id
+ */
+systemApp.put('/storages/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    const idx = (cfg.storage.storages || []).findIndex((s) => s.id === id);
+    if (idx === -1) return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+
+    const existing = cfg.storage.storages[idx];
+    if (body.name !== undefined) existing.name = String(body.name).trim();
+    if (body.enabled !== undefined) existing.enabled = Boolean(body.enabled);
+    if (body.allowUpload !== undefined) existing.allowUpload = Boolean(body.allowUpload);
+    if (body.config !== undefined) {
+      existing.config = existing.config || {};
+      for (const [k, v] of Object.entries(body.config)) {
+        // 敏感字段值为 null 时跳过覆盖（前端留空表示不修改）
+        if (SENSITIVE_KEYS.includes(k) && v === null) continue;
+        existing.config[k] = v;
+      }
+    }
+    syncAllowedUploadChannels(cfg);
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+    return c.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
+  } catch (err) {
+    return c.json({ code: 500, message: '更新渠道失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 删除存储渠道（不允许删除默认渠道）
+ * DELETE /api/system/storages/:id
+ */
+systemApp.delete('/storages/:id', (c) => {
+  try {
+    const id = c.req.param('id');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    if (cfg.storage.default === id)
+      return c.json({ code: 400, message: '不能删除当前默认渠道，请先切换默认渠道' }, 400);
+    const before = (cfg.storage.storages || []).length;
+    cfg.storage.storages = (cfg.storage.storages || []).filter((s) => s.id !== id);
+    if (cfg.storage.storages.length === before)
+      return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+    syncAllowedUploadChannels(cfg);
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+    return c.json({ code: 0, message: '存储渠道已删除' });
+  } catch (err) {
+    return c.json({ code: 500, message: '删除渠道失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 设为默认存储渠道
+ * PUT /api/system/storages/:id/default
+ */
+systemApp.put('/storages/:id/default', (c) => {
+  try {
+    const id = c.req.param('id');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    if (!(cfg.storage.storages || []).some((s) => s.id === id))
+      return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+    cfg.storage.default = id;
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+    return c.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
+  } catch (err) {
+    return c.json({ code: 500, message: '设置默认渠道失败: ' + err.message }, 500);
+  }
+});
+
+/**
+ * 启用/禁用存储渠道
+ * PUT /api/system/storages/:id/toggle
+ */
+systemApp.put('/storages/:id/toggle', (c) => {
+  try {
+    const id = c.req.param('id');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    const s = (cfg.storage.storages || []).find((s) => s.id === id);
+    if (!s) return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+    s.enabled = !s.enabled;
+    syncAllowedUploadChannels(cfg);
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    storageManager.reload();
+    return c.json({ code: 0, message: `渠道已${s.enabled ? '启用' : '禁用'}`, data: { enabled: s.enabled } });
+  } catch (err) {
+    return c.json({ code: 500, message: '切换渠道状态失败: ' + err.message }, 500);
   }
 });
 

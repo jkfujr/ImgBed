@@ -10,6 +10,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
 import SettingsPage from './pages/admin/SettingsPage';
 import SystemPage from './pages/admin/SystemPage';
+import StorageChannelsPage from './pages/admin/StorageChannelsPage';
 import { AuthProvider } from './contexts/AuthProvider';
 import RequireAuth from './components/RequireAuth';
 
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                            <Route index element={<Navigate to="files" replace />} />
                            <Route path="files" element={<FilesAdmin />} />
                            <Route path="settings" element={<SettingsPage />} />
+                           <Route path="channels" element={<StorageChannelsPage />} />
                            <Route path="system" element={<SystemPage />} />
                       </Route>
                       <Route path="*" element={<Navigate to="/" replace/>} />

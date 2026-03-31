@@ -3,7 +3,7 @@ import {
   Box, Typography, ImageList, ImageListItem, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Button, CircularProgress, TextField, InputAdornment,
-  Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton,
+  Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
   useTheme, useMediaQuery
 } from '@mui/material';
@@ -41,6 +41,9 @@ export default function FilesAdmin() {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, ids: [], label: '' });
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
+  const [pathEditing, setPathEditing] = useState(false);
+  const [pathInput, setPathInput] = useState('');
+  const pathInputRef = useRef(null);
   const pageRef = useRef(0);
   const sentinelRef = useRef(null);
   const debounceRef = useRef(null);
@@ -177,7 +180,22 @@ export default function FilesAdmin() {
     setCurrentDir(path || null);
     setSearchInput('');
     setSearchDebounced('');
+    setPathEditing(false);
   };
+
+  const startPathEdit = () => {
+    setPathInput(currentDir || '/');
+    setPathEditing(true);
+    setTimeout(() => pathInputRef.current?.focus(), 0);
+  };
+
+  const commitPathEdit = () => {
+    const raw = pathInput.trim();
+    const normalized = raw === '/' || raw === '' ? null : (raw.startsWith('/') ? raw : '/' + raw);
+    navigateToDir(normalized);
+  };
+
+  const cancelPathEdit = () => setPathEditing(false);
 
   const fmtDate = (str) => {
     if (!str) return '-';
@@ -215,60 +233,92 @@ export default function FilesAdmin() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-      {/* 顶部工具栏 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-        <TextField
-          size="small"
-          placeholder="搜索文件名..."
-          value={searchInput}
-          onChange={handleSearchChange}
-          sx={{ flex: 1, maxWidth: 320 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            )
-          }}
-        />
-        <Tooltip title="刷新">
-          <span>
-            <IconButton onClick={handleRefresh} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Box sx={{ flexGrow: 1 }} />
-        <ToggleButtonGroup value={viewMode} exclusive onChange={handleViewModeChange} size="small">
-          <ToggleButton value="masonry" aria-label="瀑布流">
-            <Tooltip title="瀑布流"><ViewModuleIcon fontSize="small" /></Tooltip>
-          </ToggleButton>
-          <ToggleButton value="list" aria-label="详细列表">
-            <Tooltip title="详细列表"><ViewListIcon fontSize="small" /></Tooltip>
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
+      {/* 顶部工具栏：面包屑（左）+ 操作区（右） */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
+        {/* 左侧路径栏：点击进入编辑，回车/失焦确认 */}
+        {pathEditing ? (
+          <TextField
+            inputRef={pathInputRef}
+            size="small"
+            value={pathInput}
+            onChange={(e) => setPathInput(e.target.value)}
+            onBlur={commitPathEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitPathEdit();
+              if (e.key === 'Escape') cancelPathEdit();
+            }}
+            sx={{ flex: 1, minWidth: 0 }}
+            autoFocus
+          />
+        ) : (
+          <Box
+            onClick={startPathEdit}
+            sx={{
+              flex: 1, minWidth: 0,
+              cursor: 'text',
+              display: 'flex', alignItems: 'center',
+              px: 1.5, py: 1,
+              border: 1, borderColor: 'divider', borderRadius: 1,
+              bgcolor: 'background.paper',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
+              '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 1px theme.palette.primary.main' },
+            }}
+          >
+            <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} sx={{ fontSize: 14 }}>
+              <Link component="button" underline="hover"
+                color={currentDir ? 'inherit' : 'text.primary'}
+                onClick={(e) => { e.stopPropagation(); navigateToDir(null); }}
+                sx={{ cursor: 'pointer', fontWeight: !currentDir ? 'bold' : 'normal', fontSize: 14, border: 'none', background: 'none', p: 0 }}
+              >根目录</Link>
+              {breadcrumbs.map((seg, i) => {
+                const path = '/' + breadcrumbs.slice(0, i + 1).join('/');
+                const isLast = i === breadcrumbs.length - 1;
+                return isLast ? (
+                  <Typography key={path} fontSize={14} fontWeight="bold" color="text.primary" noWrap>{seg}</Typography>
+                ) : (
+                  <Link key={path} component="button" underline="hover" color="inherit"
+                    onClick={(e) => { e.stopPropagation(); navigateToDir(path); }}
+                    sx={{ cursor: 'pointer', fontSize: 14, border: 'none', background: 'none', p: 0 }}
+                  >{seg}</Link>
+                );
+              })}
+            </Breadcrumbs>
+          </Box>
+        )}
 
-      {/* 面包屑导航 */}
-      <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} sx={{ fontSize: 14, flexShrink: 0 }}>
-        <Link component="button" underline="hover"
-          color={currentDir ? 'inherit' : 'text.primary'}
-          onClick={() => navigateToDir(null)}
-          sx={{ cursor: 'pointer', fontWeight: !currentDir ? 'bold' : 'normal', fontSize: 14, border: 'none', background: 'none', p: 0 }}
-        >根目录</Link>
-        {breadcrumbs.map((seg, i) => {
-          const path = '/' + breadcrumbs.slice(0, i + 1).join('/');
-          const isLast = i === breadcrumbs.length - 1;
-          return isLast ? (
-            <Typography key={path} fontSize={14} fontWeight="bold" color="text.primary">{seg}</Typography>
-          ) : (
-            <Link key={path} component="button" underline="hover" color="inherit"
-              onClick={() => navigateToDir(path)}
-              sx={{ cursor: 'pointer', fontSize: 14, border: 'none', background: 'none', p: 0 }}
-            >{seg}</Link>
-          );
-        })}
-      </Breadcrumbs>
+        {/* 右侧操作区 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          <TextField
+            size="small"
+            placeholder="搜索..."
+            value={searchInput}
+            onChange={handleSearchChange}
+            sx={{ width: 160, bgcolor: 'background.paper' }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }
+            }}
+          />
+          <Divider orientation="vertical" flexItem />
+          <ToggleButtonGroup value={viewMode} exclusive onChange={handleViewModeChange} size="small"
+            sx={{ bgcolor: 'background.paper' }}>
+            <ToggleButton value="masonry" aria-label="瀑布流">
+              <Tooltip title="瀑布流"><ViewModuleIcon fontSize="small" /></Tooltip>
+            </ToggleButton>
+            <ToggleButton value="list" aria-label="详细列表">
+              <Tooltip title="详细列表"><ViewListIcon fontSize="small" /></Tooltip>
+            </ToggleButton>
+            <ToggleButton value="__refresh" aria-label="刷新" onClick={handleRefresh} disabled={loading} sx={{ '&.Mui-selected': { bgcolor: 'transparent' } }}>
+              <Tooltip title="刷新"><RefreshIcon fontSize="small" /></Tooltip>
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      </Box>
 
       {/* 批量选中工具栏 */}
       {selected.size > 0 && (

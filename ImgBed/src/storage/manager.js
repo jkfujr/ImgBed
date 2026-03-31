@@ -103,6 +103,34 @@ class StorageManager {
     getDefaultStorageId() {
         return this.config.default || null;
     }
+
+    /**
+     * 热加载：重新读取 config.json 并重建所有存储实例
+     * 在通过 API 修改存储渠道配置后调用，使变更立即生效
+     */
+    reload() {
+        const fs = require('fs');
+        const path = require('path');
+        const cfgPath = path.resolve(__dirname, '../../config.json');
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        this.config = cfg.storage || {};
+        this.instances.clear();
+        for (const s of this.config.storages || []) {
+            if (s.enabled) {
+                try {
+                    const inst = this._createInstance(s.type, s.config || {});
+                    this.instances.set(s.id, {
+                        type: s.type,
+                        allowUpload: s.allowUpload,
+                        instance: inst
+                    });
+                } catch (e) {
+                    console.error(`[StorageManager] reload 实例 ${s.id} 失败:`, e.message);
+                }
+            }
+        }
+        console.log('[StorageManager] 存储渠道配置已热加载，当前实例:', [...this.instances.keys()]);
+    }
 }
 
 // 导出单例实例，以确保只解析和持有一次配置

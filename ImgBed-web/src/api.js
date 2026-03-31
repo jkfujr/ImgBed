@@ -56,5 +56,14 @@ export const DirectoryDocs = {
    list: (params) => api.get('/api/directories', { params }),
 };
 
+export const StorageDocs = {
+  list:       ()         => api.get('/api/system/storages'),
+  create:     (data)     => api.post('/api/system/storages', data),
+  update:     (id, data) => api.put(`/api/system/storages/${id}`, data),
+  remove:     (id)       => api.delete(`/api/system/storages/${id}`),
+  setDefault: (id)       => api.put(`/api/system/storages/${id}/default`),
+  toggle:     (id)       => api.put(`/api/system/storages/${id}/toggle`),
+};
+
 // 导出默认实例
 export default api;

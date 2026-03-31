@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Box, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Tooltip } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import SettingsIcon from '@mui/icons-material/Settings';
+import StorageIcon from '@mui/icons-material/Storage';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
@@ -16,6 +17,7 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
+    { text: '存储渠道', icon: <StorageIcon />, path: '/admin/channels' },
     { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },
   ];
 
