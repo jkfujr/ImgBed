@@ -133,7 +133,7 @@ export default function HomePage() {
                          <ContentCopyIcon fontSize="small"/>
                      </IconButton>
                  </Box>
-                 {result.fullUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) && (
+                 {result.fullUrl.match(/\.(jpg|jpeg|png|webp|gif|svg|bmp|ico)/i) && (
                      <Box sx={{ mt: 2, textAlign: 'center' }}>
                          <img src={result.fullUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
                      </Box>

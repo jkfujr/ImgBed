@@ -10,7 +10,8 @@ export default defineConfig({
         target: 'http://127.0.0.1:13000',
         changeOrigin: true
       },
-      '/f/': {
+      // 匹配以 12 位 Hex 哈希 + 下划线开头的 ID
+      '^/[0-9a-f]{12}_.*': {
         target: 'http://127.0.0.1:13000',
         changeOrigin: true
       }
