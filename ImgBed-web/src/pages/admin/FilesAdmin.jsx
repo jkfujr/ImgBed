@@ -48,6 +48,9 @@ export default function FilesAdmin() {
   const sentinelRef = useRef(null);
   const debounceRef = useRef(null);
   const loadingRef = useRef(false);
+  // 用 ref 存储最新的 currentDir 和 searchDebounced，避免 loadPage 闭包问题
+  const latestParamsRef = useRef({ currentDir: null, searchDebounced: '' });
+  latestParamsRef.current = { currentDir, searchDebounced };
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
@@ -62,9 +65,10 @@ export default function FilesAdmin() {
     setLoading(true);
     setError(null);
     try {
+      const { currentDir: dir, searchDebounced: search } = latestParamsRef.current;
       const params = { page: pageNum, pageSize: PAGE_SIZE };
-      if (currentDir) params.directory = currentDir;
-      if (searchDebounced) params.search = searchDebounced;
+      if (dir) params.directory = dir;
+      if (search) params.search = search;
       const res = await FileDocs.list(params);
       if (res.code === 0 && res.data) {
         const list = res.data.list || [];
@@ -82,7 +86,7 @@ export default function FilesAdmin() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [currentDir, searchDebounced]);
+  }, []); // 空依赖，通过 ref 获取最新参数
 
   const fetchDirectories = useCallback(async () => {
     try {
