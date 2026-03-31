@@ -1,0 +1,39 @@
+{
+  "server": {
+    "port": 13000,
+    "host": "0.0.0.0"
+  },
+  "database": {
+    "path": "./data/database.sqlite"
+  },
+  "jwt": {
+    "secret": "ed274d42436f9ccd73dd323428a41f693cb508b73620818be89445e964756b02622a26bfcf57a0a0e7a5157eb73db3af61b41e9d313b8dabb1382016c21f29f3",
+    "expiresIn": "7d"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "admin"
+  },
+  "storage": {
+    "default": "local-1",
+    "allowedUploadChannels": [
+      "local-1"
+    ],
+    "storages": [
+      {
+        "id": "local-1",
+        "type": "local",
+        "name": "Local Storage",
+        "enabled": true,
+        "allowUpload": true,
+        "config": {
+          "basePath": "./data/storage"
+        }
+      }
+    ]
+  },
+  "security": {
+    "corsOrigin": "*",
+    "maxFileSize": 104857600
+  }
+}

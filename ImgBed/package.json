@@ -1,0 +1,24 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@hono/node-server": "^1.19.12",
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.3.1",
+    "hono": "^4.12.9",
+    "jose": "^6.2.2",
+    "kysely": "^0.28.15",
+    "server": "^1.0.0"
+  }
+}
