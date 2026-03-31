@@ -10,7 +10,7 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // Bootstrap token verification
+    // 验证登录令牌
     const checkLoginState = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -28,7 +28,7 @@ export const AuthProvider = ({ children }) => {
              } else {
                  throw new Error('User not admin');
              }
-        } catch (e) {
+        } catch {
              localStorage.removeItem('token');
              setIsAuthenticated(false);
              setUser(null);
@@ -42,8 +42,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (credentials) => {
-        // Here we post to the server via AuthDocs.login
-        // backend accepts {"username": "...", "password": "...", "type": "basic"} -> or authCode...
+        // 调用登录接口
         const res = await AuthDocs.login(credentials);
         if (res.code !== 0) {
             throw new Error(res.message);
@@ -52,7 +51,7 @@ export const AuthProvider = ({ children }) => {
         const token = res.data?.token;
         if (token) {
             localStorage.setItem('token', token);
-            // 立即附加上全局 axios 中
+            // 立即附加上全局请求头
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
             await checkLoginState();
         }
@@ -61,7 +60,9 @@ export const AuthProvider = ({ children }) => {
     const logout = async () => {
          try {
             await AuthDocs.logout();
-         } catch(e) {}
+         } catch {
+            // 忽略登出请求失败
+         }
          
          localStorage.removeItem('token');
          delete api.defaults.headers.common['Authorization'];

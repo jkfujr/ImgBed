@@ -37,7 +37,7 @@ export default function AdminDashboard() {
       >
         <Box sx={{ p: 2, textAlign: 'center' }}>
           <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
-             仪表盘导航
+             管理后台
           </Typography>
         </Box>
         <Divider />

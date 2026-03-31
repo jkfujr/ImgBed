@@ -62,7 +62,7 @@ export default function HomePage() {
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
         <Card sx={{ maxWidth: 600, width: '100%', p: 4, textAlign: 'center', boxShadow: 3, borderRadius: 3 }}>
            <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-               图片托管
+               ImgBed
            </Typography>
            <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
                点击按钮或拖拽图片文件进行上传

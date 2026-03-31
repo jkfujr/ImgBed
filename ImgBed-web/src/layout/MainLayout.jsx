@@ -40,7 +40,7 @@ export default function MainLayout() {
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
       <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar>
-          {/* Logo / Title Area */}
+          {/* Logo 区域 */}
           <IconButton edge="start" color="primary" onClick={() => navigate('/')} sx={{ mr: 1 }}>
              <CloudUploadIcon />
           </IconButton>
@@ -83,12 +83,12 @@ export default function MainLayout() {
                ) : (
                   <MenuItem key="home" onClick={() => handleNavigate('/')}>
                      <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                     返回上传
+                     上传首页
                   </MenuItem>
                ),
                <MenuItem key="logout" onClick={handleLogout} sx={{ color: 'error.main' }}>
                   <ListItemIcon><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
-                  登出系统
+                  退出登录
                </MenuItem>
             ] : (
                <MenuItem onClick={() => handleNavigate('/login')}>
@@ -100,7 +100,7 @@ export default function MainLayout() {
         </Toolbar>
       </AppBar>
 
-      {/* Main Content Render Box Container */}
+      {/* 内容主体 */}
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
           <Outlet /> 
       </Box>

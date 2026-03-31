@@ -36,7 +36,7 @@ export default function LoginPage() {
               <LockOutlinedIcon />
            </Box>
            <Typography component="h1" variant="h5" fontWeight="bold">
-             管理员系统终端
+              管理后台
            </Typography>
         </Box>
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
               disabled={loading}
               sx={{ mt: 3, mb: 2, borderRadius: 2, py: 1.5 }}
           >
-              {loading ? <CircularProgress size={24} color="inherit" /> : '接管系统权限'}
+              {loading ? <CircularProgress size={24} color="inherit" /> : '登录'}
           </Button>
           <Box sx={{ mt: 2, textAlign: 'center' }}>
             <Typography variant="caption" color="text.secondary">

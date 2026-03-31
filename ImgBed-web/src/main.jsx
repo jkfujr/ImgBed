@@ -10,7 +10,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import FilesAdmin from './pages/admin/FilesAdmin';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-// 极简冷峻蓝色 Mui 风格
+// 主题配置
 const theme = createTheme({
     palette: {
       mode: 'light', // TODO 可以以后跟随系统
@@ -33,12 +33,12 @@ const theme = createTheme({
 });
 
 /**
- * 后台门禁路由组件：
- * 如果未能读出挂载的认证身份则回弹到 /login
+ * 路由守卫：
+ * 如果未登录则重定向到 /login
  */
 function RequireAuth({ children }) {
     const { isAuthenticated, loading } = useAuth();
-    if (loading) return <div>校验授权中...</div>; // 简单的阻退层
+    if (loading) return <div>正在验证...</div>;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     return children;
 }
@@ -50,7 +50,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
           <BrowserRouter>
               <Routes>
-                  {/* 使用公共主导航框架的方法挂载 */}
+                  {/* 公共布局 */}
                   <Route path="/" element={<Layout />}>
                       <Route index element={<HomePage />} />
                       <Route path="/login" element={<LoginPage />} />
@@ -62,7 +62,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                       }>
                            <Route index element={<Navigate to="files" replace />} />
                            <Route path="files" element={<FilesAdmin />} />
-                           <Route path="settings" element={<div>开发中...</div>} />
+                           <Route path="settings" element={<div>功能开发中</div>} />
                       </Route>
                       <Route path="*" element={<Navigate to="/" replace/>} />
                   </Route>
