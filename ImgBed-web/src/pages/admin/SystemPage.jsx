@@ -5,6 +5,7 @@ import {
   Tabs, Tab, FormControlLabel, Radio, RadioGroup, FormGroup, Checkbox,
 } from '@mui/material';
 import { api, StorageDocs } from '../../api';
+import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function SystemPage() {
   const [loading, setLoading] = useState(true);
@@ -152,7 +153,7 @@ export default function SystemPage() {
 
       {/* 分页 1: 系统配置 */}
       {currentTab === 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3 }}>
+        <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {result && (
               <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
@@ -202,7 +203,7 @@ export default function SystemPage() {
 
       {/* 分页 2: 存储策略 */}
       {currentTab === 1 && (
-        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3 }}>
+        <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
           <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储上传策略</Typography>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {lbResult && (

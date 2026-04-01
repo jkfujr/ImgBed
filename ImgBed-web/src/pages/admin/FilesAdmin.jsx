@@ -17,10 +17,13 @@ import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import MasonryImageItem from '../../components/admin/MasonryImageItem';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useUserPreference } from '../../hooks/useUserPreference';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
 
-import { DEFAULT_PAGE_SIZE } from '../../utils/constants';
+import { DEFAULT_PAGE_SIZE, BORDER_RADIUS } from '../../utils/constants';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -29,11 +32,11 @@ export default function FilesAdmin() {
   const isXl = useMediaQuery(theme.breakpoints.up('xl'));
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
   const isMd = useMediaQuery(theme.breakpoints.up('md'));
-  const prefCols = parseInt(localStorage.getItem('pref_masonry_cols') || '0');
+  const [prefCols] = useUserPreference('pref_masonry_cols', '0');
   const autoCols = isXl ? 5 : isLg ? 4 : isMd ? 3 : 2;
-  const cols = prefCols > 0 ? prefCols : autoCols;
+  const cols = parseInt(prefCols) > 0 ? parseInt(prefCols) : autoCols;
 
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('pref_view_mode') || 'masonry');
+  const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -42,7 +45,7 @@ export default function FilesAdmin() {
   const [currentDir, setCurrentDir] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [searchInput, setSearchInput] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
+  const searchDebounced = useDebouncedValue(searchInput, 300);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, ids: [], label: '' });
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
@@ -51,7 +54,6 @@ export default function FilesAdmin() {
   const pathInputRef = useRef(null);
   const pageRef = useRef(0);
   const sentinelRef = useRef(null);
-  const debounceRef = useRef(null);
   const loadingRef = useRef(false);
   // 用 ref 存储最新的 currentDir 和 searchDebounced，避免 loadPage 闭包问题
   const latestParamsRef = useRef({ currentDir: null, searchDebounced: '' });
@@ -65,10 +67,7 @@ export default function FilesAdmin() {
   const [availableChannels, setAvailableChannels] = useState([]);
 
   const handleSearchChange = (e) => {
-    const val = e.target.value;
-    setSearchInput(val);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setSearchDebounced(val), 300);
+    setSearchInput(e.target.value);
   };
 
   const loadPage = useCallback(async (pageNum, append) => {
@@ -240,7 +239,6 @@ export default function FilesAdmin() {
   const navigateToDir = (path) => {
     setCurrentDir(path || null);
     setSearchInput('');
-    setSearchDebounced('');
     setPathEditing(false);
   };
 
@@ -291,7 +289,7 @@ export default function FilesAdmin() {
               cursor: 'text',
               display: 'flex', alignItems: 'center',
               px: 1.5, py: 1,
-              border: 1, borderColor: 'divider', borderRadius: 1,
+              border: 1, borderColor: 'divider', borderRadius: BORDER_RADIUS.sm,
               bgcolor: 'background.paper',
               transition: 'border-color 0.15s, box-shadow 0.15s',
               '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 1px theme.palette.primary.main' },
@@ -359,7 +357,7 @@ export default function FilesAdmin() {
           position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
           zIndex: 1200, px: 3, py: 1.5,
           display: 'flex', alignItems: 'center', gap: 1.5,
-          borderRadius: 3, whiteSpace: 'nowrap',
+          borderRadius: BORDER_RADIUS.lg, whiteSpace: 'nowrap',
         }}>
           <Typography variant="body2" fontWeight="medium">已选 {selected.size} 项</Typography>
           <Divider orientation="vertical" flexItem />
@@ -388,7 +386,7 @@ export default function FilesAdmin() {
               <Paper key={dir.path} variant="outlined"
                 onClick={() => navigateToDir(dir.path)}
                 sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.5,
-                  cursor: 'pointer', borderRadius: 2,
+                  cursor: 'pointer', borderRadius: BORDER_RADIUS.md,
                   '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
                   transition: 'all 0.15s' }}
               >
@@ -467,7 +465,7 @@ export default function FilesAdmin() {
                           src={`/${item.id}`}
                           alt={item.original_name || item.file_name}
                           loading="lazy"
-                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, display: 'block' }}
+                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: BORDER_RADIUS.sm, display: 'block' }}
                         />
                       </TableCell>
                       <TableCell sx={{ maxWidth: 280 }}>
@@ -519,19 +517,17 @@ export default function FilesAdmin() {
       </Box>
 
       {/* 删除确认弹窗 */}
-      <Dialog open={deleteDialog.open} onClose={closeDeleteDialog}>
-        <DialogTitle>确认删除</DialogTitle>
-        <DialogContent dividers>
-          确定要彻底删除 <b>{deleteDialog.label}</b> 吗？<br />
-          此操作将同时从数据库和云存储中永久移除，且不可恢复。
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDeleteDialog} disabled={deleting}>取消</Button>
-          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? <CircularProgress size={18} color="inherit" /> : '确认删除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteDialog.open}
+        title="确认删除"
+        onClose={closeDeleteDialog}
+        onConfirm={confirmDelete}
+        confirmLoading={deleting}
+        confirmText="确认删除"
+      >
+        确定要彻底删除 <b>{deleteDialog.label}</b> 吗？<br />
+        此操作将同时从数据库和云存储中永久移除，且不可恢复。
+      </ConfirmDialog>
 
       {/* 迁移渠道弹窗 */}
       <Dialog open={migrateDialog.open} onClose={() => !migrating && setMigrateDialog({ open: false, ids: [] })} maxWidth="sm" fullWidth>

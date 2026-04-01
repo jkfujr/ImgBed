@@ -15,7 +15,8 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { CHANNEL_SCHEMAS, TYPE_COLORS, VALID_TYPES } from '../../utils/constants';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import { CHANNEL_SCHEMAS, TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
 import { api, StorageDocs } from '../../api';
 
@@ -248,7 +249,7 @@ export default function StorageChannelsPage() {
                 <Grid container spacing={2}>
                   {group.map((s) => (
                     <Grid size={{ xs: 12, sm: 6, md: 4 }} key={s.id}>
-                      <Card variant="outlined" sx={{ borderRadius: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <Card variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <CardContent sx={{ flexGrow: 1 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                             {s.id === defaultId && (
@@ -298,7 +299,7 @@ export default function StorageChannelsPage() {
                                   variant="determinate"
                                   value={percent}
                                   color={color}
-                                  sx={{ height: 8, borderRadius: 4 }}
+                                  sx={{ height: 8, borderRadius: BORDER_RADIUS.sm }}
                                 />
                                 {isOverThreshold && (
                                   <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
@@ -483,18 +484,16 @@ export default function StorageChannelsPage() {
       </Dialog>
 
       {/* 删除确认弹窗 */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>确认删除</DialogTitle>
-        <DialogContent>
-          <Typography>确定要删除渠道「{deleteTarget?.name}」（{deleteTarget?.id}）吗？此操作不可撤销。</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleDelete} disabled={deleting}>
-            {deleting ? <CircularProgress size={18} color="inherit" /> : '确认删除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="确认删除"
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        confirmLoading={deleting}
+        confirmText="确认删除"
+      >
+        确定要删除渠道「{deleteTarget?.name}」（{deleteTarget?.id}）吗？此操作不可撤销。
+      </ConfirmDialog>
     </Box>
   );
 }

@@ -1,17 +1,18 @@
 import React, { memo } from 'react';
 import { Box, ImageListItem, Checkbox, Typography, IconButton, Tooltip } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { BORDER_RADIUS } from '../../utils/constants';
 
 /**
  * 纯图片展示组件 - 独立 memo，只有 id 改变才重渲染
  * 鼠标移动悬浮不会触发这个组件重渲染，图片永远稳定
  */
 const MasonryImage = memo(({ item }) => (
-  <img
+  <Box component="img"
     src={`/${item.id}`}
     alt={item.original_name || item.file_name}
     loading="lazy"
-    style={{ display: 'block', width: '100%', borderRadius: 8 }}
+    sx={{ display: 'block', width: '100%', borderRadius: BORDER_RADIUS.md }}
   />
 ), (prev, next) => prev.item.id === next.item.id);
 MasonryImage.displayName = 'MasonryImage';
@@ -30,7 +31,7 @@ const MasonryImageItem = memo(({
   <ImageListItem
     sx={{
       position: 'relative',
-      borderRadius: 2,
+      borderRadius: BORDER_RADIUS.md,
       overflow: 'hidden',
       '&:hover .overlay-controls': { opacity: 1 },
     }}
@@ -47,7 +48,7 @@ const MasonryImageItem = memo(({
     }}>
       <Checkbox size="small" checked={isSelected}
         onChange={() => toggleSelect(item.id)}
-        sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, p: 0.3,
+        sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: BORDER_RADIUS.sm, p: 0.3,
           '&:hover': { bgcolor: 'white' } }} />
     </Box>
     {/* 底部信息条 - 同样 CSS :hover 控制 */}

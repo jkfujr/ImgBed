@@ -3,6 +3,7 @@ import { Box, Paper, Typography, TextField, Button, CircularProgress, Alert } fr
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { BORDER_RADIUS } from '../utils/constants';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -30,7 +31,7 @@ export default function LoginPage() {
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Paper elevation={3} sx={{ p: 5, maxWidth: 400, width: '100%', borderRadius: 3 }}>
+      <Paper elevation={3} sx={{ p: 5, maxWidth: 400, width: '100%', borderRadius: BORDER_RADIUS.lg }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
            <Box sx={{ m: 1, bgcolor: 'secondary.main', p: 1, borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center' }}>
               <LockOutlinedIcon />
@@ -74,7 +75,7 @@ export default function LoginPage() {
               color="primary"
               size="large"
               disabled={loading}
-              sx={{ mt: 3, mb: 2, borderRadius: 2, py: 1.5 }}
+              sx={{ mt: 3, mb: 2, borderRadius: BORDER_RADIUS.md, py: 1.5 }}
           >
               {loading ? <CircularProgress size={24} color="inherit" /> : '登录'}
           </Button>

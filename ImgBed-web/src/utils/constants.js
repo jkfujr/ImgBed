@@ -61,3 +61,12 @@ export const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp
  * 分页默认每页大小
  */
 export const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * 统一圆角规范（使用 MUI 主题单元，1 = 4px）
+ */
+export const BORDER_RADIUS = {
+  sm: 1, // 小元素：缩略图、进度条、列表项
+  md: 2, // 中元素：卡片、按钮、对话框
+  lg: 3, // 大元素：页面卡片、登录框
+};

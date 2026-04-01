@@ -9,6 +9,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import api from '../api';
+import { ALLOWED_IMAGE_EXTENSIONS, BORDER_RADIUS } from '../utils/constants';
 
 // 单个文件的状态：idle | uploading | done | error
 const createFileEntry = (file) => ({
@@ -31,10 +32,19 @@ export default function HomePage() {
   const patchEntry = (id, patch) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
+  // 检查文件扩展名是否在允许列表中
+  const isAllowedImage = (fileName) => {
+    const lower = fileName.toLowerCase();
+    return ALLOWED_IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
+  };
+
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     const valid = files.filter((f) => {
-      if (!f.type.startsWith('image/')) {
+      // 同时检查 MIME 类型 和 文件扩展名
+      const isImageType = f.type.startsWith('image/');
+      const isAllowedExt = isAllowedImage(f.name);
+      if (!isImageType && !isAllowedExt) {
         showToast(`「${f.name}」不是图片，已跳过`, 'warning');
         return false;
       }
@@ -100,7 +110,7 @@ export default function HomePage() {
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
-      <Card sx={{ maxWidth: 640, width: '100%', p: 4, boxShadow: 3, borderRadius: 3 }}>
+      <Card sx={{ maxWidth: 640, width: '100%', p: 4, boxShadow: 3, borderRadius: BORDER_RADIUS.lg }}>
         <Typography variant="h5" fontWeight="bold" textAlign="center" mb={1}>
           图片上传
         </Typography>
@@ -116,7 +126,10 @@ export default function HomePage() {
             if (uploading) return;
             const files = Array.from(e.dataTransfer.files || []);
             const valid = files.filter((f) => {
-              if (!f.type.startsWith('image/')) {
+              // 同时检查 MIME 类型 和 文件扩展名
+              const isImageType = f.type.startsWith('image/');
+              const isAllowedExt = isAllowedImage(f.name);
+              if (!isImageType && !isAllowedExt) {
                 showToast(`「${f.name}」不是图片，已跳过`, 'warning');
                 return false;
               }
@@ -127,7 +140,7 @@ export default function HomePage() {
           sx={{
             border: '2px dashed',
             borderColor: 'primary.light',
-            borderRadius: 2,
+            borderRadius: BORDER_RADIUS.md,
             p: 4,
             textAlign: 'center',
             cursor: uploading ? 'not-allowed' : 'pointer',
@@ -167,7 +180,7 @@ export default function HomePage() {
                 </Button>
               )}
             </Box>
-            <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+            <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: BORDER_RADIUS.sm, overflow: 'hidden' }}>
               {entries.map((entry, idx) => (
                 <React.Fragment key={entry.id}>
                   {idx > 0 && <Divider />}
@@ -180,14 +193,14 @@ export default function HomePage() {
                       component="img"
                       src={URL.createObjectURL(entry.file)}
                       alt={entry.file.name}
-                      sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, flexShrink: 0 }}
+                      sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: BORDER_RADIUS.sm, flexShrink: 0 }}
                     />
                     {/* 文件名 + 状态 */}
                     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                       <Typography variant="body2" noWrap title={entry.file.name}>
                         {entry.file.name}
                       </Typography>
-                      {entry.status === 'uploading' && <LinearProgress sx={{ mt: 0.5, height: 3, borderRadius: 1 }} />}
+                      {entry.status === 'uploading' && <LinearProgress sx={{ mt: 0.5, height: 3, borderRadius: BORDER_RADIUS.sm }} />}
                       {entry.status === 'error' && (
                         <Typography variant="caption" color="error">{entry.errorMsg}</Typography>
                       )}

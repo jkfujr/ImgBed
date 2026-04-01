@@ -8,7 +8,9 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import TuneIcon from '@mui/icons-material/Tune';
 import LockIcon from '@mui/icons-material/Lock';
 import { useAuth } from '../../hooks/useAuth';
+import { useUserPreference } from '../../hooks/useUserPreference';
 import { AuthDocs } from '../../api';
+import { BORDER_RADIUS } from '../../utils/constants';
 
 function TabPanel({ value, index, children }) {
   return value === index ? <Box sx={{ pt: 3 }}>{children}</Box> : null;
@@ -18,10 +20,10 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState(0);
 
-  // 偏好状态（从 localStorage 读取初始值）
-  const [prefCols, setPrefCols] = useState(localStorage.getItem('pref_masonry_cols') || '0');
-  const [prefPageSize, setPrefPageSize] = useState(localStorage.getItem('pref_page_size') || '20');
-  const [prefShowFilename, setPrefShowFilename] = useState(localStorage.getItem('pref_show_filename') !== 'false');
+  // 偏好状态 - 自动持久化到 localStorage
+  const [prefCols, setPrefCols] = useUserPreference('pref_masonry_cols', '0');
+  const [prefPageSize, setPrefPageSize] = useUserPreference('pref_page_size', '20');
+  const [prefShowFilename, setPrefShowFilename] = useUserPreference('pref_show_filename', true);
 
   // 密码安全状态
   const [newPassword, setNewPassword] = useState('');
@@ -32,19 +34,14 @@ export default function SettingsPage() {
   const handlePrefCols = (_, val) => {
     if (val === null) return;
     setPrefCols(val);
-    localStorage.setItem('pref_masonry_cols', val);
   };
 
   const handlePrefPageSize = (e) => {
-    const val = e.target.value;
-    setPrefPageSize(val);
-    localStorage.setItem('pref_page_size', val);
+    setPrefPageSize(e.target.value);
   };
 
   const handlePrefShowFilename = (e) => {
-    const val = e.target.checked;
-    setPrefShowFilename(val);
-    localStorage.setItem('pref_show_filename', String(val));
+    setPrefShowFilename(e.target.checked);
   };
 
   const handleChangePassword = async () => {
@@ -78,7 +75,7 @@ export default function SettingsPage() {
     <Box sx={{ maxWidth: 640 }}>
       <Typography variant="h6" fontWeight="bold" mb={2}>设置</Typography>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+      <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<AccountCircleIcon fontSize="small" />} iconPosition="start" label="个人资料" />
           <Tab icon={<TuneIcon fontSize="small" />} iconPosition="start" label="偏好" />

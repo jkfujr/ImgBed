@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 import { AppBar } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LoginIcon from '@mui/icons-material/Login';
+import { BORDER_RADIUS } from '../utils/constants';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
@@ -73,7 +74,7 @@ export default function MainLayout() {
             anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
             PaperProps={{
                elevation: 3,
-               sx: { mt: 1, minWidth: 150, borderRadius: 2 }
+               sx: { mt: 1, minWidth: 150, borderRadius: BORDER_RADIUS.md }
             }}
           >
             {isAuthenticated ? [

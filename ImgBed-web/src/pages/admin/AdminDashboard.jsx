@@ -6,6 +6,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { BORDER_RADIUS } from '../../utils/constants';
 
 const drawerWidth = 240;
 const collapsedWidth = 56;
@@ -73,7 +74,7 @@ export default function AdminDashboard() {
                   <ListItemButton
                     onClick={() => navigate(item.path)}
                     sx={{
-                      borderRadius: 1,
+                      borderRadius: BORDER_RADIUS.sm,
                       justifyContent: collapsed ? 'center' : 'flex-start',
                       px: collapsed ? 1 : 2,
                       bgcolor: isSelected ? 'primary.50' : 'transparent',
