@@ -2,14 +2,13 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, Typography, ImageList, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
-  DialogActions, Button, CircularProgress, TextField, InputAdornment,
+  DialogActions, Button, CircularProgress,
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
   FormControl, InputLabel, Select, MenuItem, LinearProgress,
   useTheme, useMediaQuery, Menu, ListItemIcon
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FolderIcon from '@mui/icons-material/Folder';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -25,7 +24,6 @@ import MasonryImageItem from '../../components/admin/MasonryImageItem';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import PasteUploadDialog from '../../components/common/PasteUploadDialog';
 import CreateFolderDialog from '../../components/common/CreateFolderDialog';
-import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useUserPreference } from '../../hooks/useUserPreference';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
@@ -52,8 +50,6 @@ export default function FilesAdmin() {
   const [directories, setDirectories] = useState([]);
   const [currentDir, setCurrentDir] = useState(null);
   const [selected, setSelected] = useState(new Set());
-  const [searchInput, setSearchInput] = useState('');
-  const searchDebounced = useDebouncedValue(searchInput, 300);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, ids: [], label: '' });
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
@@ -63,9 +59,9 @@ export default function FilesAdmin() {
   const pageRef = useRef(0);
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
-  // 用 ref 存储最新的 currentDir 和 searchDebounced，避免 loadPage 闭包问题
-  const latestParamsRef = useRef({ currentDir: null, searchDebounced: '' });
-  latestParamsRef.current = { currentDir, searchDebounced };
+  // 用 ref 存储最新的 currentDir，避免 loadPage 闭包问题
+  const latestParamsRef = useRef({ currentDir: null });
+  latestParamsRef.current = { currentDir };
 
   // 迁移相关状态
   const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
@@ -82,20 +78,15 @@ export default function FilesAdmin() {
   const fileInputRef = useRef(null);
   const dirInputRef = useRef(null);
 
-  const handleSearchChange = (e) => {
-    setSearchInput(e.target.value);
-  };
-
   const loadPage = useCallback(async (pageNum, append) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      const { currentDir: dir, searchDebounced: search } = latestParamsRef.current;
+      const { currentDir: dir } = latestParamsRef.current;
       const params = { page: pageNum, pageSize: PAGE_SIZE };
       if (dir) params.directory = dir;
-      if (search) params.search = search;
       const res = await FileDocs.list(params);
       if (res.code === 0 && res.data) {
         const list = res.data.list || [];
@@ -145,7 +136,7 @@ export default function FilesAdmin() {
     pageRef.current = 0;
     loadPage(1, false);
     fetchDirectories();
-  }, [searchDebounced, currentDir]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentDir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 无限滚动 sentinel
   useEffect(() => {
@@ -254,7 +245,6 @@ export default function FilesAdmin() {
 
   const navigateToDir = (path) => {
     setCurrentDir(path || null);
-    setSearchInput('');
     setPathEditing(false);
   };
 
@@ -276,11 +266,6 @@ export default function FilesAdmin() {
     if (!val) return;
     setViewMode(val);
     localStorage.setItem('pref_view_mode', val);
-  };
-
-  // 新建菜单处理函数
-  const handleCreateMenuOpen = (event) => {
-    setCreateMenuAnchor(event.currentTarget);
   };
 
   const handleCreateMenuClose = () => {
@@ -423,23 +408,6 @@ export default function FilesAdmin() {
 
         {/* 右侧操作区 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <TextField
-            size="small"
-            placeholder="搜索..."
-            value={searchInput}
-            onChange={handleSearchChange}
-            sx={{ width: 160, bgcolor: 'background.paper' }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" />
-                  </InputAdornment>
-                )
-              }
-            }}
-          />
-          <Divider orientation="vertical" flexItem />
           <ToggleButtonGroup value={viewMode} exclusive onChange={handleViewModeChange} size="small"
             sx={{ bgcolor: 'background.paper' }}>
             <ToggleButton value="masonry" aria-label="瀑布流">

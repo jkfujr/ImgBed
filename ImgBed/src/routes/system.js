@@ -132,6 +132,50 @@ systemApp.get('/storages', async (c) => {
 });
 
 /**
+ * 获取存储渠道统计信息
+ * GET /api/system/storages/stats
+ */
+systemApp.get('/storages/stats', async (c) => {
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    const fileStorages = cfg.storage?.storages || [];
+
+    // 从数据库读取元数据
+    const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+    const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
+
+    // 统计数据
+    let enabled = 0;
+    let allowUpload = 0;
+    const byType = {};
+
+    fileStorages.forEach(s => {
+      const dbCh = dbMap.get(s.id);
+      const isEnabled = dbCh ? Boolean(dbCh.enabled) : s.enabled;
+      const canUpload = dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload;
+
+      if (isEnabled) enabled++;
+      if (canUpload) allowUpload++;
+      byType[s.type] = (byType[s.type] || 0) + 1;
+    });
+
+    return c.json({
+      code: 0,
+      message: 'success',
+      data: {
+        total: fileStorages.length,
+        enabled,
+        allowUpload,
+        byType
+      }
+    });
+  } catch (err) {
+    return c.json({ code: 500, message: '读取统计信息失败: ' + err.message }, 500);
+  }
+});
+
+/**
  * 测试存储渠道连接（临时创建实例，不修改配置）
  * POST /api/system/storages/test
  * Body: { type: string, config: object }

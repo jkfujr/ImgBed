@@ -174,8 +174,6 @@ export default function SystemPage() {
 
   return (
     <Box sx={{ maxWidth: 800 }}>
-      <Typography variant="h6" fontWeight="bold" mb={2}>系统配置</Typography>
-
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
           <Tab label="系统配置" />

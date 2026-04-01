@@ -24,6 +24,7 @@ export default function StorageChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [quotaStats, setQuotaStats] = useState({});
+  const [stats, setStats] = useState(null);
 
   // 弹窗状态
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -37,10 +38,11 @@ export default function StorageChannelsPage() {
     setLoading(true);
     setError(null);
     try {
-      // 并行请求：渠道列表 + 容量统计，减少总加载时间
-      const [listRes, quotaRes] = await Promise.all([
+      // 并行请求：渠道列表 + 容量统计 + 统计信息，减少总加载时间
+      const [listRes, quotaRes, statsRes] = await Promise.all([
         StorageDocs.list(),
-        api.get('/api/system/quota-stats').catch(() => ({ code: -1, data: { stats: {} } }))
+        api.get('/api/system/quota-stats').catch(() => ({ code: -1, data: { stats: {} } })),
+        StorageDocs.stats().catch(() => ({ code: -1, data: null }))
       ]);
 
       if (listRes.code === 0) {
@@ -52,6 +54,10 @@ export default function StorageChannelsPage() {
 
       if (quotaRes.code === 0 && quotaRes.data) {
         setQuotaStats(quotaRes.data.stats || {});
+      }
+
+      if (statsRes.code === 0 && statsRes.data) {
+        setStats(statsRes.data);
       }
     } catch {
       setError('网络错误，请检查后端服务');
@@ -106,8 +112,19 @@ export default function StorageChannelsPage() {
 
   return (
     <Box>
-      {/* 工具栏：刷新按钮 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mb: 3 }}>
+      {/* 统计信息栏 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {stats ? (
+            <>
+              <Chip label={`共 ${stats.total} 个渠道`} size="small" variant="outlined" />
+              <Chip label={`${stats.enabled} 个已启用`} size="small" color="success" />
+              <Chip label={`${stats.allowUpload} 个允许上传`} size="small" color="primary" />
+            </>
+          ) : (
+            <Chip label="加载中..." size="small" variant="outlined" />
+          )}
+        </Box>
         <Tooltip title="刷新列表">
           <span>
             <IconButton size="small" onClick={loadStorages} disabled={loading}>

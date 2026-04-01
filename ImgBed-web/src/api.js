@@ -58,6 +58,7 @@ export const DirectoryDocs = {
 
 export const StorageDocs = {
   list:       ()         => api.get('/api/system/storages'),
+  stats:      ()         => api.get('/api/system/storages/stats'),
   create:     (data)     => api.post('/api/system/storages', data),
   update:     (id, data) => api.put(`/api/system/storages/${id}`, data),
   remove:     (id)       => api.delete(`/api/system/storages/${id}`),
