@@ -7,53 +7,38 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import ImageIcon from '@mui/icons-material/Image';
 import { useNavigate } from 'react-router-dom';
-import { FileDocs } from '../../api';
+import { useFileList } from '../../hooks/useFileList';
 
 export default function SearchDialog({ open, onClose }) {
   const [searchInput, setSearchInput] = useState('');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const { data: results, loading, loadFiles } = useFileList();
   const navigate = useNavigate();
 
+  const handleClose = () => {
+    setSearchInput('');
+    onClose();
+  };
+
   useEffect(() => {
-    if (!open) {
-      setSearchInput('');
-      setResults([]);
-      return;
-    }
+    if (!open || !searchInput.trim()) return;
 
-    if (!searchInput.trim()) {
-      setResults([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await FileDocs.list({ search: searchInput, page: 1, pageSize: 20 });
-        if (res.code === 0) {
-          setResults(res.data.list || []);
-        }
-      } catch (err) {
-        console.error('搜索失败:', err);
-      } finally {
-        setLoading(false);
-      }
+    const timer = setTimeout(() => {
+      loadFiles({ search: searchInput, page: 1, pageSize: 20 });
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchInput, open]);
+  }, [searchInput, open, loadFiles]);
 
   const handleItemClick = (item) => {
     const dir = item.directory || '';
     navigate(`/admin/files?path=${encodeURIComponent(dir)}`);
-    onClose();
+    handleClose();
   };
 
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       maxWidth="md"
       fullWidth
       PaperProps={{
