@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Box, Typography, ImageList, ImageListItem, Checkbox, Chip,
+  Box, Typography, ImageList, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Button, CircularProgress, TextField, InputAdornment,
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
@@ -16,9 +16,13 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import MasonryImageItem from '../../components/admin/MasonryImageItem';
+import { fmtDate, fmtSize, parseChannelName, channelTypeLabel } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
 
-const PAGE_SIZE = 20;
+import { DEFAULT_PAGE_SIZE } from '../../utils/constants';
+
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export default function FilesAdmin() {
   const theme = useTheme();
@@ -253,115 +257,6 @@ export default function FilesAdmin() {
   };
 
   const cancelPathEdit = () => setPathEditing(false);
-
-  const fmtDate = (str) => {
-    if (!str) return '-';
-    return new Date(str).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' });
-  };
-
-  const fmtSize = (bytes) => {
-    if (!bytes && bytes !== 0) return '-';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-  };
-
-  const parseChannelName = (storageConfig) => {
-    if (!storageConfig) return '-';
-    try {
-      const cfg = typeof storageConfig === 'string' ? JSON.parse(storageConfig) : storageConfig;
-      return cfg.instance_id || '-';
-    } catch {
-      return '-';
-    }
-  };
-
-  const channelTypeLabel = (channel) => {
-    const map = { local: '本地', s3: 'S3', telegram: 'Telegram', discord: 'Discord', huggingface: 'HuggingFace' };
-    return map[channel] || channel || '-';
-  };
-
-  // 瀑布流图片项 - 使用 CSS :hover 处理悬浮效果，完全不需要 React 状态
-  // 这样鼠标移动根本不会触发任何重渲染，自然不会重新加载图片
-  const MasonryImage = memo(({ item }) => (
-    <img
-      src={`/${item.id}`}
-      alt={item.original_name || item.file_name}
-      loading="lazy"
-      style={{ display: 'block', width: '100%', borderRadius: 8 }}
-    />
-  ), (prev, next) => prev.item.id === next.item.id);
-  MasonryImage.displayName = 'MasonryImage';
-
-  const MasonryImageItem = memo(({
-    item,
-    isSelected,
-    toggleSelect,
-    triggerDelete
-  }) => (
-    <ImageListItem
-      sx={{
-        position: 'relative',
-        borderRadius: 2,
-        overflow: 'hidden',
-        '&:hover .overlay-controls': { opacity: 1 },
-      }}
-    >
-      <MasonryImage item={item} />
-      {/* 左上角复选框 - 选中总是显示，hover 显示，CSS 过渡，不需要 React 状态 */}
-      <Box className="overlay-controls" component="div" sx={{
-        position: 'absolute',
-        top: 4,
-        left: 4,
-        opacity: isSelected ? 1 : 0,
-        transition: 'opacity 0.15s',
-        '&:hover': { opacity: 1 },
-      }}>
-        <Checkbox size="small" checked={isSelected}
-          onChange={() => toggleSelect(item.id)}
-          sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, p: 0.3,
-            '&:hover': { bgcolor: 'white' } }} />
-      </Box>
-      {/* 底部信息条 - 同样 CSS :hover 控制 */}
-      <Box className="overlay-controls" component="div" sx={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        bgcolor: 'rgba(0,0,0,0.55)',
-        color: 'white',
-        px: 1,
-        py: 0.5,
-        display: 'flex',
-        alignItems: 'center',
-        opacity: isSelected ? 1 : 0,
-        transition: 'opacity 0.15s',
-        '&:hover': { opacity: 1 },
-      }}>
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
-          <Typography variant="caption" noWrap sx={{ display: 'block' }}>
-            {item.original_name || item.file_name}
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.75 }}>
-            {fmtDate(item.created_at)}
-          </Typography>
-        </Box>
-        <Tooltip title="删除">
-          <IconButton size="small" sx={{ color: 'white', '&:hover': { color: '#ff6b6b' } }}
-            onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    </ImageListItem>
-  ), (prev, next) => {
-    // 只有 id 和选中状态改变才重渲染
-    // 完全不需要 hover 状态！CSS 自己处理悬浮
-    return prev.item.id === next.item.id &&
-           prev.isSelected === next.isSelected;
-  });
-  MasonryImageItem.displayName = 'MasonryImageItem';
 
   const handleViewModeChange = (_, val) => {
     if (!val) return;

@@ -15,54 +15,9 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { StorageDocs } from '../../api';
-
-// 各存储类型的 config 字段定义
-const CHANNEL_SCHEMAS = {
-  local: [
-    { key: 'basePath', label: '本地路径', required: true },
-  ],
-  s3: [
-    { key: 'bucket',          label: 'Bucket 名称',    required: true },
-    { key: 'region',          label: 'Region',          required: true },
-    { key: 'accessKeyId',     label: 'Access Key ID',   required: true },
-    { key: 'secretAccessKey', label: 'Secret Access Key', required: true, sensitive: true },
-    { key: 'endpoint',        label: 'Endpoint（自定义）' },
-    { key: 'pathPrefix',      label: '路径前缀' },
-    { key: 'publicUrl',       label: '公共访问 URL' },
-  ],
-  telegram: [
-    { key: 'botToken', label: 'Bot Token', required: true, sensitive: true },
-    { key: 'chatId',   label: 'Chat ID',   required: true },
-    { key: 'proxyUrl', label: '代理地址' },
-  ],
-  discord: [
-    { key: 'webhookUrl', label: 'Webhook URL', required: true, sensitive: true },
-    { key: 'channelId',  label: 'Channel ID' },
-  ],
-  huggingface: [
-    { key: 'repo',       label: '仓库名（user/repo）', required: true },
-    { key: 'token',      label: 'API Token',            required: true, sensitive: true },
-    { key: 'pathPrefix', label: '路径前缀' },
-    { key: 'branch',     label: '分支（默认 main）' },
-  ],
-  external: [
-    { key: 'baseUrl',    label: '基础 URL', required: true },
-    { key: 'authHeader', label: '认证 Header', sensitive: true },
-  ],
-};
-
-// 渠道类型的显示颜色
-const TYPE_COLORS = {
-  local:       'default',
-  s3:          'primary',
-  telegram:    'info',
-  discord:     'secondary',
-  huggingface: 'warning',
-  external:    'success',
-};
-
-const VALID_TYPES = Object.keys(CHANNEL_SCHEMAS);
+import { CHANNEL_SCHEMAS, TYPE_COLORS, VALID_TYPES } from '../../utils/constants';
+import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
+import { api, StorageDocs } from '../../api';
 
 // 通用字段初始值
 const EMPTY_FORM = {
@@ -99,32 +54,21 @@ export default function StorageChannelsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await StorageDocs.list();
-      let storagesData = [];
-      let defaultData = '';
-      if (res.code === 0) {
-        storagesData = res.data.list || [];
-        defaultData = res.data.default || '';
+      // 并行请求：渠道列表 + 容量统计，减少总加载时间
+      const [listRes, quotaRes] = await Promise.all([
+        StorageDocs.list(),
+        api.get('/api/system/quota-stats').catch(() => ({ code: -1, data: { stats: {} } }))
+      ]);
+
+      if (listRes.code === 0) {
+        setStorages(listRes.data.list || []);
+        setDefaultId(listRes.data.default || '');
       } else {
-        setError(res.message || '加载失败');
+        setError(listRes.message || '加载失败');
       }
 
-      // 加载容量统计 - 先等统计完成再一起更新状态
-      // 这样启用容量限制后能立即显示正确的容量
-      try {
-        const quotaRes = await fetch('/api/system/quota-stats');
-        const quotaData = await quotaRes.json();
-        if (quotaData.code === 0) {
-          setQuotaStats(quotaData.data.stats || {});
-        }
-      } catch (e) {
-        console.warn('加载容量统计失败:', e);
-      }
-
-      // 一起更新渠道列表，确保渲染时就能拿到最新的quotaStats
-      if (res.code === 0) {
-        setStorages(storagesData);
-        setDefaultId(defaultData);
+      if (quotaRes.code === 0 && quotaRes.data) {
+        setQuotaStats(quotaRes.data.stats || {});
       }
     } catch {
       setError('网络错误，请检查后端服务');
@@ -327,8 +271,8 @@ export default function StorageChannelsPage() {
                             if (!quotaLimitGB || quotaLimitGB <= 0) return null;
 
                             const usedBytes = quotaStats[s.id] || 0;
-                            const usedGB = usedBytes / (1024 ** 3); // 字节 -> GB
-                            const percent = Math.min(100, (usedBytes / (quotaLimitGB * (1024 ** 3))) * 100);
+                            const usedGB = bytesToGB(usedBytes);
+                            const percent = calculateQuotaPercent(usedBytes, quotaLimitGB);
                             const thresholdPercent = s.disableThresholdPercent ?? 95;
                             const isOverThreshold = percent >= thresholdPercent;
 
