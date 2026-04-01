@@ -80,3 +80,27 @@ export function gbToBytes(gb) {
 export function calculateQuotaPercent(usedBytes, quotaLimitGB) {
   return Math.min(100, (usedBytes / gbToBytes(quotaLimitGB)) * 100);
 }
+
+/**
+ * 解析并归一化标签数据
+ * @param {string|string[]|null} tags 标签数据（JSON字符串或数组）
+ * @returns {string[]} 标签数组
+ */
+export function parseTags(tags) {
+  if (!tags) return [];
+  try {
+    const parsed = typeof tags === 'string' ? JSON.parse(tags) : tags;
+    if (Array.isArray(parsed)) {
+      return parsed.filter(t => t && typeof t === 'string').map(t => t.trim());
+    }
+    if (typeof parsed === 'string') {
+      const split = parsed.split(',').map(t => t.trim()).filter(Boolean);
+      return split;
+    }
+  } catch (e) {
+    if (typeof tags === 'string') {
+      return tags.split(',').map(t => t.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}

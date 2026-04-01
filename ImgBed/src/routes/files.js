@@ -1,18 +1,15 @@
 const { Hono } = require('hono');
 const { db } = require('../database');
-const { adminAuth } = require('../middleware/auth');
+const { adminAuth, requirePermission } = require('../middleware/auth');
 const storageManager = require('../storage/manager');
 
 const filesApp = new Hono();
-
-// 全局引入拦截机制，保护所有文件核心管控面板
-filesApp.use('*', adminAuth);
 
 /**
  * 文件列表接口 (带分页与简单过滤)
  * GET /api/files
  */
-filesApp.get('/', async (c) => {
+filesApp.get('/', requirePermission('files:read'), async (c) => {
     try {
         const page = parseInt(c.req.query('page') || '1');
         const pageSize = parseInt(c.req.query('pageSize') || '20');
@@ -67,7 +64,7 @@ filesApp.get('/', async (c) => {
  * 获取文件详细信息
  * GET /api/files/:id
  */
-filesApp.get('/:id', async (c) => {
+filesApp.get('/:id', requirePermission('files:read'), async (c) => {
     try {
         const id = c.req.param('id');
         const file = await db.selectFrom('files').selectAll().where('id', '=', id).executeTakeFirst();
@@ -87,7 +84,7 @@ filesApp.get('/:id', async (c) => {
  * 修改文件属性名称或改变所处逻辑目录
  * PUT /api/files/:id
  */
-filesApp.put('/:id', async (c) => {
+filesApp.put('/:id', adminAuth, async (c) => {
     try {
         const id = c.req.param('id');
         const body = await c.req.json().catch(() => ({}));
@@ -122,7 +119,7 @@ filesApp.put('/:id', async (c) => {
  * 执行硬删除销毁操作
  * DELETE /api/files/:id
  */
-filesApp.delete('/:id', async (c) => {
+filesApp.delete('/:id', adminAuth, async (c) => {
     try {
         const id = c.req.param('id');
         
@@ -175,7 +172,7 @@ filesApp.delete('/:id', async (c) => {
  * 大量并发管理端点 (目前支持数组批处理删除及分类移动)
  * POST /api/files/batch
  */
-filesApp.post('/batch', async (c) => {
+filesApp.post('/batch', adminAuth, async (c) => {
     try {
         const body = await c.req.json().catch(() => ({}));
         const { action, ids, target_directory } = body;

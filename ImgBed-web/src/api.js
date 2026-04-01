@@ -45,6 +45,12 @@ export const AuthDocs = {
    changePassword: (payload) => api.put('/api/auth/password', payload)
 };
 
+export const ApiTokenDocs = {
+   list: () => api.get('/api/api-tokens'),
+   create: (payload) => api.post('/api/api-tokens', payload),
+   remove: (id) => api.delete(`/api/api-tokens/${id}`)
+};
+
 export const FileDocs = {
    list: (params) => api.get('/api/files', { params }),
    update: (id, payload) => api.put(`/api/files/${id}`, payload),

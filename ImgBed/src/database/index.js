@@ -19,6 +19,14 @@ const db = new Kysely({
   }),
 });
 
+const ensureColumn = (tableName, columnName, columnSql) => {
+  const columns = sqlite.prepare(`PRAGMA table_info(${tableName})`).all();
+  const exists = columns.some((column) => column.name === columnName);
+  if (!exists) {
+    sqlite.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
+  }
+};
+
 // 初始化数据库表
 const initDb = () => {
     try {
@@ -30,41 +38,41 @@ const initDb = () => {
                 original_name TEXT NOT NULL,
                 mime_type TEXT,
                 size INTEGER NOT NULL,
-                
+
                 -- 存储渠道信息
                 storage_channel TEXT NOT NULL,
                 storage_key TEXT NOT NULL,
                 storage_config JSON,
-                
+
                 -- 上传信息
                 upload_ip TEXT,
                 upload_address TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                
+
                 -- 分类和标签
                 directory TEXT DEFAULT '/',
                 tags JSON,
-                
+
                 -- 访问权限
                 is_public BOOLEAN DEFAULT FALSE,
-                
+
                 -- 元数据
                 width INTEGER,
                 height INTEGER,
                 exif JSON,
-                
+
                 -- 渠道特有信息
                 telegram_file_id TEXT,
                 telegram_chat_id TEXT,
                 telegram_bot_token TEXT,
-                
+
                 discord_message_id TEXT,
                 discord_channel_id TEXT,
-                
+
                 huggingface_repo TEXT,
                 huggingface_path TEXT,
-                
+
                 is_chunked BOOLEAN DEFAULT FALSE,
                 chunk_count INTEGER DEFAULT 0
             );
@@ -111,20 +119,41 @@ const initDb = () => {
             CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id);
             CREATE INDEX IF NOT EXISTS idx_chunks_storage_id ON chunks(storage_id);
 
+            -- API Token 表
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                token_prefix TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                permissions JSON NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                expires_at DATETIME,
+                last_used_at DATETIME,
+                last_used_ip TEXT,
+                created_by TEXT NOT NULL DEFAULT 'admin',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires_at ON api_tokens(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_created_at ON api_tokens(created_at DESC);
+
             -- 触发器
-            CREATE TRIGGER IF NOT EXISTS update_files_updated_at 
+            CREATE TRIGGER IF NOT EXISTS update_files_updated_at
                 AFTER UPDATE ON files
                 BEGIN
                     UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
 
-            CREATE TRIGGER IF NOT EXISTS update_directories_updated_at 
+            CREATE TRIGGER IF NOT EXISTS update_directories_updated_at
                 AFTER UPDATE ON directories
                 BEGIN
                     UPDATE directories SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
 
-            CREATE TRIGGER IF NOT EXISTS update_system_settings_updated_at 
+            CREATE TRIGGER IF NOT EXISTS update_system_settings_updated_at
                 AFTER UPDATE ON system_settings
                 BEGIN
                     UPDATE system_settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
@@ -134,6 +163,12 @@ const initDb = () => {
                 AFTER UPDATE ON chunks
                 BEGIN
                     UPDATE chunks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
+
+            CREATE TRIGGER IF NOT EXISTS update_api_tokens_updated_at
+                AFTER UPDATE ON api_tokens
+                BEGIN
+                    UPDATE api_tokens SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
 
             -- 存储渠道元数据表
@@ -165,6 +200,9 @@ const initDb = () => {
                     UPDATE storage_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
         `);
+
+        ensureColumn('files', 'uploader_type', 'uploader_type TEXT');
+        ensureColumn('files', 'uploader_id', 'uploader_id TEXT');
         console.log('[数据库] 表结构初始化完成。');;
     } catch (err) {
         console.error('[数据库] 初始化失败:', err);

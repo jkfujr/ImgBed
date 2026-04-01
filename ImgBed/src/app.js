@@ -22,6 +22,9 @@ app.get('/', (c) => {
 const authRouter = require('./routes/auth');
 app.route('/api/auth', authRouter);
 
+const apiTokensRouter = require('./routes/api-tokens');
+app.route('/api/api-tokens', apiTokensRouter);
+
 const uploadRouter = require('./routes/upload');
 app.route('/api/upload', uploadRouter);
 

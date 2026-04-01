@@ -7,9 +7,11 @@ import {
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import TuneIcon from '@mui/icons-material/Tune';
 import LockIcon from '@mui/icons-material/Lock';
+import KeyIcon from '@mui/icons-material/Key';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserPreference } from '../../hooks/useUserPreference';
 import { AuthDocs } from '../../api';
+import ApiTokenPanel from '../../components/admin/ApiTokenPanel';
 import { BORDER_RADIUS } from '../../utils/constants';
 
 function TabPanel({ value, index, children }) {
@@ -73,13 +75,12 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ maxWidth: 640 }}>
-      <Typography variant="h6" fontWeight="bold" mb={2}>设置</Typography>
-
       <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<AccountCircleIcon fontSize="small" />} iconPosition="start" label="个人资料" />
           <Tab icon={<TuneIcon fontSize="small" />} iconPosition="start" label="偏好" />
           <Tab icon={<LockIcon fontSize="small" />} iconPosition="start" label="密码和安全" />
+          <Tab icon={<KeyIcon fontSize="small" />} iconPosition="start" label="API TOKEN" />
         </Tabs>
 
         <Box sx={{ px: 3, pb: 3 }}>
@@ -158,6 +159,10 @@ export default function SettingsPage() {
                 {pwdLoading ? <CircularProgress size={18} color="inherit" /> : '修改密码'}
               </Button>
             </Box>
+          </TabPanel>
+
+          <TabPanel value={tab} index={3}>
+            <ApiTokenPanel />
           </TabPanel>
         </Box>
       </Paper>

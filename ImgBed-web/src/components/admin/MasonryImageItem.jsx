@@ -7,12 +7,20 @@ import { BORDER_RADIUS } from '../../utils/constants';
  * 纯图片展示组件 - 独立 memo，只有 id 改变才重渲染
  * 鼠标移动悬浮不会触发这个组件重渲染，图片永远稳定
  */
-const MasonryImage = memo(({ item }) => (
+const MasonryImage = memo(({ item, onOpenDetail }) => (
   <Box component="img"
     src={`/${item.id}`}
     alt={item.original_name || item.file_name}
     loading="lazy"
-    sx={{ display: 'block', width: '100%', borderRadius: BORDER_RADIUS.md }}
+    onClick={() => onOpenDetail?.(item)}
+    sx={{
+      display: 'block',
+      width: '100%',
+      borderRadius: BORDER_RADIUS.md,
+      cursor: 'pointer',
+      transition: 'opacity 0.2s',
+      '&:hover': { opacity: 0.9 }
+    }}
   />
 ), (prev, next) => prev.item.id === next.item.id);
 MasonryImage.displayName = 'MasonryImage';
@@ -27,6 +35,7 @@ const MasonryImageItem = memo(({
   isSelected,
   toggleSelect,
   triggerDelete,
+  onOpenDetail,
 }) => (
   <ImageListItem
     sx={{
@@ -36,7 +45,7 @@ const MasonryImageItem = memo(({
       '&:hover .overlay-controls': { opacity: 1 },
     }}
   >
-    <MasonryImage item={item} />
+    <MasonryImage item={item} onOpenDetail={onOpenDetail} />
     {/* 左上角复选框 - 选中总是显示，hover 显示，CSS 过渡，不需要 React 状态 */}
     <Box className="overlay-controls" component="div" sx={{
       position: 'absolute',

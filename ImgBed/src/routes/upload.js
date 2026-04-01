@@ -2,7 +2,7 @@ const { Hono } = require('hono');
 const crypto = require('crypto');
 const storageManager = require('../storage/manager');
 const { db } = require('../database');
-const { adminAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/auth');
 const config = require('../config');
 const path = require('path');
 
@@ -18,7 +18,7 @@ const generateId = () => {
  * POST /api/upload
  * （可选择是否需要 adminAuth。根据需求目前加上管理员拦截。若作为公共图床，后续可配置为宽松模式）
  */
-uploadApp.post('/', adminAuth, async (c) => {
+uploadApp.post('/', requirePermission('upload:image'), async (c) => {
   try {
     const body = await c.req.parseBody();
     const file = body['file']; // 从 FormData 解析 "file" 字段
@@ -145,6 +145,10 @@ uploadApp.post('/', adminAuth, async (c) => {
         throw new Error("底层文件流转储失败: " + err.message);
     }
 
+    const auth = c.get('auth');
+    const uploaderType = auth?.type || 'admin_jwt';
+    const uploaderId = auth?.tokenId || auth?.username || 'admin';
+
     // 处理客户端环境信息
     const clientIp = c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || 'unknown';
 
@@ -166,7 +170,9 @@ uploadApp.post('/', adminAuth, async (c) => {
         
         // 环境信息
         upload_ip: String(clientIp),
-        upload_address: '{}', 
+        upload_address: '{}',
+        uploader_type: String(uploaderType),
+        uploader_id: String(uploaderId),
         
         // 其他字段默认值设定
         directory: String(body['directory'] || '/'),
