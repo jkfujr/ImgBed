@@ -16,39 +16,91 @@ class StorageManager {
     constructor() {
         this.config = config.storage || {};
         this.instances = new Map();
+        this.quotaCache = new Map(); // { [storageId]: usedBytes } 容量缓存
 
         // 负载均衡状态维护
         this.roundRobinIndex = 0;
         this.usageStats = new Map();
+        this._fullRebuildTimer = null; // 定时全量校正定时器
 
-        // 自动将配置中的已启用存储进行实例化映射
-        const configuredStorages = this.config.storages || [];
-        for (const storageConfig of configuredStorages) {
-            if (storageConfig.enabled) {
-                try {
-                    const instance = this._createInstance(storageConfig.type, storageConfig.config || {});
-                    this.instances.set(storageConfig.id, {
-                        type: storageConfig.type,
-                        allowUpload: storageConfig.allowUpload,
-                        weight: storageConfig.weight || 1,
-                        quotaLimitGB: storageConfig.quotaLimitGB,
-                        disableThresholdPercent: storageConfig.disableThresholdPercent || 95,
-                        instance: instance
-                    });
-                } catch (e) {
-                    console.error(`[StorageManager] 加载存储实例 ${storageConfig.id} 失败:`, e.message);
-                }
-            }
-        }
+        // 异步初始化：从数据库加载元数据并合并实例化
+        this._init().catch(err => console.error('[StorageManager] 初始化失败:', err.message));
+    }
 
-        // 异步初始化使用统计
+    /**
+     * 内部初始化流程
+     */
+    async _init() {
+        // 1. 优先从数据库加载容量快照（加速启动）
+        await this._loadQuotaFromHistory();
+
+        // 2. 加载渠道实例
+        await this.reload();
+
+        // 3. 异步初始化使用统计
         this._initUsageStats().catch(err => console.error('[StorageManager] 初始化使用统计失败:', err.message));
+
+        // 4. 异步执行一次全量容量校正（确保数据最新）
+        this._rebuildAllQuotaStats().catch(err =>
+            console.error('[StorageManager] 初始化容量全量校正失败:', err.message));
+
+        // 5. 启动定时器
+        this._startFullRebuildTimer();
+    }
+
+    /**
+     * 从数据库历史记录加载最近一次的容量快照
+     */
+    async _loadQuotaFromHistory() {
+        try {
+            const { db } = require('../database');
+            // 为每个渠道取最新的记录
+            const latestRecords = await db
+                .selectFrom('storage_quota_history')
+                .select(['storage_id', 'used_bytes'])
+                .where(({ eb, selectFrom }) =>
+                    eb('id', 'in',
+                        selectFrom('storage_quota_history')
+                            .select(eb => eb.fn.max('id').as('max_id'))
+                            .groupBy('storage_id')
+                    )
+                )
+                .execute();
+
+            for (const record of latestRecords) {
+                this.quotaCache.set(record.storage_id, Number(record.used_bytes) || 0);
+            }
+            if (latestRecords.length > 0) {
+                console.log(`[StorageManager] 已从数据库加载 ${latestRecords.length} 个渠道的容量快照`);
+            }
+        } catch (err) {
+            console.error('[StorageManager] 从数据库加载容量快照失败:', err.message);
+        }
+    }
+
+    /**
+     * 获取历史容量记录（用于趋势分析等）
+     * @param {string} storageId
+     * @param {number} limit
+     */
+    async getQuotaHistory(storageId, limit = 100) {
+        try {
+            const { db } = require('../database');
+            return await db.selectFrom('storage_quota_history')
+                .where('storage_id', '=', storageId)
+                .orderBy('recorded_at', 'desc')
+                .limit(limit)
+                .execute();
+        } catch (err) {
+            console.error('[StorageManager] 获取容量历史失败:', err.message);
+            return [];
+        }
     }
 
     /**
      * 根据类型实例化各类渠道
      */
-    _createInstance(type, instanceConfig) {
+    async _createInstance(type, instanceConfig) {
         switch (type.toLowerCase()) {
             case 'local':
                 return new LocalStorage(instanceConfig);
@@ -80,9 +132,9 @@ class StorageManager {
     /**
      * 判断特定的渠道是否允许进行新文件上传 (为了兼容仅支持读取的旧库)
      * @param {string} storageId 渠道 ID
-     * @param {number|null} usedBytes 已用字节总数（可选，不传则不检查容量限制）
+     * @returns {boolean}
      */
-    isUploadAllowed(storageId, usedBytes = null) {
+    isUploadAllowed(storageId) {
         const entry = this.instances.get(storageId);
         if (!entry) return false;
 
@@ -95,8 +147,8 @@ class StorageManager {
             return false;
         }
 
-        // 容量检查 - 如果提供了已用容量且超限，则不允许上传
-        if (usedBytes !== null && this.isQuotaExceeded(storageId, usedBytes)) {
+        // 使用缓存检查容量，如果超限则不允许上传
+        if (this.isQuotaExceeded(storageId)) {
             return false;
         }
 
@@ -106,10 +158,9 @@ class StorageManager {
     /**
      * 检查指定渠道是否超出容量限制
      * @param {string} storageId 渠道 ID
-     * @param {number} usedBytes 已用字节总数
      * @returns {boolean} true=已超限，false=未超限
      */
-    isQuotaExceeded(storageId, usedBytes) {
+    isQuotaExceeded(storageId) {
         const entry = this.instances.get(storageId);
         if (!entry) return true;
 
@@ -118,6 +169,7 @@ class StorageManager {
             return false;
         }
 
+        const usedBytes = this.quotaCache.get(storageId) || 0;
         // 转换单位：GB -> 字节
         const limitBytes = entry.quotaLimitGB * 1024 * 1024 * 1024;
         const thresholdPercent = entry.disableThresholdPercent || 95;
@@ -152,31 +204,57 @@ class StorageManager {
      * 热加载：重新读取 config.json 并重建所有存储实例
      * 在通过 API 修改存储渠道配置后调用，使变更立即生效
      */
-    reload() {
+    async reload() {
         const fs = require('fs');
         const path = require('path');
-        const cfgPath = path.resolve(__dirname, '../../config.json');
-        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        this.config = cfg.storage || {};
-        this.instances.clear();
-        for (const s of this.config.storages || []) {
-            if (s.enabled) {
-                try {
-                    const inst = this._createInstance(s.type, s.config || {});
-                    this.instances.set(s.id, {
-                        type: s.type,
-                        allowUpload: s.allowUpload,
-                        weight: s.weight || 1,
-                        quotaLimitGB: s.quotaLimitGB,
-                        disableThresholdPercent: s.disableThresholdPercent || 95,
-                        instance: inst
-                    });
-                } catch (e) {
-                    console.error(`[StorageManager] reload 实例 ${s.id} 失败:`, e.message);
+        const { db } = require('../database');
+
+        try {
+            const cfgPath = path.resolve(__dirname, '../../config.json');
+            const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+            const storagesInFile = fileCfg.storage?.storages || [];
+
+            // 从数据库读取元数据
+            const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+            const dbMap = new Map(dbChannels.map(c => [c.id, c]));
+
+            this.instances.clear();
+            this.config = fileCfg.storage || {};
+
+            for (const sFile of storagesInFile) {
+                const sDb = dbMap.get(sFile.id);
+
+                // 如果数据库没有（可能是新加的），则以文件为准
+                const enabled = sDb ? Boolean(sDb.enabled) : Boolean(sFile.enabled);
+
+                if (enabled) {
+                    try {
+                        const inst = await this._createInstance(sFile.type, sFile.config || {});
+                        this.instances.set(sFile.id, {
+                            type: sFile.type,
+                            name: sDb ? sDb.name : sFile.name,
+                            allowUpload: sDb ? Boolean(sDb.allow_upload) : Boolean(sFile.allowUpload),
+                            weight: sDb ? Number(sDb.weight) : (sFile.weight || 1),
+                            quotaLimitGB: sDb ? sDb.quota_limit_gb : sFile.quotaLimitGB,
+                            disableThresholdPercent: sFile.disableThresholdPercent || 95,
+                            instance: inst
+                        });
+                    } catch (e) {
+                        console.error(`[StorageManager] 加载实例 ${sFile.id} 失败:`, e.message);
+                    }
                 }
             }
+            console.log('[StorageManager] 存储渠道配置已加载，当前实例:', [...this.instances.keys()]);
+
+            // 异步刷新容量统计并重新启动定时器（如果是手动reload）
+            if (this._fullRebuildTimer) {
+                this._rebuildAllQuotaStats().catch(() => {});
+                this._stopFullRebuildTimer();
+                this._startFullRebuildTimer();
+            }
+        } catch (err) {
+            console.error('[StorageManager] reload 失败:', err.message);
         }
-        console.log('[StorageManager] 存储渠道配置已热加载，当前实例:', [...this.instances.keys()]);
     }
 
     /**
@@ -358,6 +436,118 @@ class StorageManager {
         this.usageStats.forEach((value, key) => {
             stats[key] = { ...value };
         });
+        return stats;
+    }
+
+    /**
+     * 全量重建容量缓存（从数据库统计）
+     */
+    async _rebuildAllQuotaStats() {
+        const { db } = require('../database');
+        try {
+            const result = await db
+                .selectFrom('files')
+                .select(['size', 'storage_config'])
+                .execute();
+
+            // 临时统计对象
+            const newStats = new Map();
+
+            for (const row of result) {
+                let cfg;
+                try { cfg = JSON.parse(row.storage_config || '{}'); } catch (e) { continue; }
+                const instanceId = cfg.instance_id;
+                const fileSize = Number(row.size) || 0;
+                if (instanceId) {
+                    newStats.set(instanceId, (newStats.get(instanceId) || 0) + fileSize);
+                }
+            }
+
+            // 更新内存缓存并持久化到历史表
+            this.quotaCache.clear();
+            const historyRecords = [];
+
+            for (const [id, bytes] of newStats.entries()) {
+                this.quotaCache.set(id, bytes);
+                historyRecords.push({
+                    storage_id: id,
+                    used_bytes: bytes
+                });
+            }
+
+            // 批量插入历史记录
+            if (historyRecords.length > 0) {
+                await db.insertInto('storage_quota_history')
+                    .values(historyRecords)
+                    .execute();
+            }
+
+            console.log(`[StorageManager] 容量缓存全量校正完成，已持久化 ${historyRecords.length} 条记录`);
+        } catch (err) {
+            console.error('[StorageManager] 容量缓存全量校正失败:', err.message);
+        }
+    }
+
+    /**
+     * 启动定时全量校正定时器
+     */
+    _startFullRebuildTimer() {
+        // 如果用户配置为每次全量检查，则不启动定时任务
+        const mode = config.upload?.quotaCheckMode || 'auto';
+        if (mode !== 'auto') {
+            return;
+        }
+
+        const intervalHours = config.upload?.fullCheckIntervalHours || 6;
+        const intervalMs = intervalHours * 60 * 60 * 1000;
+
+        this._fullRebuildTimer = setInterval(() => {
+            console.log('[StorageManager] 定时全量容量校正开始...');
+            this._rebuildAllQuotaStats().catch(() => {});
+        }, intervalMs);
+
+        // 保证进程退出时清除定时器
+        this._fullRebuildTimer.unref();
+    }
+
+    /**
+     * 停止定时全量校正定时器
+     */
+    _stopFullRebuildTimer() {
+        if (this._fullRebuildTimer) {
+            clearInterval(this._fullRebuildTimer);
+            this._fullRebuildTimer = null;
+        }
+    }
+
+    /**
+     * 增量更新容量缓存（上传成功/删除后调用）
+     * @param {string} storageId 渠道ID
+     * @param {number} deltaBytes 变化量（正数增加，负数减少）
+     */
+    updateQuotaCache(storageId, deltaBytes) {
+        const current = this.quotaCache.get(storageId) || 0;
+        this.quotaCache.set(storageId, current + deltaBytes);
+    }
+
+    /**
+     * 获取渠道当前缓存的已用容量
+     * @param {string} storageId 渠道ID
+     * @returns {number} 已用字节数
+     */
+    getUsedBytes(storageId) {
+        return this.quotaCache.get(storageId) || 0;
+    }
+
+    /**
+     * 获取所有渠道容量缓存快照
+     * @returns {Object} { [storageId]: usedBytes }
+     */
+    getAllQuotaStats() {
+        const stats = {};
+        for (const [id, bytes] of this.quotaCache.entries()) {
+            stats[id] = bytes;
+        }
         return stats;
     }
 }

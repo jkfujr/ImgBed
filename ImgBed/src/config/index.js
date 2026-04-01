@@ -40,6 +40,13 @@ const defaultConfig = {
   security: {
     corsOrigin: "*",
     maxFileSize: 104857600
+  },
+  // 默认上传配置
+  upload: {
+    // 容量检查模式：auto = 自动（缓存+增量+定时校正），always = 每次上传全量检查
+    quotaCheckMode: 'auto',
+    // 定时全量校正间隔（小时）
+    fullCheckIntervalHours: 6
   }
 };
 

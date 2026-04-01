@@ -127,7 +127,7 @@ filesApp.delete('/:id', async (c) => {
         const id = c.req.param('id');
         
         // 核心步1：先查明身份，解析 JSON 取出映射所依赖的 instanceId
-        const fileRecord = await db.selectFrom('files').select(['storage_key', 'storage_config']).where('id', '=', id).executeTakeFirst();
+        const fileRecord = await db.selectFrom('files').select(['size', 'storage_key', 'storage_config']).where('id', '=', id).executeTakeFirst();
         if (!fileRecord) {
              return c.json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} }, 200);
         }
@@ -137,7 +137,7 @@ filesApp.delete('/:id', async (c) => {
         let configObj = {};
         try { configObj = JSON.parse(fileRecord.storage_config || '{}'); } catch(e){}
         const instanceId = configObj.instance_id;
-        
+
         if (instanceId) {
              const storage = storageManager.getStorage(instanceId);
              if (storage) {
@@ -145,10 +145,24 @@ filesApp.delete('/:id', async (c) => {
                      console.warn(`[Files API] 底层存储提供方远程删除失败 (忽略并继续清理引用): `, e.message);
                  });
              }
+             // 增量更新容量缓存：减去文件大小
+             const fileSize = Number(fileRecord.size) || 0;
+             if (fileSize > 0) {
+                 storageManager.updateQuotaCache(instanceId, -fileSize);
+             }
         }
 
         // 核心步3: 销毁 SQLite SQL 层面的记录数据
         await db.deleteFrom('files').where('id', '=', id).execute();
+
+        // 记录删除到使用统计并更新容量缓存
+        if (instanceId) {
+            storageManager.recordDelete(instanceId);
+            const fileSize = Number(fileRecord.size) || 0;
+            if (fileSize > 0) {
+                storageManager.updateQuotaCache(instanceId, -fileSize);
+            }
+        }
 
         return c.json({ code: 0, message: '执行单体删除扫尾动作结束', data: { id } });
     } catch (err) {
@@ -184,6 +198,13 @@ filesApp.post('/batch', async (c) => {
                 // 逐笔执行物理销毁
                 if (storage) {
                     await storage.delete(fileRecord.storage_key).catch(() => {});
+                }
+                // 增量更新容量缓存：减去文件大小
+                if (instanceId) {
+                    const fileSize = Number(fileRecord.size) || 0;
+                    if (fileSize > 0) {
+                        storageManager.updateQuotaCache(instanceId, -fileSize);
+                    }
                 }
                 // 从当前库中移除此图
                 await db.deleteFrom('files').where('id', '=', fileRecord.id).execute();
@@ -301,6 +322,20 @@ filesApp.post('/batch', async (c) => {
                         })
                         .where('id', '=', fileRecord.id)
                         .execute();
+
+                    // 步骤5：迁移成功后，更新容量缓存：原渠道减少，新渠道增加
+                    try {
+                        const oldConfig = JSON.parse(fileRecord.storage_config || '{}');
+                        const oldInstanceId = oldConfig.instance_id;
+                        const fileSize = Number(fileRecord.size) || 0;
+
+                        if (oldInstanceId) {
+                            storageManager.updateQuotaCache(oldInstanceId, -fileSize);
+                        }
+                        storageManager.updateQuotaCache(target_channel, fileSize);
+                    } catch (e) {
+                        console.error('[Files API] 迁移后更新容量缓存失败:', e.message);
+                    }
 
                     results.success++;
 

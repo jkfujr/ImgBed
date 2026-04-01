@@ -4,6 +4,7 @@ const path = require('path');
 const { adminAuth } = require('../middleware/auth');
 const storageManager = require('../storage/manager');
 const { db } = require('../database');
+const config = require('../config');
 
 const systemApp = new Hono();
 const configPath = path.resolve(__dirname, '../../config.json');
@@ -41,7 +42,7 @@ systemApp.use('*', adminAuth);
  * 读取系统配置（脱敏：隐藏 jwt.secret）
  * GET /api/system/config
  */
-systemApp.get('/config', (c) => {
+systemApp.get('/config', async (c) => {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
@@ -75,6 +76,17 @@ systemApp.put('/config', async (c) => {
       cfg.storage.default = String(body.storage.default);
     if (body.server?.port !== undefined)
       cfg.server.port = Number(body.server.port);
+    // 支持修改上传配置
+    if (body.upload !== undefined) {
+      if (body.upload.quotaCheckMode !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.quotaCheckMode = String(body.upload.quotaCheckMode);
+      }
+      if (body.upload.fullCheckIntervalHours !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.fullCheckIntervalHours = Math.max(1, Number(body.upload.fullCheckIntervalHours) || 6);
+      }
+    }
 
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
     return c.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
@@ -87,11 +99,32 @@ systemApp.put('/config', async (c) => {
  * 获取存储渠道列表（含完整 config，敏感字段脱敏）
  * GET /api/system/storages
  */
-systemApp.get('/storages', (c) => {
+systemApp.get('/storages', async (c) => {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
-    const list = (cfg.storage?.storages || []).map(maskStorage);
+    const fileStorages = cfg.storage?.storages || [];
+    const quotaStats = storageManager.getAllQuotaStats();
+
+    // 从数据库读取元数据
+    const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+    const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
+
+    // 合并数据
+    const list = fileStorages.map(s => {
+      const dbCh = dbMap.get(s.id);
+      const merged = {
+        ...s,
+        name: dbCh ? dbCh.name : s.name,
+        enabled: dbCh ? Boolean(dbCh.enabled) : s.enabled,
+        allowUpload: dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload,
+        weight: dbCh ? Number(dbCh.weight) : (s.weight || 1),
+        quotaLimitGB: dbCh ? dbCh.quota_limit_gb : s.quotaLimitGB,
+        usedBytes: quotaStats[s.id] || 0
+      };
+      return maskStorage(merged);
+    });
+
     return c.json({ code: 0, message: 'success', data: { list, default: cfg.storage?.default } });
   } catch (err) {
     return c.json({ code: 500, message: '读取存储渠道失败: ' + err.message }, 500);
@@ -127,7 +160,7 @@ systemApp.post('/storages/test', async (c) => {
  * 获取负载均衡配置
  * GET /api/system/load-balance
  */
-systemApp.get('/load-balance', (c) => {
+systemApp.get('/load-balance', async (c) => {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
@@ -230,8 +263,22 @@ systemApp.post('/storages', async (c) => {
     };
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
     syncAllowedUploadChannels(cfg);
+
+    // 插入数据库
+    await db.insertInto('storage_channels')
+      .values({
+        id: newStorage.id,
+        name: newStorage.name,
+        type: newStorage.type,
+        enabled: newStorage.enabled ? 1 : 0,
+        allow_upload: newStorage.allowUpload ? 1 : 0,
+        weight: newStorage.weight,
+        quota_limit_gb: newStorage.quotaLimitGB
+      })
+      .execute();
+
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    storageManager.reload();
+    await storageManager.reload();
     return c.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
   } catch (err) {
     return c.json({ code: 500, message: '新增渠道失败: ' + err.message }, 500);
@@ -273,9 +320,22 @@ systemApp.put('/storages/:id', async (c) => {
         existing.config[k] = v;
       }
     }
+
+    // 更新数据库元数据
+    await db.updateTable('storage_channels')
+      .set({
+        name: existing.name,
+        enabled: existing.enabled ? 1 : 0,
+        allow_upload: existing.allowUpload ? 1 : 0,
+        weight: existing.weight,
+        quota_limit_gb: existing.quotaLimitGB
+      })
+      .where('id', '=', id)
+      .execute();
+
     syncAllowedUploadChannels(cfg);
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    storageManager.reload();
+    await storageManager.reload();
     return c.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
   } catch (err) {
     return c.json({ code: 500, message: '更新渠道失败: ' + err.message }, 500);
@@ -286,7 +346,7 @@ systemApp.put('/storages/:id', async (c) => {
  * 删除存储渠道（不允许删除默认渠道）
  * DELETE /api/system/storages/:id
  */
-systemApp.delete('/storages/:id', (c) => {
+systemApp.delete('/storages/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -297,9 +357,15 @@ systemApp.delete('/storages/:id', (c) => {
     cfg.storage.storages = (cfg.storage.storages || []).filter((s) => s.id !== id);
     if (cfg.storage.storages.length === before)
       return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+
+    // 从数据库删除
+    await db.deleteFrom('storage_channels').where('id', '=', id).execute();
+    // 同时也删除历史记录
+    await db.deleteFrom('storage_quota_history').where('storage_id', '=', id).execute();
+
     syncAllowedUploadChannels(cfg);
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    storageManager.reload();
+    await storageManager.reload();
     return c.json({ code: 0, message: '存储渠道已删除' });
   } catch (err) {
     return c.json({ code: 500, message: '删除渠道失败: ' + err.message }, 500);
@@ -310,7 +376,7 @@ systemApp.delete('/storages/:id', (c) => {
  * 设为默认存储渠道
  * PUT /api/system/storages/:id/default
  */
-systemApp.put('/storages/:id/default', (c) => {
+systemApp.put('/storages/:id/default', async (c) => {
   try {
     const id = c.req.param('id');
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -319,7 +385,7 @@ systemApp.put('/storages/:id/default', (c) => {
       return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
     cfg.storage.default = id;
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    storageManager.reload();
+    await storageManager.reload();
     return c.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
   } catch (err) {
     return c.json({ code: 500, message: '设置默认渠道失败: ' + err.message }, 500);
@@ -330,7 +396,7 @@ systemApp.put('/storages/:id/default', (c) => {
  * 启用/禁用存储渠道
  * PUT /api/system/storages/:id/toggle
  */
-systemApp.put('/storages/:id/toggle', (c) => {
+systemApp.put('/storages/:id/toggle', async (c) => {
   try {
     const id = c.req.param('id');
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -338,9 +404,16 @@ systemApp.put('/storages/:id/toggle', (c) => {
     const s = (cfg.storage.storages || []).find((s) => s.id === id);
     if (!s) return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
     s.enabled = !s.enabled;
+
+    // 更新数据库
+    await db.updateTable('storage_channels')
+      .set({ enabled: s.enabled ? 1 : 0 })
+      .where('id', '=', id)
+      .execute();
+
     syncAllowedUploadChannels(cfg);
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    storageManager.reload();
+    await storageManager.reload();
     return c.json({ code: 0, message: `渠道已${s.enabled ? '启用' : '禁用'}`, data: { enabled: s.enabled } });
   } catch (err) {
     return c.json({ code: 500, message: '切换渠道状态失败: ' + err.message }, 500);
@@ -354,48 +427,57 @@ systemApp.put('/storages/:id/toggle', (c) => {
  */
 systemApp.get('/quota-stats', async (c) => {
   try {
-    // 从数据库统计每个渠道的已用容量
-    const result = await db
-      .selectFrom('files')
-      .select(['size', 'storage_config', 'storage_channel'])
-      .execute();
+    // 如果是 always 模式，强制从数据库全量统计
+    const mode = config.upload?.quotaCheckMode || 'auto';
+    let stats;
 
-    // 读取配置获取渠道列表，用于兼容旧文件统计
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const cfg = JSON.parse(raw);
-    const channels = cfg.storage?.storages || [];
+    if (mode === 'always') {
+      // 全量从数据库统计
+      const result = await db
+        .selectFrom('files')
+        .select(['size', 'storage_config', 'storage_channel'])
+        .execute();
 
-    // 按类型分组，统计每个类型下的渠道ID列表
-    const channelsByType = {};
-    for (const ch of channels) {
-      if (!channelsByType[ch.type]) {
-        channelsByType[ch.type] = [];
+      // 读取配置获取渠道列表，用于兼容旧文件统计
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const cfg = JSON.parse(raw);
+      const channels = cfg.storage?.storages || [];
+
+      // 按类型分组，统计每个类型下的渠道ID列表
+      const channelsByType = {};
+      for (const ch of channels) {
+        if (!channelsByType[ch.type]) {
+          channelsByType[ch.type] = [];
+        }
+        channelsByType[ch.type].push(ch.id);
       }
-      channelsByType[ch.type].push(ch.id);
-    }
 
-    const stats = {}; // { [instanceId]: totalBytes }
+      stats = {}; // { [instanceId]: totalBytes }
 
-    for (const row of result) {
-      let cfg;
-      try {
-        cfg = JSON.parse(row.storage_config || '{}');
-      } catch (e) { continue; }
-      const instanceId = cfg.instance_id;
-      const fileSize = Number(row.size) || 0;
+      for (const row of result) {
+        let cfg;
+        try {
+          cfg = JSON.parse(row.storage_config || '{}');
+        } catch (e) { continue; }
+        const instanceId = cfg.instance_id;
+        const fileSize = Number(row.size) || 0;
 
-      if (instanceId) {
-        // 情况1：已有 instance_id，直接统计
-        stats[instanceId] = (stats[instanceId] || 0) + fileSize;
-      } else {
-        // 情况2：旧文件没有 instance_id，尝试根据类型推断
-        // 如果该类型只有一个渠道，则归到这个渠道
-        const type = row.storage_channel;
-        if (type && channelsByType[type] && channelsByType[type].length === 1) {
-          const fallbackId = channelsByType[type][0];
-          stats[fallbackId] = (stats[fallbackId] || 0) + fileSize;
+        if (instanceId) {
+          // 情况1：已有 instance_id，直接统计
+          stats[instanceId] = (stats[instanceId] || 0) + fileSize;
+        } else {
+          // 情况2：旧文件没有 instance_id，尝试根据类型推断
+          // 如果该类型只有一个渠道，则归到这个渠道
+          const type = row.storage_channel;
+          if (type && channelsByType[type] && channelsByType[type].length === 1) {
+            const fallbackId = channelsByType[type][0];
+            stats[fallbackId] = (stats[fallbackId] || 0) + fileSize;
+          }
         }
       }
+    } else {
+      // 自动模式：从缓存读取
+      stats = storageManager.getAllQuotaStats();
     }
 
     return c.json({

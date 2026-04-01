@@ -130,13 +130,42 @@ const initDb = () => {
                     UPDATE system_settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
                 END;
 
-            CREATE TRIGGER IF NOT EXISTS update_chunks_updated_at 
+            CREATE TRIGGER IF NOT EXISTS update_chunks_updated_at
                 AFTER UPDATE ON chunks
                 BEGIN
                     UPDATE chunks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
+
+            -- 存储渠道元数据表
+            CREATE TABLE IF NOT EXISTS storage_channels (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                allow_upload BOOLEAN DEFAULT TRUE,
+                weight INTEGER DEFAULT 1,
+                quota_limit_gb REAL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- 存储容量校正记录历史表
+            CREATE TABLE IF NOT EXISTS storage_quota_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                storage_id TEXT NOT NULL,
+                used_bytes INTEGER NOT NULL,
+                recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_quota_history_storage_id ON storage_quota_history(storage_id);
+            CREATE INDEX IF NOT EXISTS idx_quota_history_recorded_at ON storage_quota_history(recorded_at DESC);
+
+            CREATE TRIGGER IF NOT EXISTS update_storage_channels_updated_at
+                AFTER UPDATE ON storage_channels
+                BEGIN
+                    UPDATE storage_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
         `);
-        console.log('[数据库] 表结构初始化完成。');
+        console.log('[数据库] 表结构初始化完成。');;
     } catch (err) {
         console.error('[数据库] 初始化失败:', err);
         throw err; // 如果初始化失败则阻断启动

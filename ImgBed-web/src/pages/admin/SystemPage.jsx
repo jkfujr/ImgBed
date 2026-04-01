@@ -30,12 +30,21 @@ export default function SystemPage() {
   const [lbWeights, setLbWeights] = useState({});
   const [availableChannels, setAvailableChannels] = useState([]);
 
+  // 上传配置 - 容量检查
+  const [quotaCheckMode, setQuotaCheckMode] = useState('auto');
+  const [fullCheckIntervalHours, setFullCheckIntervalHours] = useState(6);
+  const [savingUpload, setSavingUpload] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+
   useEffect(() => {
     api.get('/api/system/config').then((res) => {
       if (res.code === 0) {
         setCorsOrigin(res.data.security?.corsOrigin || '*');
         setMaxFileSize(String((res.data.security?.maxFileSize || 104857600) / (1024 * 1024)));
         setServerPort(String(res.data.server?.port || 3000));
+        // 加载上传配置
+        setQuotaCheckMode(res.data.upload?.quotaCheckMode || 'auto');
+        setFullCheckIntervalHours(res.data.upload?.fullCheckIntervalHours || 6);
       }
     }).catch(() => {
       setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
@@ -136,6 +145,29 @@ export default function SystemPage() {
     }
   };
 
+  // 保存上传配置
+  const handleSaveUploadConfig = async () => {
+    setSavingUpload(true);
+    try {
+      const payload = {
+        upload: {
+          quotaCheckMode,
+          fullCheckIntervalHours
+        }
+      };
+      const res = await api.put('/api/system/config', payload);
+      if (res.code === 0) {
+        setUploadResult({ type: 'success', msg: '上传配置已保存，重启服务后定时间隔生效' });
+      } else {
+        setUploadResult({ type: 'error', msg: res.message || '保存失败' });
+      }
+    } catch (err) {
+      setUploadResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });
+    } finally {
+      setSavingUpload(false);
+    }
+  };
+
   if (loading) {
     return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
   }
@@ -148,6 +180,7 @@ export default function SystemPage() {
         <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
           <Tab label="系统配置" />
           <Tab label="存储策略" />
+          <Tab label="上传配置" />
         </Tabs>
       </Box>
 
@@ -354,6 +387,67 @@ export default function SystemPage() {
                 </Box>
               </>
             )}
+          </Box>
+        </Paper>
+      )}
+
+      {/* 分页 3: 上传配置 */}
+      {currentTab === 2 && (
+        <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
+          <Typography variant="subtitle1" fontWeight="bold" mb={2}>容量检查配置</Typography>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            {uploadResult && (
+              <Alert severity={uploadResult.type} onClose={() => setUploadResult(null)}>{uploadResult.msg}</Alert>
+            )}
+            <FormControl component="fieldset">
+              <Typography variant="body2" fontWeight="medium" mb={1}>容量检查模式</Typography>
+              <RadioGroup
+                value={quotaCheckMode}
+                onChange={(e) => setQuotaCheckMode(e.target.value)}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                  <Radio checked={quotaCheckMode === 'auto'} value="auto" size="medium" />
+                  <Box sx={{ pt: 0.5 }}>
+                    <Typography>自动（推荐）</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      内存缓存已用容量 + 上传/删除增量更新 + 定时全量校正。上传检查极快
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                  <Radio checked={quotaCheckMode === 'always'} value="always" size="medium" />
+                  <Box sx={{ pt: 0.5 }}>
+                    <Typography>每次上传全量检查</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      每次上传都遍历数据库全量统计，准确但较慢，不推荐
+                    </Typography>
+                  </Box>
+                </Box>
+              </RadioGroup>
+            </FormControl>
+
+            {quotaCheckMode === 'auto' && (
+              <TextField
+                label="定时全量校正间隔（小时）"
+                size="small"
+                type="number"
+                value={fullCheckIntervalHours}
+                onChange={(e) => setFullCheckIntervalHours(Math.max(1, Number(e.target.value) || 6))}
+                helperText="定期从数据库全量校正，防止缓存与实际不一致。默认 6 小时"
+                slotProps={{ htmlInput: { min: 1, max: 168, step: 1 } }}
+                sx={{ maxWidth: 300 }}
+              />
+            )}
+
+            <Box>
+              <Button
+                variant="contained"
+                onClick={handleSaveUploadConfig}
+                disabled={savingUpload}
+              >
+                {savingUpload ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
+              </Button>
+            </Box>
           </Box>
         </Paper>
       )}
