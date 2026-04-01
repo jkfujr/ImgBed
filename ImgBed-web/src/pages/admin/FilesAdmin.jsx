@@ -6,7 +6,7 @@ import {
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
   FormControl, InputLabel, Select, MenuItem, LinearProgress,
-  useTheme, useMediaQuery
+  useTheme, useMediaQuery, Menu, ListItemIcon
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
@@ -16,12 +16,20 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import AddIcon from '@mui/icons-material/Add';
+import ImageIcon from '@mui/icons-material/Image';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
+import StorageIcon from '@mui/icons-material/Storage';
 import MasonryImageItem from '../../components/admin/MasonryImageItem';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import PasteUploadDialog from '../../components/common/PasteUploadDialog';
+import CreateFolderDialog from '../../components/common/CreateFolderDialog';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useUserPreference } from '../../hooks/useUserPreference';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
+import { useNavigate } from 'react-router-dom';
 
 import { DEFAULT_PAGE_SIZE, BORDER_RADIUS } from '../../utils/constants';
 
@@ -65,6 +73,14 @@ export default function FilesAdmin() {
   const [migrationResult, setMigrationResult] = useState(null);
   const [targetChannel, setTargetChannel] = useState('');
   const [availableChannels, setAvailableChannels] = useState([]);
+
+  // 新建菜单相关状态
+  const navigate = useNavigate();
+  const [createMenuAnchor, setCreateMenuAnchor] = useState(null);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const fileInputRef = useRef(null);
+  const dirInputRef = useRef(null);
 
   const handleSearchChange = (e) => {
     setSearchInput(e.target.value);
@@ -262,9 +278,97 @@ export default function FilesAdmin() {
     localStorage.setItem('pref_view_mode', val);
   };
 
+  // 新建菜单处理函数
+  const handleCreateMenuOpen = (event) => {
+    setCreateMenuAnchor(event.currentTarget);
+  };
+
+  const handleCreateMenuClose = () => {
+    setCreateMenuAnchor(null);
+  };
+
+  const handleUploadImage = () => {
+    handleCreateMenuClose();
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadDirectory = () => {
+    handleCreateMenuClose();
+    dirInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (currentDir) {
+          await fetch(`/api/upload?uploadFolder=${encodeURIComponent(currentDir)}`, {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+          });
+        } else {
+          await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+          });
+        }
+      } catch (err) {
+        console.error('上传失败:', file.name, err);
+      }
+    }
+    e.target.value = null;
+    handleRefresh();
+  };
+
+  const handlePasteUploadFile = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (currentDir) {
+        await fetch(`/api/upload?uploadFolder=${encodeURIComponent(currentDir)}`, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
+        });
+      } else {
+        await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
+        });
+      }
+      handleRefresh();
+    } catch (err) {
+      console.error('上传失败:', err);
+    }
+  };
+
+  const handleCreateFolderConfirm = async (folderPath) => {
+    try {
+      const fullPath = currentDir ? `${currentDir}/${folderPath}` : folderPath;
+      const placeholderFile = new File([''], '.gitkeep', { type: 'text/plain' });
+      const formData = new FormData();
+      formData.append('file', placeholderFile);
+      await fetch(`/api/upload?uploadFolder=${encodeURIComponent(fullPath)}`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+      handleRefresh();
+    } catch (err) {
+      console.error('创建文件夹失败:', err);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-      {/* 顶部工具栏：面包屑（左）+ 操作区（右） */}
+      {/* 顶部工具栏：路径栏（左）+ 操作区（右） */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
         {/* 左侧路径栏：点击进入编辑，回车/失焦确认 */}
         {pathEditing ? (
@@ -376,6 +480,74 @@ export default function FilesAdmin() {
       )}
 
       {error && <Alert severity="error" sx={{ flexShrink: 0 }}>{error}</Alert>}
+
+      {/* 新建菜单 */}
+      <Menu
+        anchorEl={createMenuAnchor}
+        open={Boolean(createMenuAnchor)}
+        onClose={handleCreateMenuClose}
+        transformOrigin={{ horizontal: 'left', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
+        PaperProps={{
+          elevation: 3,
+          sx: { mt: 1, minWidth: 180, borderRadius: BORDER_RADIUS.md }
+        }}
+      >
+        <MenuItem onClick={handleUploadImage}>
+          <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+          上传图片
+        </MenuItem>
+        <MenuItem onClick={handleUploadDirectory}>
+          <ListItemIcon><FolderIcon fontSize="small" /></ListItemIcon>
+          上传目录
+        </MenuItem>
+        <MenuItem onClick={() => { handleCreateMenuClose(); setPasteDialogOpen(true); }}>
+          <ListItemIcon><ContentPasteIcon fontSize="small" /></ListItemIcon>
+          剪贴板上传
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => { handleCreateMenuClose(); setFolderDialogOpen(true); }}>
+          <ListItemIcon><CreateNewFolderIcon fontSize="small" /></ListItemIcon>
+          创建文件夹
+        </MenuItem>
+        <MenuItem onClick={() => { handleCreateMenuClose(); navigate('/admin/storage-channels'); }}>
+          <ListItemIcon><StorageIcon fontSize="small" /></ListItemIcon>
+          新增渠道
+        </MenuItem>
+      </Menu>
+
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+      <input
+        ref={dirInputRef}
+        type="file"
+        webkitdirectory=""
+        directory=""
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+
+      {/* 剪贴板上传弹窗 */}
+      <PasteUploadDialog
+        open={pasteDialogOpen}
+        onClose={() => setPasteDialogOpen(false)}
+        onUpload={handlePasteUploadFile}
+      />
+
+      {/* 创建文件夹弹窗 */}
+      <CreateFolderDialog
+        open={folderDialogOpen}
+        onClose={() => setFolderDialogOpen(false)}
+        onConfirm={handleCreateFolderConfirm}
+      />
 
       {/* 内容滚动区 */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 0 }}>

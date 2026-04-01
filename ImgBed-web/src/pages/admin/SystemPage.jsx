@@ -410,7 +410,7 @@ export default function SystemPage() {
                   <Box sx={{ pt: 0.5 }}>
                     <Typography>自动（推荐）</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      内存缓存已用容量 + 上传/删除增量更新 + 定时全量校正。上传检查极快
+                      内存缓存已用容量 + 上传/删除增量更新 + 定时全量校正。
                     </Typography>
                   </Box>
                 </Box>
