@@ -30,6 +30,7 @@ class StorageManager {
                     this.instances.set(storageConfig.id, {
                         type: storageConfig.type,
                         allowUpload: storageConfig.allowUpload,
+                        weight: storageConfig.weight || 1,
                         instance: instance
                     });
                 } catch (e) {
@@ -129,6 +130,7 @@ class StorageManager {
                     this.instances.set(s.id, {
                         type: s.type,
                         allowUpload: s.allowUpload,
+                        weight: s.weight || 1,
                         instance: inst
                     });
                 } catch (e) {
@@ -184,15 +186,25 @@ class StorageManager {
 
     /**
      * 根据负载均衡策略选择上传渠道
+     * @param {string|null} preferredType 偏好的渠道类型（用于按类型负载均衡）
      * @returns {string|null} 返回选中的渠道 ID，无可用渠道时返回 null
      */
-    selectUploadChannel() {
+    selectUploadChannel(preferredType = null) {
         const strategy = this.config.loadBalanceStrategy || 'default';
 
         // 获取所有允许上传的渠道
-        const uploadableChannels = Array.from(this.instances.entries())
+        let uploadableChannels = Array.from(this.instances.entries())
             .filter(([id]) => this.isUploadAllowed(id))
-            .map(([id, entry]) => ({ id, type: entry.type }));
+            .map(([id, entry]) => ({ id, type: entry.type, weight: entry.weight || 1 }));
+
+        // 如果启用了按类型负载均衡且指定了偏好类型，则只筛选该类型
+        const scope = this.config.loadBalanceScope || 'global';
+        if (scope === 'byType' && preferredType) {
+            const enabledTypes = this.config.loadBalanceEnabledTypes || [];
+            uploadableChannels = uploadableChannels.filter(c =>
+                c.type === preferredType && enabledTypes.includes(c.type)
+            );
+        }
 
         if (uploadableChannels.length === 0) {
             console.warn('[StorageManager] 没有可用的上传渠道');
@@ -259,8 +271,10 @@ class StorageManager {
         let totalWeight = 0;
         const weightedChannels = [];
 
-        for (const { id } of channels) {
-            const w = Number(weights[id]) || 1;
+        for (const { id, weight: channelWeight } of channels) {
+            // 优先使用渠道自身的权重，没有则回退到全局配置权重
+            const configW = Number(weights[id]) || 1;
+            const w = channelWeight !== 1 ? channelWeight : configW;
             totalWeight += w;
             weightedChannels.push({ id, weight: w, accumulated: totalWeight });
         }

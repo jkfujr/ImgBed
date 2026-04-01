@@ -65,7 +65,7 @@ const VALID_TYPES = Object.keys(CHANNEL_SCHEMAS);
 
 // 通用字段初始值
 const EMPTY_FORM = {
-  id: '', type: 'local', name: '', enabled: true, allowUpload: false, config: {},
+  id: '', type: 'local', name: '', enabled: true, allowUpload: false, weight: 1, config: {},
 };
 export default function StorageChannelsPage() {
   const [storages, setStorages] = useState([]);
@@ -126,7 +126,7 @@ export default function StorageChannelsPage() {
     for (const [k, v] of Object.entries(s.config || {})) {
       editConfig[k] = v === '***' ? '' : v;
     }
-    setForm({ id: s.id, type: s.type, name: s.name, enabled: s.enabled, allowUpload: s.allowUpload, config: editConfig });
+    setForm({ id: s.id, type: s.type, name: s.name, enabled: s.enabled, allowUpload: s.allowUpload, weight: s.weight || 1, config: editConfig });
     setStep(1); // 编辑时跳过类型选择步骤
     setShowSensitive({});
     setFormError(null);
@@ -160,6 +160,7 @@ export default function StorageChannelsPage() {
         name: form.name,
         enabled: form.enabled,
         allowUpload: form.allowUpload,
+        weight: form.weight ?? 1,
         config: configPayload,
       };
 
@@ -363,6 +364,15 @@ export default function StorageChannelsPage() {
               <FormControlLabel
                 control={<Switch checked={form.allowUpload} onChange={(e) => setField('allowUpload', e.target.checked)} />}
                 label="允许上传" />
+              <TextField
+                label="渠道权重"
+                size="small"
+                type="number"
+                value={form.weight ?? 1}
+                onChange={(e) => setField('weight', Number(e.target.value) || 1)}
+                helperText="仅在负载均衡加权策略时生效，不填默认为 1"
+                slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              />
             </Box>
           )}
 

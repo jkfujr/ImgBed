@@ -135,6 +135,8 @@ systemApp.get('/load-balance', (c) => {
       message: 'success',
       data: {
         strategy: cfg.storage?.loadBalanceStrategy || 'default',
+        scope: cfg.storage?.loadBalanceScope || 'global',
+        enabledTypes: cfg.storage?.loadBalanceEnabledTypes || [],
         weights: cfg.storage?.loadBalanceWeights || {},
         stats: storageManager.getUsageStats()
       }
@@ -151,7 +153,7 @@ systemApp.get('/load-balance', (c) => {
 systemApp.put('/load-balance', async (c) => {
   try {
     const body = await c.req.json();
-    const { strategy, weights } = body;
+    const { strategy, scope, enabledTypes, weights } = body;
 
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
@@ -164,6 +166,13 @@ systemApp.put('/load-balance', async (c) => {
         return c.json({ code: 400, message: `无效的策略: ${strategy}` }, 400);
       }
       cfg.storage.loadBalanceStrategy = strategy;
+    }
+
+    if (scope !== undefined) {
+      cfg.storage.loadBalanceScope = scope;
+    }
+    if (enabledTypes !== undefined) {
+      cfg.storage.loadBalanceEnabledTypes = enabledTypes;
     }
 
     if (weights !== undefined) {
@@ -201,7 +210,7 @@ systemApp.post('/storages', async (c) => {
     if ((cfg.storage.storages || []).some((s) => s.id === id))
       return c.json({ code: 400, message: `渠道 ID "${id}" 已存在` }, 400);
 
-    const newStorage = { id, type, name, enabled: Boolean(enabled), allowUpload: Boolean(allowUpload), config: storConfig };
+    const newStorage = { id, type, name, enabled: Boolean(enabled), allowUpload: Boolean(allowUpload), weight: body.weight ?? 1, config: storConfig };
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
     syncAllowedUploadChannels(cfg);
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
@@ -229,6 +238,7 @@ systemApp.put('/storages/:id', async (c) => {
     if (body.name !== undefined) existing.name = String(body.name).trim();
     if (body.enabled !== undefined) existing.enabled = Boolean(body.enabled);
     if (body.allowUpload !== undefined) existing.allowUpload = Boolean(body.allowUpload);
+    if (body.weight !== undefined) existing.weight = Number(body.weight) || 1;
     if (body.config !== undefined) {
       existing.config = existing.config || {};
       for (const [k, v] of Object.entries(body.config)) {

@@ -378,10 +378,16 @@ export default function FilesAdmin() {
         </Box>
       </Box>
 
-      {/* 批量选中工具栏 */}
+      {/* 批量选中工具栏（底部居中浮出） */}
       {selected.size > 0 && (
-        <Paper variant="outlined" sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'primary.50', flexShrink: 0 }}>
-          <Typography variant="body2" sx={{ flex: 1 }}>已选 {selected.size} 项</Typography>
+        <Paper elevation={6} sx={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1200, px: 3, py: 1.5,
+          display: 'flex', alignItems: 'center', gap: 1.5,
+          borderRadius: 3, whiteSpace: 'nowrap',
+        }}>
+          <Typography variant="body2" fontWeight="medium">已选 {selected.size} 项</Typography>
+          <Divider orientation="vertical" flexItem />
           {availableChannels.length > 0 && (
             <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />}
               onClick={() => setMigrateDialog({ open: true, ids: [...selected] })}>

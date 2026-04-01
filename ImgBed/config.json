@@ -28,7 +28,8 @@
         "allowUpload": true,
         "config": {
           "basePath": "./data/storage"
-        }
+        },
+        "weight": 1
       }
     ]
   },

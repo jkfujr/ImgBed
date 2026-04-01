@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, TextField, Button, CircularProgress,
   Alert, Divider, FormControl, InputLabel, Select, MenuItem, Grid,
+  Tabs, Tab, FormControlLabel, Radio, RadioGroup, FormGroup, Checkbox,
 } from '@mui/material';
 import { api, StorageDocs } from '../../api';
 
@@ -14,11 +15,17 @@ export default function SystemPage() {
   const [maxFileSize, setMaxFileSize] = useState('');
   const [serverPort, setServerPort] = useState('');
 
+  // Tabs 分页
+  const [currentTab, setCurrentTab] = useState(0);
+
   // 负载均衡配置
   const [lbLoading, setLbLoading] = useState(false);
   const [lbSaving, setLbSaving] = useState(false);
   const [lbResult, setLbResult] = useState(null);
-  const [lbStrategy, setLbStrategy] = useState('default');
+  const [uploadStrategy, setUploadStrategy] = useState('default'); // 顶层选项：default / load-balance
+  const [lbStrategy, setLbStrategy] = useState('round-robin');
+  const [lbScope, setLbScope] = useState('global');
+  const [lbEnabledTypes, setLbEnabledTypes] = useState([]);
   const [lbWeights, setLbWeights] = useState({});
   const [availableChannels, setAvailableChannels] = useState([]);
 
@@ -43,8 +50,12 @@ export default function SystemPage() {
     try {
       const res = await StorageDocs.getLoadBalance();
       if (res.code === 0) {
-        setLbStrategy(res.data.strategy || 'default');
+        const strategy = res.data.strategy || 'default';
+        setLbStrategy(strategy === 'default' ? 'round-robin' : strategy);
         setLbWeights(res.data.weights || {});
+        setLbScope(res.data.scope || 'global');
+        setLbEnabledTypes(res.data.enabledTypes || []);
+        setUploadStrategy(strategy === 'default' ? 'default' : 'load-balance');
       }
     } catch (err) {
       console.error('加载负载均衡配置失败', err);
@@ -68,7 +79,14 @@ export default function SystemPage() {
     setLbResult(null);
     setLbSaving(true);
     try {
-      const res = await StorageDocs.updateLoadBalance({ strategy: lbStrategy, weights: lbWeights });
+      // 根据顶层选项决定最终策略
+      const finalStrategy = uploadStrategy === 'default' ? 'default' : lbStrategy;
+      const res = await StorageDocs.updateLoadBalance({
+        strategy: finalStrategy,
+        scope: lbScope,
+        enabledTypes: lbEnabledTypes,
+        weights: lbWeights
+      });
       if (res.code === 0) {
         setLbResult({ type: 'success', msg: '负载均衡配置已保存' });
       } else {
@@ -105,113 +123,239 @@ export default function SystemPage() {
     }
   };
 
+  // 获取所有唯一的渠道类型，用于勾选框
+  const uniqueTypes = [...new Set(availableChannels.map(s => s.type))];
+
+  // 处理类型勾选切换
+  const toggleType = (type) => {
+    if (lbEnabledTypes.includes(type)) {
+      setLbEnabledTypes(lbEnabledTypes.filter(t => t !== type));
+    } else {
+      setLbEnabledTypes([...lbEnabledTypes, type]);
+    }
+  };
+
   if (loading) {
     return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
   }
 
   return (
-    <Box sx={{ maxWidth: 680 }}>
+    <Box sx={{ maxWidth: 800 }}>
       <Typography variant="h6" fontWeight="bold" mb={2}>系统配置</Typography>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3 }}>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          {result && (
-            <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
-          )}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
+          <Tab label="系统配置" />
+          <Tab label="存储策略" />
+        </Tabs>
+      </Box>
 
-          <TextField
-            label="服务端口"
-            size="small"
-            value={serverPort}
-            onChange={(e) => setServerPort(e.target.value)}
-            helperText="修改后需重启后端服务生效"
-            sx={{ maxWidth: 200 }}
-          />
+      {/* 分页 1: 系统配置 */}
+      {currentTab === 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3 }}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            {result && (
+              <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
+            )}
 
-          <Divider />
+            <TextField
+              label="服务端口"
+              size="small"
+              value={serverPort}
+              onChange={(e) => setServerPort(e.target.value)}
+              helperText="修改后需重启后端服务生效"
+              sx={{ maxWidth: 200 }}
+            />
 
-          <TextField
-            label="CORS 允许来源"
-            size="small"
-            value={corsOrigin}
-            onChange={(e) => setCorsOrigin(e.target.value)}
-            helperText="填 * 表示允许所有来源，生产环境建议填写具体域名"
-          />
+            <Divider />
 
-          <TextField
-            label="最大上传文件大小（MB）"
-            size="small"
-            type="number"
-            value={maxFileSize}
-            onChange={(e) => setMaxFileSize(e.target.value)}
-            slotProps={{ htmlInput: { min: 1, step: 1 } }}
-            sx={{ maxWidth: 280 }}
-          />
+            <TextField
+              label="CORS 允许来源"
+              size="small"
+              value={corsOrigin}
+              onChange={(e) => setCorsOrigin(e.target.value)}
+              helperText="填 * 表示允许所有来源，生产环境建议填写具体域名"
+            />
 
-          <Box>
-            <Button
-              variant="contained"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
-            </Button>
+            <TextField
+              label="最大上传文件大小（MB）"
+              size="small"
+              type="number"
+              value={maxFileSize}
+              onChange={(e) => setMaxFileSize(e.target.value)}
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              sx={{ maxWidth: 280 }}
+            />
+
+            <Box>
+              <Button
+                variant="contained"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
+              </Button>
+            </Box>
           </Box>
-        </Box>
-      </Paper>
+        </Paper>
+      )}
 
-      {/* 存储上传策略 */}
-      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3, mt: 3 }}>
-        <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储上传策略</Typography>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          {lbResult && (
-            <Alert severity={lbResult.type} onClose={() => setLbResult(null)}>{lbResult.msg}</Alert>
-          )}
-          {lbLoading ? (
-            <Box display="flex" justifyContent="center" py={2}><CircularProgress size={24} /></Box>
-          ) : (
-            <>
-              <FormControl size="small" sx={{ maxWidth: 280 }}>
-                <InputLabel>上传策略</InputLabel>
-                <Select value={lbStrategy} label="上传策略" onChange={(e) => setLbStrategy(e.target.value)}>
-                  <MenuItem value="default">默认渠道</MenuItem>
-                  <MenuItem value="round-robin">轮询</MenuItem>
-                  <MenuItem value="random">随机</MenuItem>
-                  <MenuItem value="least-used">最少使用</MenuItem>
-                  <MenuItem value="weighted">加权</MenuItem>
-                </Select>
-              </FormControl>
-              <Typography variant="body2" color="text.secondary">
-                {lbStrategy === 'default' && '所有上传使用默认渠道'}
-                {lbStrategy === 'round-robin' && '在所有可上传渠道中按顺序轮流分配'}
-                {lbStrategy === 'random' && '在所有可上传渠道中随机选择'}
-                {lbStrategy === 'least-used' && '优先选择文件数最少的渠道'}
-                {lbStrategy === 'weighted' && '按各渠道权重比例随机分配'}
-              </Typography>
-              {lbStrategy === 'weighted' && (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-                  {availableChannels.filter(s => s.enabled && s.allowUpload).map(s => (
-                    <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" noWrap>{s.name}:</Typography>
-                      <TextField type="number" size="small" value={lbWeights[s.id] || 1} slotProps={{ htmlInput: { min: 1, step: 1 } }}
-                        onChange={(e) => setLbWeights(prev => ({ ...prev, [s.id]: Number(e.target.value) || 1 }))}
-                        sx={{ width: 80 }} />
+      {/* 分页 2: 存储策略 */}
+      {currentTab === 1 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 3 }}>
+          <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储上传策略</Typography>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            {lbResult && (
+              <Alert severity={lbResult.type} onClose={() => setLbResult(null)}>{lbResult.msg}</Alert>
+            )}
+            {lbLoading ? (
+              <Box display="flex" justifyContent="center" py={2}><CircularProgress size={24} /></Box>
+            ) : (
+              <>
+                {/* 顶层选项：默认渠道 / 负载均衡 */}
+                <FormControl component="fieldset">
+                  <RadioGroup
+                    value={uploadStrategy}
+                    onChange={(e) => setUploadStrategy(e.target.value)}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                      <Radio checked={uploadStrategy === 'default'} value="default" size="medium" />
+                      <Box sx={{ pt: 0.5 }}>
+                        <Typography>默认渠道</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          所有上传使用默认存储渠道
+                        </Typography>
+                      </Box>
                     </Box>
-                  ))}
-                  {availableChannels.filter(s => s.enabled && s.allowUpload).length === 0 && (
-                    <Typography variant="body2" color="text.secondary">暂无可上传渠道</Typography>
-                  )}
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                      <Radio checked={uploadStrategy === 'load-balance'} value="load-balance" size="medium" />
+                      <Box sx={{ pt: 0.5 }}>
+                        <Typography>负载均衡</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          在多个可用渠道间自动分配上传
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </RadioGroup>
+                </FormControl>
+
+                {/* 负载均衡配置（仅当选择负载均衡时显示） */}
+                {uploadStrategy === 'load-balance' && (
+                  <>
+                    <Divider />
+
+                    {/* 负载均衡作用域 */}
+                    <FormControl component="fieldset">
+                      <Typography variant="body2" fontWeight="medium" mb={1}>负载均衡作用域</Typography>
+                      <RadioGroup
+                        value={lbScope}
+                        onChange={(e) => setLbScope(e.target.value)}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                          <Radio checked={lbScope === 'global'} value="global" size="medium" />
+                          <Box sx={{ pt: 0.5 }}>
+                            <Typography>全局负载均衡</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              在所有可用渠道之间进行负载均衡
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
+                          <Radio checked={lbScope === 'byType'} value="byType" size="medium" />
+                          <Box sx={{ pt: 0.5 }}>
+                            <Typography>按类型分组负载均衡</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              仅同一类型内的可用渠道中进行负载均衡。例如上传偏好选择本地类型，则永远不会上传到Telegram
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </RadioGroup>
+                    </FormControl>
+
+                    {/* 按类型分组时显示勾选框 */}
+                    {lbScope === 'byType' && uniqueTypes.length > 0 && (
+                      <FormGroup sx={{ pl: 3 }}>
+                        <Typography variant="body2" color="text.secondary" mb={1}>
+                          勾选开启按类型负载均衡的渠道类型：
+                        </Typography>
+                        <Grid container spacing={2}>
+                          {uniqueTypes.map(type => (
+                            <Grid size={{ xs: 6, sm: 4 }} key={type}>
+                              <FormControlLabel
+                                control={
+                                  <Checkbox
+                                    checked={lbEnabledTypes.includes(type)}
+                                    onChange={() => toggleType(type)}
+                                  />
+                                }
+                                label={type}
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                      </FormGroup>
+                    )}
+
+                    <Divider />
+
+                    {/* 具体负载均衡策略 */}
+                    <FormControl size="small" sx={{ maxWidth: 320 }}>
+                      <InputLabel>均衡算法</InputLabel>
+                      <Select
+                        value={lbStrategy}
+                        label="均衡算法"
+                        onChange={(e) => setLbStrategy(e.target.value)}
+                      >
+                        <MenuItem value="round-robin">轮询</MenuItem>
+                        <MenuItem value="random">随机</MenuItem>
+                        <MenuItem value="least-used">最少使用</MenuItem>
+                        <MenuItem value="weighted">加权</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    {/* 策略说明 */}
+                    <Typography variant="body2" color="text.secondary">
+                      {lbStrategy === 'round-robin' && '在所有可上传渠道中按顺序轮流分配'}
+                      {lbStrategy === 'random' && '在所有可上传渠道中随机选择'}
+                      {lbStrategy === 'least-used' && '优先选择文件数最少的渠道'}
+                      {lbStrategy === 'weighted' && '按各渠道权重比例随机分配'}
+                    </Typography>
+
+                    {/* 加权策略权重编辑（保持向后兼容） */}
+                    {lbStrategy === 'weighted' && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                        {availableChannels.filter(s => s.enabled && s.allowUpload).map(s => (
+                          <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" noWrap>{s.name}:</Typography>
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={lbWeights[s.id] ?? (s.weight ?? 1)}
+                              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                              onChange={(e) => setLbWeights(prev => ({ ...prev, [s.id]: Number(e.target.value) || 1 }))}
+                              sx={{ width: 80 }}
+                              helperText={`渠道权重: ${s.weight ?? 1}`}
+                            />
+                          </Box>
+                        ))}
+                        {availableChannels.filter(s => s.enabled && s.allowUpload).length === 0 && (
+                          <Typography variant="body2" color="text.secondary">暂无可上传渠道</Typography>
+                        )}
+                      </Box>
+                    )}
+                  </>
+                )}
+
+                <Box>
+                  <Button variant="contained" onClick={handleSaveLb} disabled={lbSaving}>
+                    {lbSaving ? <CircularProgress size={18} color="inherit" /> : '保存策略'}
+                  </Button>
                 </Box>
-              )}
-              <Box>
-                <Button variant="contained" onClick={handleSaveLb} disabled={lbSaving}>
-                  {lbSaving ? <CircularProgress size={18} color="inherit" /> : '保存策略'}
-                </Button>
-              </Box>
-            </>
-          )}
-        </Box>
-      </Paper>
+              </>
+            )}
+          </Box>
+        </Paper>
+      )}
     </Box>
   );
 }

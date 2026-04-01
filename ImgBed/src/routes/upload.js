@@ -38,7 +38,8 @@ uploadApp.post('/', adminAuth, async (c) => {
     if (!channelId) {
         const strategy = config.storage?.loadBalanceStrategy || 'default';
         if (strategy !== 'default') {
-            channelId = storageManager.selectUploadChannel();
+            const preferredType = body['preferredType'] || null;
+            channelId = storageManager.selectUploadChannel(preferredType);
         }
         if (!channelId) {
             channelId = storageManager.getDefaultStorageId();
