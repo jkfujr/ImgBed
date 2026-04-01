@@ -115,14 +115,12 @@ export default function StorageChannelsPage() {
       {/* 统计信息栏 */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {stats ? (
+          {stats && (
             <>
               <Chip label={`共 ${stats.total} 个渠道`} size="small" variant="outlined" />
               <Chip label={`${stats.enabled} 个已启用`} size="small" color="success" />
               <Chip label={`${stats.allowUpload} 个允许上传`} size="small" color="primary" />
             </>
-          ) : (
-            <Chip label="加载中..." size="small" variant="outlined" />
           )}
         </Box>
         <Tooltip title="刷新列表">

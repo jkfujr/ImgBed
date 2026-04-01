@@ -21,16 +21,17 @@ import PasteUploadDialog from '../components/common/PasteUploadDialog';
 import CreateFolderDialog from '../components/common/CreateFolderDialog';
 import ChannelDialog from '../components/common/ChannelDialog';
 import SearchDialog from '../components/common/SearchDialog';
+import { useRefresh } from '../contexts/RefreshContext';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
+  const { triggerRefresh } = useRefresh();
   const navigate = useNavigate();
   const location = useLocation();
   const [anchorEl, setAnchorEl] = React.useState(null);
   const [createMenuAnchor, setCreateMenuAnchor] = React.useState(null);
-  const fileInputRef = React.useRef(null);
-  const dirInputRef = React.useRef(null);
   const [pasteDialogOpen, setPasteDialogOpen] = React.useState(false);
+  const [uploadMode, setUploadMode] = React.useState('file');
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false);
   const [channelDialogOpen, setChannelDialogOpen] = React.useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = React.useState(false);
@@ -64,38 +65,14 @@ export default function MainLayout() {
 
   const handleUploadImage = () => {
     handleCreateMenuClose();
-    fileInputRef.current?.click();
+    setUploadMode('file');
+    setPasteDialogOpen(true);
   };
 
   const handleUploadDirectory = () => {
     handleCreateMenuClose();
-    dirInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    for (let i = 0; i < files.length; i++) {
-      try {
-        const formData = new FormData();
-        formData.append('file', files[i]);
-        await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        });
-      } catch (err) {
-        console.error('上传失败:', files[i].name, err);
-      }
-    }
-
-    e.target.value = null;
-
-    // 如果在文件管理页面，触发刷新
-    if (location.pathname === '/admin/files') {
-      window.location.reload();
-    }
+    setUploadMode('folder');
+    setPasteDialogOpen(true);
   };
 
   const handlePasteUpload = () => {
@@ -110,35 +87,37 @@ export default function MainLayout() {
 
   const handlePasteUploadFile = async (file) => {
     try {
+      const token = localStorage.getItem('token');
       const formData = new FormData();
       formData.append('file', file);
       await fetch('/api/upload', {
         method: 'POST',
-        body: formData,
-        credentials: 'include'
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
       });
-      if (location.pathname === '/admin/files') {
-        window.location.reload();
-      }
+      triggerRefresh();
     } catch (err) {
       console.error('上传失败:', err);
     }
   };
 
   const handleCreateFolderConfirm = async (folderPath) => {
-    // 通过上传一个占位文件来创建目录
     try {
+      const token = localStorage.getItem('token');
       const placeholderFile = new File([''], '.gitkeep', { type: 'text/plain' });
       const formData = new FormData();
       formData.append('file', placeholderFile);
-      await fetch(`/api/upload?uploadFolder=${encodeURIComponent(folderPath)}`, {
+      formData.append('directory', folderPath);
+      await fetch('/api/upload', {
         method: 'POST',
-        body: formData,
-        credentials: 'include'
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
       });
-      if (location.pathname === '/admin/files') {
-        window.location.reload();
-      }
+      triggerRefresh();
     } catch (err) {
       console.error('创建文件夹失败:', err);
     }
@@ -292,25 +271,6 @@ export default function MainLayout() {
               新增渠道
             </MenuItem>
           </Menu>
-
-          {/* 隐藏的文件输入 */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
-          <input
-            ref={dirInputRef}
-            type="file"
-            webkitdirectory=""
-            directory=""
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
         </Toolbar>
       </AppBar>
 
@@ -324,6 +284,7 @@ export default function MainLayout() {
         open={pasteDialogOpen}
         onClose={() => setPasteDialogOpen(false)}
         onUpload={handlePasteUploadFile}
+        allowFolder={uploadMode === 'folder'}
       />
 
       {/* 创建文件夹弹窗 */}

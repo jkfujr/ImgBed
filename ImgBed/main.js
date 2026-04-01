@@ -6,6 +6,18 @@ const { initDb } = require('./src/database');
 const port = config.server?.port || 13000;
 const host = config.server?.host || '0.0.0.0';
 
+const handleServerError = (error) => {
+  if (error && error.code === 'EADDRINUSE') {
+    console.error(`[服务端] 端口 ${port} 已被占用，请停止现有进程或修改配置后重试。`);
+    process.exit(1);
+  }
+
+  console.error('[服务端] 启动失败:', error);
+  process.exit(1);
+};
+
+process.on('uncaughtException', handleServerError);
+
 // 在启动服务前初始化数据库
 try {
   initDb();
@@ -16,10 +28,12 @@ try {
 
 console.log(`[服务端] 正在启动服务，地址: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port: Number(port),
   hostname: host
 }, (info) => {
   console.log(`[服务端] 监听中，地址: http://${info.address}:${info.port}`);
 });
+
+server.on('error', handleServerError);

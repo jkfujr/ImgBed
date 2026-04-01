@@ -6,7 +6,7 @@ import {
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
   FormControl, InputLabel, Select, MenuItem, LinearProgress,
-  useTheme, useMediaQuery, Menu, ListItemIcon
+  useTheme, useMediaQuery, Menu, ListItemIcon, TextField
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -28,12 +28,14 @@ import { useUserPreference } from '../../hooks/useUserPreference';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
 import { useNavigate } from 'react-router-dom';
+import { useRefresh } from '../../contexts/RefreshContext';
 
 import { DEFAULT_PAGE_SIZE, BORDER_RADIUS } from '../../utils/constants';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export default function FilesAdmin() {
+  const { refreshTrigger } = useRefresh();
   const theme = useTheme();
   const isXl = useMediaQuery(theme.breakpoints.up('xl'));
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
@@ -74,9 +76,8 @@ export default function FilesAdmin() {
   const navigate = useNavigate();
   const [createMenuAnchor, setCreateMenuAnchor] = useState(null);
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [uploadMode, setUploadMode] = useState('file'); // 'file' | 'folder'
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const fileInputRef = useRef(null);
-  const dirInputRef = useRef(null);
 
   const loadPage = useCallback(async (pageNum, append) => {
     if (loadingRef.current) return;
@@ -137,6 +138,13 @@ export default function FilesAdmin() {
     loadPage(1, false);
     fetchDirectories();
   }, [currentDir]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 监听外部刷新触发
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      handleRefresh();
+    }
+  }, [refreshTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 无限滚动 sentinel
   useEffect(() => {
@@ -274,76 +282,67 @@ export default function FilesAdmin() {
 
   const handleUploadImage = () => {
     handleCreateMenuClose();
-    fileInputRef.current?.click();
+    setUploadMode('file');
+    setPasteDialogOpen(true);
   };
 
   const handleUploadDirectory = () => {
     handleCreateMenuClose();
-    dirInputRef.current?.click();
+    setUploadMode('folder');
+    setPasteDialogOpen(true);
   };
 
-  const handleFileChange = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+  const uploadFile = async (file) => {
+    const token = localStorage.getItem('token');
+    console.log('Token:', token ? `${token.substring(0, 20)}...` : 'null');
 
-    for (const file of files) {
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        if (currentDir) {
-          await fetch(`/api/upload?uploadFolder=${encodeURIComponent(currentDir)}`, {
-            method: 'POST',
-            body: formData,
-            credentials: 'include'
-          });
-        } else {
-          await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-            credentials: 'include'
-          });
-        }
-      } catch (err) {
-        console.error('上传失败:', file.name, err);
-      }
+    const formData = new FormData();
+    formData.append('file', file);
+    if (currentDir) formData.append('directory', currentDir);
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    console.log('Response status:', response.status);
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Upload error:', error);
+      throw new Error(error.message || '上传失败');
     }
-    e.target.value = null;
-    handleRefresh();
+    return response.json();
   };
 
   const handlePasteUploadFile = async (file) => {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (currentDir) {
-        await fetch(`/api/upload?uploadFolder=${encodeURIComponent(currentDir)}`, {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        });
-      } else {
-        await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        });
-      }
+      await uploadFile(file);
       handleRefresh();
     } catch (err) {
       console.error('上传失败:', err);
+      throw err;
     }
   };
 
   const handleCreateFolderConfirm = async (folderPath) => {
     try {
+      const token = localStorage.getItem('token');
       const fullPath = currentDir ? `${currentDir}/${folderPath}` : folderPath;
       const placeholderFile = new File([''], '.gitkeep', { type: 'text/plain' });
       const formData = new FormData();
       formData.append('file', placeholderFile);
-      await fetch(`/api/upload?uploadFolder=${encodeURIComponent(fullPath)}`, {
+      formData.append('directory', fullPath);
+
+      await fetch('/api/upload', {
         method: 'POST',
-        body: formData,
-        credentials: 'include'
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
       });
       handleRefresh();
     } catch (err) {
@@ -484,30 +483,12 @@ export default function FilesAdmin() {
         </MenuItem>
       </Menu>
 
-      {/* 隐藏的文件输入 */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-      <input
-        ref={dirInputRef}
-        type="file"
-        webkitdirectory=""
-        directory=""
-        multiple
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-
-      {/* 剪贴板上传弹窗 */}
+      {/* 统一上传弹窗 */}
       <PasteUploadDialog
         open={pasteDialogOpen}
         onClose={() => setPasteDialogOpen(false)}
         onUpload={handlePasteUploadFile}
+        allowFolder={uploadMode === 'folder'}
       />
 
       {/* 创建文件夹弹窗 */}

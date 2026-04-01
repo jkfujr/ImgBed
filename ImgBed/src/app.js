@@ -2,6 +2,7 @@ const { Hono } = require('hono');
 const { cors } = require('hono/cors');
 const { logger } = require('hono/logger');
 const config = require('./config');
+const { registerErrorHandlers } = require('./middleware/errorHandler');
 
 const app = new Hono();
 
@@ -39,23 +40,6 @@ app.route('/api/system', systemRouter);
 const viewRouter = require('./routes/view');
 app.route('/', viewRouter);
 
-// 安全及异常处理
-app.onError((err, c) => {
-  console.error('[应用错误]', err);
-  return c.json({
-    code: 500,
-    message: err.message || '内部服务器错误',
-    error: {}
-  }, 500);
-});
-
-// 404 处理
-app.notFound((c) => {
-  return c.json({
-    code: 404,
-    message: '未找到请求的资源',
-    data: {}
-  }, 404);
-});
+registerErrorHandlers(app);
 
 module.exports = app;

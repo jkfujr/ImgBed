@@ -12,6 +12,7 @@ import SettingsPage from './pages/admin/SettingsPage';
 import SystemPage from './pages/admin/SystemPage';
 import StorageChannelsPage from './pages/admin/StorageChannelsPage';
 import { AuthProvider } from './contexts/AuthProvider';
+import { RefreshProvider } from './contexts/RefreshContext';
 import RequireAuth from './components/RequireAuth';
 
 // 主题配置
@@ -41,6 +42,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
+        <RefreshProvider>
           <BrowserRouter>
               <Routes>
                   {/* 公共布局 */}
@@ -63,6 +65,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                   </Route>
               </Routes>
           </BrowserRouter>
+        </RefreshProvider>
       </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>
