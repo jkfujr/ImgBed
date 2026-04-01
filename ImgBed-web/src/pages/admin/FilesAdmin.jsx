@@ -204,10 +204,10 @@ export default function FilesAdmin() {
     }
   }, []);
 
-  // 选中文件时获取渠道列表
+  // 组件挂载时加载一次可迁移渠道列表（渠道配置不经常变化）
   useEffect(() => {
-    if (selected.size > 0) fetchWritableChannels();
-  }, [selected, fetchWritableChannels]);
+    fetchWritableChannels();
+  }, [fetchWritableChannels]);
 
   const handleConfirmMigrate = async () => {
     if (!targetChannel || migrateDialog.ids.length === 0) return;
