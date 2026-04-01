@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Box, Typography, ImageList, Checkbox, Chip,
+  Box, Typography, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Button, CircularProgress,
   Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
@@ -9,7 +9,6 @@ import {
   useTheme, useMediaQuery, Menu, ListItemIcon, TextField
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import CloseIcon from '@mui/icons-material/Close';
 import InfoIcon from '@mui/icons-material/Info';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -23,6 +22,8 @@ import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
 import StorageIcon from '@mui/icons-material/Storage';
 import MasonryImageItem from '../../components/admin/MasonryImageItem';
+import Masonry from '@mui/lab/Masonry';
+import ImageDetailLightbox from '../../components/admin/ImageDetailLightbox';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import PasteUploadDialog from '../../components/common/PasteUploadDialog';
 import CreateFolderDialog from '../../components/common/CreateFolderDialog';
@@ -84,67 +85,16 @@ export default function FilesAdmin() {
   // 详情弹窗相关状态
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [imgTransform, setImgTransform] = useState({ scale: 1, x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const handleOpenDetail = useCallback((item) => {
     setSelectedItem(item);
-    setImgTransform({ scale: 1, x: 0, y: 0 });
     setDetailOpen(true);
   }, []);
 
   const handleCloseDetail = () => {
     setDetailOpen(false);
     setSelectedItem(null);
-    setImgTransform({ scale: 1, x: 0, y: 0 });
-    setIsDragging(false);
   };
-
-  // 图片缩放处理
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setImgTransform(prev => ({
-      ...prev,
-      scale: Math.min(Math.max(prev.scale * delta, 0.2), 15)
-    }));
-  };
-
-  // 图片拖拽处理
-  const handleMouseDown = (e) => {
-    if (e.button !== 0) return; // 仅左键
-    e.preventDefault();
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - imgTransform.x, y: e.clientY - imgTransform.y });
-  };
-
-  const handleMouseMove = useCallback((e) => {
-    if (!isDragging) return;
-    setImgTransform(prev => ({
-      ...prev,
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    }));
-  }, [isDragging, dragStart]);
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    } else {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, handleMouseMove]);
 
   const loadPage = useCallback(async (pageNum, append) => {
     if (loadingRef.current) return;
@@ -604,18 +554,18 @@ export default function FilesAdmin() {
         {data.length > 0 && (
           <>
             <Box sx={{ display: viewMode === 'masonry' ? 'block' : 'none' }}>
-              <ImageList variant="masonry" cols={cols} gap={12}>
+              <Masonry columns={cols} spacing={1.5}>
                 {data.map(item => (
                   <MasonryImageItem
                     key={item.id}
                     item={item}
                     isSelected={selected.has(item.id)}
-                    toggleSelect={() => toggleSelect(item.id)}
+                    toggleSelect={toggleSelect}
                     triggerDelete={triggerDelete}
                     onOpenDetail={handleOpenDetail}
                   />
                 ))}
-              </ImageList>
+              </Masonry>
             </Box>
 
             <Box sx={{ display: viewMode === 'list' ? 'block' : 'none' }}>
@@ -747,190 +697,13 @@ export default function FilesAdmin() {
       </ConfirmDialog>
 
       {/* 文件详情弹窗 (全屏 Lightbox 风格) */}
-      <Dialog
-        fullScreen
+      {/* 文件详情弹窗 */}
+      <ImageDetailLightbox
         open={detailOpen}
+        item={selectedItem}
         onClose={handleCloseDetail}
-        PaperProps={{
-          sx: {
-            bgcolor: 'transparent',
-            boxShadow: 'none',
-            overflow: 'hidden'
-          }
-        }}
-      >
-        {/* 全屏背景遮罩 */}
-        <Box
-          onClick={handleCloseDetail}
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            bgcolor: 'rgba(0,0,0,0.9)',
-            zIndex: -1
-          }}
-        />
-
-        <IconButton
-          onClick={handleCloseDetail}
-          sx={{
-            position: 'fixed',
-            left: 20,
-            top: 20,
-            zIndex: 100,
-            color: 'white',
-            bgcolor: 'rgba(255,255,255,0.1)',
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' }
-          }}
-        >
-          <CloseIcon />
-        </IconButton>
-
-        <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
-          {/* 左侧：交互式图片区域 */}
-          <Box
-            sx={{
-              flex: 1,
-              position: 'relative',
-              overflow: 'hidden',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              cursor: isDragging ? 'grabbing' : 'grab',
-              userSelect: 'none'
-            }}
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-          >
-            {selectedItem && (
-              <Box
-                component="img"
-                src={`/${selectedItem.id}`}
-                alt={selectedItem.original_name || selectedItem.file_name}
-                draggable={false}
-                sx={{
-                  maxWidth: 'none',
-                  maxHeight: 'none',
-                  transform: `translate(${imgTransform.x}px, ${imgTransform.y}px) scale(${imgTransform.scale})`,
-                  transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                  pointerEvents: 'none', // 让容器处理事件以支持拖拽容器内任何地方
-                  filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))'
-                }}
-              />
-            )}
-
-            {/* 缩放比例提示 */}
-            <Box sx={{
-              position: 'absolute',
-              bottom: 20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              bgcolor: 'rgba(0,0,0,0.5)',
-              color: 'white',
-              px: 2,
-              py: 0.5,
-              borderRadius: 20,
-              fontSize: '0.75rem',
-              opacity: 0.7,
-              pointerEvents: 'none'
-            }}>
-              {Math.round(imgTransform.scale * 100)}%
-            </Box>
-          </Box>
-
-          {/* 右侧：固定的详细信息面板 */}
-          <Paper sx={{
-            width: { xs: '100%', md: '360px' },
-            height: '100%',
-            bgcolor: theme.palette.background.paper,
-            display: { xs: 'none', md: 'flex' }, // 移动端暂不显示侧边栏以保持简洁
-            flexDirection: 'column',
-            boxShadow: theme.shadows[10],
-            zIndex: 50,
-            overflow: 'hidden'
-          }}>
-            <Box sx={{ p: 3, pb: 2 }}>
-              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 'bold', letterSpacing: 1 }}>
-                文件详情
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 0.5, wordBreak: 'break-all' }}>
-                {selectedItem?.original_name || selectedItem?.file_name}
-              </Typography>
-            </Box>
-
-            <Divider />
-
-            <Box sx={{ flex: 1, overflowY: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-              {[
-                { label: '文件类型', value: selectedItem?.mime_type || '-' },
-                { label: '文件大小', value: fmtSize(selectedItem?.size) },
-                { label: '图片尺寸', value: selectedItem?.width && selectedItem?.height ? `${selectedItem.width} × ${selectedItem.height} px` : '-' },
-                { label: '上传时间', value: fmtDate(selectedItem?.created_at) },
-                { label: '上传用户', value: selectedItem?.uploader_id || '匿名用户' },
-                { label: '上传 IP', value: selectedItem?.upload_ip || '-' },
-                { label: '渠道 ID', value: parseChannelName(selectedItem?.storage_config) },
-              ].map((info, i) => (
-                <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: '80px', textTransform: 'uppercase' }}>
-                    {info.label}
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 500, textAlign: 'right', wordBreak: 'break-all' }}>
-                    {info.value}
-                  </Typography>
-                </Box>
-              ))}
-
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>渠道类型</Typography>
-                <Chip
-                  label={channelTypeLabel(selectedItem?.storage_channel)}
-                  size="small"
-                  color="primary"
-                  sx={{ borderRadius: BORDER_RADIUS.sm, fontWeight: 'bold' }}
-                />
-              </Box>
-
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block', textTransform: 'uppercase' }}>文件标签</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {parseTags(selectedItem?.tags).length > 0 ? (
-                    parseTags(selectedItem?.tags).map((tag, idx) => (
-                      <Chip key={idx} label={tag} size="small" variant="filled" sx={{ bgcolor: 'action.selected', borderRadius: BORDER_RADIUS.sm }} />
-                    ))
-                  ) : (
-                    <Typography variant="body2" color="text.disabled">无标签</Typography>
-                  )}
-                </Box>
-              </Box>
-            </Box>
-
-            <Divider />
-
-            <Box sx={{ p: 3 }}>
-              <Button
-                variant="contained"
-                fullWidth
-                color="error"
-                startIcon={<DeleteIcon />}
-                onClick={() => {
-                  handleCloseDetail();
-                  triggerDelete([selectedItem.id], selectedItem.original_name || selectedItem.file_name);
-                }}
-                sx={{ borderRadius: BORDER_RADIUS.md, py: 1.2, fontWeight: 'bold' }}
-              >
-                删除此文件
-              </Button>
-              <Button
-                fullWidth
-                sx={{ mt: 1, color: 'text.secondary' }}
-                onClick={() => window.open(`/${selectedItem?.id}`, '_blank')}
-                startIcon={<ImageIcon />}
-              >
-                查看原图
-              </Button>
-            </Box>
-          </Paper>
-        </Box>
-      </Dialog>
+        onDelete={triggerDelete}
+      />
 
       {/* 迁移渠道弹窗 */}
       <Dialog open={migrateDialog.open} onClose={() => !migrating && setMigrateDialog({ open: false, ids: [] })} maxWidth="sm" fullWidth>

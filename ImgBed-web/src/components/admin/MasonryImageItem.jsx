@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Box, ImageListItem, Checkbox, Typography, IconButton, Tooltip } from '@mui/material';
+import { Box, Checkbox, Typography, IconButton, Tooltip } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
 
@@ -8,20 +8,24 @@ import { BORDER_RADIUS } from '../../utils/constants';
  * 鼠标移动悬浮不会触发这个组件重渲染，图片永远稳定
  */
 const MasonryImage = memo(({ item, onOpenDetail }) => (
-  <Box component="img"
-    src={`/${item.id}`}
-    alt={item.original_name || item.file_name}
-    loading="lazy"
-    onClick={() => onOpenDetail?.(item)}
-    sx={{
-      display: 'block',
-      width: '100%',
-      borderRadius: BORDER_RADIUS.md,
-      cursor: 'pointer',
-      transition: 'opacity 0.2s',
-      '&:hover': { opacity: 0.9 }
-    }}
-  />
+    <Box
+      component="img"
+      src={`/${item.id}`}
+      onClick={() => onOpenDetail?.(item)}
+      sx={{
+        display: 'block',
+        width: '100%',
+        height: 'auto', // 真正的瀑布流：宽度固定，高度自适应
+        borderRadius: BORDER_RADIUS.md,
+        cursor: 'pointer',
+        transition: 'opacity 0.2s, transform 0.2s',
+        bgcolor: 'action.hover',
+        '&:hover': {
+          opacity: 0.9,
+          transform: 'scale(1.01)'
+        }
+      }}
+    />
 ), (prev, next) => prev.item.id === next.item.id);
 MasonryImage.displayName = 'MasonryImage';
 
@@ -37,11 +41,12 @@ const MasonryImageItem = memo(({
   triggerDelete,
   onOpenDetail,
 }) => (
-  <ImageListItem
+  <Box
     sx={{
       position: 'relative',
       borderRadius: BORDER_RADIUS.md,
       overflow: 'hidden',
+      lineHeight: 0, // 消除 img 下方的微小间隙
       '&:hover .overlay-controls': { opacity: 1 },
     }}
   >
@@ -91,7 +96,7 @@ const MasonryImageItem = memo(({
         </IconButton>
       </Tooltip>
     </Box>
-  </ImageListItem>
+  </Box>
 ), (prev, next) => {
   // 只有 id 和选中状态改变才重渲染
   // 完全不需要 hover 状态！CSS 自己处理悬浮
