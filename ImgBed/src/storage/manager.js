@@ -31,6 +31,8 @@ class StorageManager {
                         type: storageConfig.type,
                         allowUpload: storageConfig.allowUpload,
                         weight: storageConfig.weight || 1,
+                        quotaLimitGB: storageConfig.quotaLimitGB,
+                        disableThresholdPercent: storageConfig.disableThresholdPercent || 95,
                         instance: instance
                     });
                 } catch (e) {
@@ -77,17 +79,51 @@ class StorageManager {
 
     /**
      * 判断特定的渠道是否允许进行新文件上传 (为了兼容仅支持读取的旧库)
+     * @param {string} storageId 渠道 ID
+     * @param {number|null} usedBytes 已用字节总数（可选，不传则不检查容量限制）
      */
-    isUploadAllowed(storageId) {
+    isUploadAllowed(storageId, usedBytes = null) {
         const entry = this.instances.get(storageId);
         if (!entry) return false;
-        
+
         // 必须配置中 allowUpload=true，并且也在全局上传白名单列表中
-        const isWhitelisted = Array.isArray(this.config.allowedUploadChannels) 
-                                ? this.config.allowedUploadChannels.includes(storageId) 
+        const isWhitelisted = Array.isArray(this.config.allowedUploadChannels)
+                                ? this.config.allowedUploadChannels.includes(storageId)
                                 : true;
 
-        return entry.allowUpload && isWhitelisted;
+        if (!entry.allowUpload || !isWhitelisted) {
+            return false;
+        }
+
+        // 容量检查 - 如果提供了已用容量且超限，则不允许上传
+        if (usedBytes !== null && this.isQuotaExceeded(storageId, usedBytes)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 检查指定渠道是否超出容量限制
+     * @param {string} storageId 渠道 ID
+     * @param {number} usedBytes 已用字节总数
+     * @returns {boolean} true=已超限，false=未超限
+     */
+    isQuotaExceeded(storageId, usedBytes) {
+        const entry = this.instances.get(storageId);
+        if (!entry) return true;
+
+        // 如果没有设置容量限制（null 或 0），不限制
+        if (!entry.quotaLimitGB || entry.quotaLimitGB <= 0) {
+            return false;
+        }
+
+        // 转换单位：GB -> 字节
+        const limitBytes = entry.quotaLimitGB * 1024 * 1024 * 1024;
+        const thresholdPercent = entry.disableThresholdPercent || 95;
+        const thresholdBytes = limitBytes * (thresholdPercent / 100);
+
+        return usedBytes >= thresholdBytes;
     }
 
     /**
@@ -131,6 +167,8 @@ class StorageManager {
                         type: s.type,
                         allowUpload: s.allowUpload,
                         weight: s.weight || 1,
+                        quotaLimitGB: s.quotaLimitGB,
+                        disableThresholdPercent: s.disableThresholdPercent || 95,
                         instance: inst
                     });
                 } catch (e) {

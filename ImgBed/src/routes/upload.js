@@ -54,6 +54,40 @@ uploadApp.post('/', adminAuth, async (c) => {
     if (!storage) {
        return c.json({ code: 400, message: `找不到指定的存储渠道: ${channelId}`, error: {} }, 400);
     }
+
+    // 容量检查 - 统计该渠道已用总字节数并检查是否超限
+    let quotaAllowed = true;
+    try {
+      // 统计该渠道已用总字节数
+      const result = await db
+        .selectFrom('files')
+        .select(['size', 'storage_config'])
+        .execute();
+
+      let totalBytes = 0;
+      for (const row of result) {
+        let cfg;
+        try {
+          cfg = JSON.parse(row.storage_config || '{}');
+          if (cfg.instance_id === channelId) {
+            totalBytes += Number(row.size) || 0;
+          }
+        } catch (e) {}
+      }
+
+      // 检查是否超限，如果超限则不允许上传
+      if (!storageManager.isUploadAllowed(channelId, totalBytes)) {
+        quotaAllowed = false;
+      }
+    } catch (err) {
+      console.warn('[Upload] 容量检查失败，继续上传:', err.message);
+      // 如果统计失败，出于容错考虑仍然允许上传
+    }
+
+    if (!quotaAllowed) {
+      return c.json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} }, 403);
+    }
+
     if (!storageManager.isUploadAllowed(channelId)) {
         return c.json({ code: 403, message: `渠道 [${channelId}] 暂不支持或已关闭上传功能`, error: {} }, 403);
     }

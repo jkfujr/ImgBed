@@ -29,7 +29,9 @@
         "config": {
           "basePath": "./data/storage"
         },
-        "weight": 1
+        "weight": 1,
+        "quotaLimitGB": 10,
+        "disableThresholdPercent": 95
       }
     ]
   },

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
   Box, Typography, ImageList, ImageListItem, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
@@ -37,7 +37,6 @@ export default function FilesAdmin() {
   const [directories, setDirectories] = useState([]);
   const [currentDir, setCurrentDir] = useState(null);
   const [selected, setSelected] = useState(new Set());
-  const [hoveredId, setHoveredId] = useState(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ open: false, ids: [], label: '' });
@@ -283,6 +282,87 @@ export default function FilesAdmin() {
     return map[channel] || channel || '-';
   };
 
+  // 瀑布流图片项 - 使用 CSS :hover 处理悬浮效果，完全不需要 React 状态
+  // 这样鼠标移动根本不会触发任何重渲染，自然不会重新加载图片
+  const MasonryImage = memo(({ item }) => (
+    <img
+      src={`/${item.id}`}
+      alt={item.original_name || item.file_name}
+      loading="lazy"
+      style={{ display: 'block', width: '100%', borderRadius: 8 }}
+    />
+  ), (prev, next) => prev.item.id === next.item.id);
+  MasonryImage.displayName = 'MasonryImage';
+
+  const MasonryImageItem = memo(({
+    item,
+    isSelected,
+    toggleSelect,
+    triggerDelete
+  }) => (
+    <ImageListItem
+      sx={{
+        position: 'relative',
+        borderRadius: 2,
+        overflow: 'hidden',
+        '&:hover .overlay-controls': { opacity: 1 },
+      }}
+    >
+      <MasonryImage item={item} />
+      {/* 左上角复选框 - 选中总是显示，hover 显示，CSS 过渡，不需要 React 状态 */}
+      <Box className="overlay-controls" component="div" sx={{
+        position: 'absolute',
+        top: 4,
+        left: 4,
+        opacity: isSelected ? 1 : 0,
+        transition: 'opacity 0.15s',
+        '&:hover': { opacity: 1 },
+      }}>
+        <Checkbox size="small" checked={isSelected}
+          onChange={() => toggleSelect(item.id)}
+          sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, p: 0.3,
+            '&:hover': { bgcolor: 'white' } }} />
+      </Box>
+      {/* 底部信息条 - 同样 CSS :hover 控制 */}
+      <Box className="overlay-controls" component="div" sx={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        bgcolor: 'rgba(0,0,0,0.55)',
+        color: 'white',
+        px: 1,
+        py: 0.5,
+        display: 'flex',
+        alignItems: 'center',
+        opacity: isSelected ? 1 : 0,
+        transition: 'opacity 0.15s',
+        '&:hover': { opacity: 1 },
+      }}>
+        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+          <Typography variant="caption" noWrap sx={{ display: 'block' }}>
+            {item.original_name || item.file_name}
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            {fmtDate(item.created_at)}
+          </Typography>
+        </Box>
+        <Tooltip title="删除">
+          <IconButton size="small" sx={{ color: 'white', '&:hover': { color: '#ff6b6b' } }}
+            onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    </ImageListItem>
+  ), (prev, next) => {
+    // 只有 id 和选中状态改变才重渲染
+    // 完全不需要 hover 状态！CSS 自己处理悬浮
+    return prev.item.id === next.item.id &&
+           prev.isSelected === next.isSelected;
+  });
+  MasonryImageItem.displayName = 'MasonryImageItem';
+
   const handleViewModeChange = (_, val) => {
     if (!val) return;
     setViewMode(val);
@@ -371,10 +451,10 @@ export default function FilesAdmin() {
             <ToggleButton value="list" aria-label="详细列表">
               <Tooltip title="详细列表"><ViewListIcon fontSize="small" /></Tooltip>
             </ToggleButton>
-            <ToggleButton value="__refresh" aria-label="刷新" onClick={handleRefresh} disabled={loading} sx={{ '&.Mui-selected': { bgcolor: 'transparent' } }}>
-              <Tooltip title="刷新"><RefreshIcon fontSize="small" /></Tooltip>
-            </ToggleButton>
           </ToggleButtonGroup>
+          <IconButton size="small" onClick={handleRefresh} disabled={loading}>
+            <Tooltip title="刷新"><RefreshIcon fontSize="small" /></Tooltip>
+          </IconButton>
         </Box>
       </Box>
 
@@ -438,127 +518,100 @@ export default function FilesAdmin() {
           </Box>
         )}
 
-        {/* 瀑布流视图 */}
-        {viewMode === 'masonry' && data.length > 0 && (
-          <ImageList variant="masonry" cols={cols} gap={12}>
-            {data.map(item => (
-              <ImageListItem key={item.id}
-                onMouseEnter={() => setHoveredId(item.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}
-              >
-                <img src={`/${item.id}`} alt={item.original_name || item.file_name}
-                  loading="lazy" style={{ display: 'block', width: '100%', borderRadius: 8 }} />
-                {/* 左上角复选框 */}
-                <Box sx={{ position: 'absolute', top: 4, left: 4,
-                  opacity: (hoveredId === item.id || selected.has(item.id)) ? 1 : 0,
-                  transition: 'opacity 0.15s' }}>
-                  <Checkbox size="small" checked={selected.has(item.id)}
-                    onChange={() => toggleSelect(item.id)}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, p: 0.3,
-                      '&:hover': { bgcolor: 'white' } }} />
-                </Box>
-                {/* 底部信息条 */}
-                <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0,
-                  bgcolor: 'rgba(0,0,0,0.55)', color: 'white', px: 1, py: 0.5,
-                  display: 'flex', alignItems: 'center',
-                  opacity: hoveredId === item.id ? 1 : 0,
-                  transition: 'opacity 0.15s' }}>
-                  <Box sx={{ flex: 1, overflow: 'hidden' }}>
-                    <Typography variant="caption" noWrap sx={{ display: 'block' }}>
-                      {item.original_name || item.file_name}
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                      {fmtDate(item.created_at)}
-                    </Typography>
-                  </Box>
-                  <Tooltip title="删除">
-                    <IconButton size="small" sx={{ color: 'white', '&:hover': { color: '#ff6b6b' } }}
-                      onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              </ImageListItem>
-            ))}
-          </ImageList>
-        )}
+        {/* 优化：两个视图都保留在 DOM 中，只通过 display:none 隐藏未选中的
+            这样切换视图时不会销毁重建 DOM，图片不会重新加载，切换更流畅 */}
+        {data.length > 0 && (
+          <>
+            <Box sx={{ display: viewMode === 'masonry' ? 'block' : 'none' }}>
+              <ImageList variant="masonry" cols={cols} gap={12}>
+                {data.map(item => (
+                  <MasonryImageItem
+                    key={item.id}
+                    item={item}
+                    isSelected={selected.has(item.id)}
+                    toggleSelect={() => toggleSelect(item.id)}
+                    triggerDelete={triggerDelete}
+                  />
+                ))}
+              </ImageList>
+            </Box>
 
-        {/* 列表视图 */}
-        {viewMode === 'list' && data.length > 0 && (
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox">
-                  <Checkbox size="small"
-                    indeterminate={selected.size > 0 && selected.size < data.length}
-                    checked={data.length > 0 && selected.size === data.length}
-                    onChange={() => {
-                      if (selected.size === data.length) setSelected(new Set());
-                      else setSelected(new Set(data.map(d => d.id)));
-                    }} />
-                </TableCell>
-                <TableCell sx={{ width: 64 }}>预览</TableCell>
-                <TableCell>文件名</TableCell>
-                <TableCell>渠道类型</TableCell>
-                <TableCell>渠道名称</TableCell>
-                <TableCell>大小</TableCell>
-                <TableCell>目录</TableCell>
-                <TableCell>上传时间</TableCell>
-                <TableCell align="right">操作</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {data.map(item => (
-                <TableRow key={item.id} hover selected={selected.has(item.id)}>
-                  <TableCell padding="checkbox">
-                    <Checkbox size="small" checked={selected.has(item.id)}
-                      onChange={() => toggleSelect(item.id)} />
-                  </TableCell>
-                  <TableCell sx={{ width: 64, p: 0.5 }}>
-                    <Box
-                      component="img"
-                      src={`/${item.id}`}
-                      alt={item.original_name || item.file_name}
-                      loading="lazy"
-                      sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, display: 'block' }}
-                    />
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 280 }}>
-                    <Typography variant="body2" noWrap>{item.original_name || item.file_name}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={channelTypeLabel(item.storage_channel)}
-                      size="small"
-                      variant="outlined"
-                      sx={{ fontSize: 11 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">{parseChannelName(item.storage_config)}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap>{fmtSize(item.size)}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">{item.directory || '/'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">{fmtDate(item.created_at)}</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="删除">
-                      <IconButton size="small" color="error"
-                        onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+            <Box sx={{ display: viewMode === 'list' ? 'block' : 'none' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox size="small"
+                        indeterminate={selected.size > 0 && selected.size < data.length}
+                        checked={data.length > 0 && selected.size === data.length}
+                        onChange={() => {
+                          if (selected.size === data.length) setSelected(new Set());
+                          else setSelected(new Set(data.map(d => d.id)));
+                        }} />
+                    </TableCell>
+                    <TableCell sx={{ width: 64 }}>预览</TableCell>
+                    <TableCell>文件名</TableCell>
+                    <TableCell>渠道类型</TableCell>
+                    <TableCell>渠道名称</TableCell>
+                    <TableCell>大小</TableCell>
+                    <TableCell>目录</TableCell>
+                    <TableCell>上传时间</TableCell>
+                    <TableCell align="right">操作</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {data.map(item => (
+                    <TableRow key={item.id} hover selected={selected.has(item.id)}>
+                      <TableCell padding="checkbox">
+                        <Checkbox size="small" checked={selected.has(item.id)}
+                          onChange={() => toggleSelect(item.id)} />
+                      </TableCell>
+                      <TableCell sx={{ width: 64, p: 0.5 }}>
+                        <Box
+                          component="img"
+                          src={`/${item.id}`}
+                          alt={item.original_name || item.file_name}
+                          loading="lazy"
+                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, display: 'block' }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 280 }}>
+                        <Typography variant="body2" noWrap>{item.original_name || item.file_name}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={channelTypeLabel(item.storage_channel)}
+                          size="small"
+                          variant="outlined"
+                          sx={{ fontSize: 11 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{parseChannelName(item.storage_config)}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary" noWrap>{fmtSize(item.size)}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{item.directory || '/'}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{fmtDate(item.created_at)}</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="删除">
+                          <IconButton size="small" color="error"
+                            onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </>
         )}
 
         {/* 无限滚动 sentinel */}

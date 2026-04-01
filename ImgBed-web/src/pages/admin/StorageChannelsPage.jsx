@@ -5,6 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, FormControlLabel, Switch, FormControl,
   InputLabel, Select, MenuItem, InputAdornment, Divider,
+  LinearProgress,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -65,13 +66,19 @@ const VALID_TYPES = Object.keys(CHANNEL_SCHEMAS);
 
 // 通用字段初始值
 const EMPTY_FORM = {
-  id: '', type: 'local', name: '', enabled: true, allowUpload: false, weight: 1, config: {},
+  id: '', type: 'local', name: '', enabled: true, allowUpload: false,
+  weight: 1,
+  enableQuota: false,        // 是否启用容量限制，默认不开启
+  quotaLimitGB: 10,          // 容量上限 GB，默认 10
+  disableThresholdPercent: 95, // 停用阈值 %，默认 95
+  config: {},
 };
 export default function StorageChannelsPage() {
   const [storages, setStorages] = useState([]);
   const [defaultId, setDefaultId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [quotaStats, setQuotaStats] = useState({}); // 容量统计 { channelId: usedBytes }
 
   // 弹窗状态
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -93,11 +100,31 @@ export default function StorageChannelsPage() {
     setError(null);
     try {
       const res = await StorageDocs.list();
+      let storagesData = [];
+      let defaultData = '';
       if (res.code === 0) {
-        setStorages(res.data.list || []);
-        setDefaultId(res.data.default || '');
+        storagesData = res.data.list || [];
+        defaultData = res.data.default || '';
       } else {
         setError(res.message || '加载失败');
+      }
+
+      // 加载容量统计 - 先等统计完成再一起更新状态
+      // 这样启用容量限制后能立即显示正确的容量
+      try {
+        const quotaRes = await fetch('/api/system/quota-stats');
+        const quotaData = await quotaRes.json();
+        if (quotaData.code === 0) {
+          setQuotaStats(quotaData.data.stats || {});
+        }
+      } catch (e) {
+        console.warn('加载容量统计失败:', e);
+      }
+
+      // 一起更新渠道列表，确保渲染时就能拿到最新的quotaStats
+      if (res.code === 0) {
+        setStorages(storagesData);
+        setDefaultId(defaultData);
       }
     } catch {
       setError('网络错误，请检查后端服务');
@@ -126,7 +153,16 @@ export default function StorageChannelsPage() {
     for (const [k, v] of Object.entries(s.config || {})) {
       editConfig[k] = v === '***' ? '' : v;
     }
-    setForm({ id: s.id, type: s.type, name: s.name, enabled: s.enabled, allowUpload: s.allowUpload, weight: s.weight || 1, config: editConfig });
+    setForm({
+      id: s.id, type: s.type, name: s.name,
+      enabled: s.enabled, allowUpload: s.allowUpload,
+      weight: s.weight || 1,
+      // 加载配额字段 - 有值且大于0则开启
+      enableQuota: s.quotaLimitGB != null && s.quotaLimitGB > 0,
+      quotaLimitGB: s.quotaLimitGB ?? 10,
+      disableThresholdPercent: s.disableThresholdPercent ?? 95,
+      config: editConfig
+    });
     setStep(1); // 编辑时跳过类型选择步骤
     setShowSensitive({});
     setFormError(null);
@@ -161,6 +197,10 @@ export default function StorageChannelsPage() {
         enabled: form.enabled,
         allowUpload: form.allowUpload,
         weight: form.weight ?? 1,
+        // 配额字段
+        enableQuota: form.enableQuota,
+        quotaLimitGB: form.quotaLimitGB,
+        disableThresholdPercent: form.disableThresholdPercent,
         config: configPayload,
       };
 
@@ -280,6 +320,50 @@ export default function StorageChannelsPage() {
                               color={s.enabled ? 'success' : 'default'} variant="outlined" />
                             {s.allowUpload && <Chip label="允许上传" size="small" color="primary" variant="outlined" />}
                           </Box>
+
+                          {/* 容量进度条 - 仅在启用容量限制时显示 */}
+                          {(() => {
+                            const quotaLimitGB = s.quotaLimitGB;
+                            if (!quotaLimitGB || quotaLimitGB <= 0) return null;
+
+                            const usedBytes = quotaStats[s.id] || 0;
+                            const usedGB = usedBytes / (1024 ** 3); // 字节 -> GB
+                            const percent = Math.min(100, (usedBytes / (quotaLimitGB * (1024 ** 3))) * 100);
+                            const thresholdPercent = s.disableThresholdPercent ?? 95;
+                            const isOverThreshold = percent >= thresholdPercent;
+
+                            // 根据百分比选颜色
+                            let color = 'primary';
+                            if (percent >= thresholdPercent) {
+                              color = 'error';
+                            } else if (percent > 70) {
+                              color = 'warning';
+                            }
+
+                            return (
+                              <Box sx={{ mt: 2 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
+                                  </Typography>
+                                  <Typography variant="caption" color={isOverThreshold ? 'error' : 'text.secondary'}>
+                                    {percent.toFixed(1)}%
+                                  </Typography>
+                                </Box>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={percent}
+                                  color={color}
+                                  sx={{ height: 8, borderRadius: 4 }}
+                                />
+                                {isOverThreshold && (
+                                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                                    已达到停用阈值，上传将被自动禁用
+                                  </Typography>
+                                )}
+                              </Box>
+                            );
+                          })()}
                         </CardContent>
                         <Divider />
                         <CardActions sx={{ px: 1.5, py: 0.5 }}>
@@ -370,9 +454,41 @@ export default function StorageChannelsPage() {
                 type="number"
                 value={form.weight ?? 1}
                 onChange={(e) => setField('weight', Number(e.target.value) || 1)}
-                helperText="仅在负载均衡加权策略时生效，不填默认为 1"
+                helperText="仅在负载均衡加权策略时生效，默认值为 1"
                 slotProps={{ htmlInput: { min: 1, step: 1 } }}
               />
+
+              <FormControlLabel
+                control={<Switch
+                  checked={form.enableQuota ?? false}
+                  onChange={(e) => setField('enableQuota', e.target.checked)}
+                />}
+                label="容量限制"
+              />
+
+              {form.enableQuota && (
+                <>
+                  <TextField
+                    label="容量上限 (GB)"
+                    size="small"
+                    type="number"
+                    value={form.quotaLimitGB ?? 10}
+                    onChange={(e) => setField('quotaLimitGB', Number(e.target.value) || 10)}
+                    helperText="当使用量达到停用阈值时，自动关闭上传"
+                    slotProps={{ htmlInput: { min: 1, max: 10000, step: 1 } }}
+                  />
+
+                  <TextField
+                    label="停用阈值 (%)"
+                    size="small"
+                    type="number"
+                    value={form.disableThresholdPercent ?? 95}
+                    onChange={(e) => setField('disableThresholdPercent', Number(e.target.value) || 95)}
+                    helperText="建议范围：80-100，默认 95"
+                    slotProps={{ htmlInput: { min: 1, max: 100, step: 1 } }}
+                  />
+                </>
+              )}
             </Box>
           )}
 
