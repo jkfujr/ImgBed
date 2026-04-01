@@ -1,5 +1,6 @@
 const { Hono } = require('hono');
 const { db } = require('../database');
+const sharp = require('sharp');
 const { adminAuth, requirePermission } = require('../middleware/auth');
 const storageManager = require('../storage/manager');
 
@@ -16,7 +17,14 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
         const directory = c.req.query('directory'); // 目录筛选目录
         const search = c.req.query('search'); // 文件名搜索关键词
 
-        let query = db.selectFrom('files').selectAll();
+        // 列表接口排除 exif 字段以减小体积，仅返回宽高
+        let query = db.selectFrom('files').select([
+            'id', 'file_name', 'original_name', 'mime_type', 'size',
+            'storage_channel', 'storage_key', 'storage_config',
+            'upload_ip', 'upload_address', 'created_at', 'updated_at',
+            'directory', 'tags', 'is_public',
+            'width', 'height', 'uploader_type', 'uploader_id'
+        ]);
         let countQuery = db.selectFrom('files').select(db.fn.count('id').as('total'));
 
         // 拼接查询属性
@@ -357,6 +365,87 @@ filesApp.post('/batch', adminAuth, async (c) => {
         console.error('[Files API] 处理批处理流水线时崩溃:', err);
         return c.json({ code: 500, message: '并发堆栈遭遇滑铁卢：' + err.message, error: err.message }, 500);
     }
+});
+
+/**
+ * 维护接口：重建图片元数据（宽高、EXIF）
+ * POST /api/files/maintenance/rebuild-metadata
+ */
+filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async (c) => {
+    const force = c.req.query('force') === 'true'; // 是否强制重新扫描所有文件
+
+    // 启动异步处理，不阻塞 HTTP 响应
+    (async () => {
+        console.log(`[Maintenance] 开始${force ? '全量' : '增量'}重建元数据...`);
+        try {
+            let query = db.selectFrom('files').selectAll().where('mime_type', 'like', 'image/%');
+            if (!force) {
+                query = query.where('width', 'is', null);
+            }
+
+            const files = await query.execute();
+            console.log(`[Maintenance] 找到 ${files.length} 个待处理文件`);
+
+            for (const file of files) {
+                try {
+                    let storageId = file.storage_channel;
+
+                    // 修复：如果存储在数据库中记录的是存储类型(如 'local')，尝试解析出实际的实例 ID
+                    if (file.storage_config) {
+                        try {
+                            const cfg = JSON.parse(file.storage_config);
+                            if (cfg.instance_id) {
+                                storageId = cfg.instance_id;
+                            }
+                        } catch (e) {}
+                    }
+
+                    const storage = storageManager.getStorage(storageId);
+                    if (!storage) {
+                        console.warn(`[Maintenance] 找不到存储实例: ${storageId} (File: ${file.id})`);
+                        continue;
+                    }
+
+                    const stream = await storage.getStream(file.storage_key || file.id);
+                    const chunks = [];
+                    for await (const chunk of stream) chunks.push(chunk);
+                    const buffer = Buffer.concat(chunks);
+
+                    if (!buffer || buffer.length === 0) {
+                        console.warn(`[Maintenance] 文件内容为空: ${file.id}`);
+                        continue;
+                    }
+
+                    const metadata = await sharp(buffer).metadata();
+                    const { format, size, width, height, space, channels, depth, density, hasProfile, hasAlpha, orientation, exif: rawExif } = metadata;
+                    const exifData = JSON.stringify({ format, size, width, height, space, channels, depth, density, hasProfile, hasAlpha, orientation, hasExif: !!rawExif });
+
+                    await db.updateTable('files')
+                        .set({
+                            width: width || null,
+                            height: height || null,
+                            exif: exifData
+                        })
+                        .where('id', '=', file.id)
+                        .execute();
+
+                    // 适当休眠避免 IO 压力过大
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                } catch (err) {
+                    console.error(`[Maintenance] 处理文件 ${file.id} 失败:`, err.message);
+                }
+            }
+            console.log('[Maintenance] 元数据重建任务完成');
+        } catch (err) {
+            console.error('[Maintenance] 元数据重建任务崩溃:', err);
+        }
+    })();
+
+    return c.json({
+        code: 0,
+        message: '元数据重建任务已在后台启动',
+        data: { status: 'processing' }
+    });
 });
 
 module.exports = filesApp;

@@ -1,6 +1,7 @@
 const { Hono } = require('hono');
 const crypto = require('crypto');
 const storageManager = require('../storage/manager');
+const sharp = require('sharp');
 const { db } = require('../database');
 const { requirePermission } = require('../middleware/auth');
 const config = require('../config');
@@ -101,8 +102,26 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
 
     // 生成唯一文件ID (哈希 + 清理后的原名 + 后缀)
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // 提取图片元数据（宽、高、EXIF）
+    let width = null, height = null, exif = null;
+    if (file.type.startsWith('image/')) {
+        try {
+            const metadata = await sharp(buffer).metadata();
+            width = metadata.width || null;
+            height = metadata.height || null;
+            // 如果有元数据，则存储为 JSON 字符串
+            if (metadata) {
+                const { format, size, width: w, height: h, space, channels, depth, density, hasProfile, hasAlpha, orientation, exif: rawExif } = metadata;
+                exif = JSON.stringify({ format, size, width: w, height: h, space, channels, depth, density, hasProfile, hasAlpha, orientation, hasExif: !!rawExif });
+            }
+        } catch (metaErr) {
+            console.warn(`[Upload] 提取文件 ${file.name} 元数据失败:`, metaErr.message);
+        }
+    }
+
     const hash = crypto.createHash('sha1').update(buffer).digest('hex').substring(0, 12);
-    
+
     const originalName = file.name || 'blob';
     const rawExt = path.extname(originalName).toLowerCase();
     // 针对冗余的 jpeg 做标准化为 jpg
@@ -179,7 +198,10 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
         tags: body['tags'] ? JSON.stringify(body['tags'].toString().split(',')) : null,
         is_public: (body['is_public'] === 'true' || body['is_public'] === true || body['is_public'] === '1' || !!body['is_public']) ? 1 : 0,
         is_chunked: 0,
-        chunk_count: 0
+        chunk_count: 0,
+        width: width,
+        height: height,
+        exif: exif
     };
 
     // 执行数据库存入
@@ -204,7 +226,9 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
           url: `/${fileId}`, 
           file_name: newFileName,
           original_name: originalName,
-          size: file.size
+          size: file.size,
+          width: width,
+          height: height
       }
     });
 

@@ -1,38 +1,39 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Box, Checkbox, Typography, IconButton, Tooltip } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
 
 /**
- * 纯图片展示组件 - 独立 memo，只有 id 改变才重渲染
- * 鼠标移动悬浮不会触发这个组件重渲染，图片永远稳定
+ * 瀑布流图片展示核心 - 仅在 id 改变时重渲染
  */
 const MasonryImage = memo(({ item, onOpenDetail }) => (
-    <Box
-      component="img"
-      src={`/${item.id}`}
-      onClick={() => onOpenDetail?.(item)}
-      sx={{
-        display: 'block',
-        width: '100%',
-        height: 'auto', // 真正的瀑布流：宽度固定，高度自适应
-        borderRadius: BORDER_RADIUS.md,
-        cursor: 'pointer',
-        transition: 'opacity 0.2s, transform 0.2s',
-        bgcolor: 'action.hover',
-        '&:hover': {
-          opacity: 0.9,
-          transform: 'scale(1.01)'
-        }
-      }}
-    />
+  <Box
+    component="img"
+    src={`/${item.id}`}
+    onClick={() => onOpenDetail?.(item)}
+    loading="lazy"
+    sx={{
+      display: 'block',
+      width: '100%',
+      // 关键优化：如果有宽高数据，提前通过 aspect-ratio 占位，防止 Masonry 计算塌陷
+      aspectRatio: item.width && item.height ? `${item.width}/${item.height}` : 'auto',
+      minHeight: item.width && item.height ? 'auto' : '200px',
+      height: 'auto',
+      borderRadius: BORDER_RADIUS.md,
+      cursor: 'pointer',
+      transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s',
+      bgcolor: 'action.hover',
+      '&:hover': {
+        transform: 'scale(1.02)',
+        opacity: 0.95
+      }
+    }}
+  />
 ), (prev, next) => prev.item.id === next.item.id);
 MasonryImage.displayName = 'MasonryImage';
 
 /**
- * 瀑布流图片项组件
- * 使用 CSS :hover 处理悬浮效果，完全不需要 React 状态
- * 这样鼠标移动根本不会触发任何重渲染
+ * 瀑布流项容器 - 采用全 CSS 悬浮逻辑，避免 React 状态触发重渲染
  */
 const MasonryImageItem = memo(({
   item,
@@ -46,63 +47,64 @@ const MasonryImageItem = memo(({
       position: 'relative',
       borderRadius: BORDER_RADIUS.md,
       overflow: 'hidden',
-      lineHeight: 0, // 消除 img 下方的微小间隙
+      lineHeight: 0,
+      boxShadow: isSelected ? `0 0 0 3px ${'#1976d2'}80` : 'none',
+      transition: 'box-shadow 0.2s',
       '&:hover .overlay-controls': { opacity: 1 },
     }}
   >
     <MasonryImage item={item} onOpenDetail={onOpenDetail} />
-    {/* 左上角复选框 - 选中总是显示，hover 显示，CSS 过渡，不需要 React 状态 */}
-    <Box className="overlay-controls" component="div" sx={{
-      position: 'absolute',
-      top: 4,
-      left: 4,
-      opacity: isSelected ? 1 : 0,
-      transition: 'opacity 0.15s',
-      '&:hover': { opacity: 1 },
+
+    {/* 选框控制层 */}
+    <Box className="overlay-controls" sx={{
+      position: 'absolute', top: 8, left: 8,
+      opacity: isSelected ? 1 : 0, transition: 'opacity 0.2s',
+      zIndex: 2
     }}>
-      <Checkbox size="small" checked={isSelected}
+      <Checkbox
+        size="small"
+        checked={isSelected}
         onChange={() => toggleSelect(item.id)}
-        sx={{ bgcolor: 'rgba(255,255,255,0.85)', borderRadius: BORDER_RADIUS.sm, p: 0.3,
-          '&:hover': { bgcolor: 'white' } }} />
+        sx={{
+          bgcolor: 'rgba(255,255,255,0.9)',
+          borderRadius: BORDER_RADIUS.sm,
+          p: 0.5,
+          '&.Mui-checked': { bgcolor: 'white' },
+          '&:hover': { bgcolor: 'white' }
+        }}
+      />
     </Box>
-    {/* 底部信息条 - 同样 CSS :hover 控制 */}
-    <Box className="overlay-controls" component="div" sx={{
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      bgcolor: 'rgba(0,0,0,0.55)',
-      color: 'white',
-      px: 1,
-      py: 0.5,
-      display: 'flex',
-      alignItems: 'center',
-      opacity: isSelected ? 1 : 0,
-      transition: 'opacity 0.15s',
-      '&:hover': { opacity: 1 },
+
+    {/* 底部信息与操作条 */}
+    <Box className="overlay-controls" sx={{
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+      color: 'white', px: 1.5, pt: 3, pb: 1,
+      display: 'flex', alignItems: 'flex-end',
+      opacity: isSelected ? 1 : 0, transition: 'opacity 0.2s',
+      pointerEvents: 'none', // 默认穿透，方便点击图片
+      '& > *': { pointerEvents: 'auto' } // 内部按钮恢复交互
     }}>
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
-        <Typography variant="caption" noWrap sx={{ display: 'block' }}>
+      <Box sx={{ flex: 1, overflow: 'hidden', mb: 0.5 }}>
+        <Typography variant="caption" noWrap sx={{ display: 'block', fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
           {item.original_name || item.file_name}
         </Typography>
-        <Typography variant="caption" sx={{ opacity: 0.75 }}>
+        <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.7rem' }}>
           {fmtDate(item.created_at)}
         </Typography>
       </Box>
       <Tooltip title="删除">
-        <IconButton size="small" sx={{ color: 'white', '&:hover': { color: '#ff6b6b' } }}
-          onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}>
+        <IconButton
+          size="small"
+          sx={{ color: 'white', '&:hover': { color: '#ff5252', bgcolor: 'rgba(255,255,255,0.1)' } }}
+          onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}
+        >
           <DeleteIcon fontSize="small" />
         </IconButton>
       </Tooltip>
     </Box>
   </Box>
-), (prev, next) => {
-  // 只有 id 和选中状态改变才重渲染
-  // 完全不需要 hover 状态！CSS 自己处理悬浮
-  return prev.item.id === next.item.id &&
-         prev.isSelected === next.isSelected;
-});
+), (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
 MasonryImageItem.displayName = 'MasonryImageItem';
 
 export default MasonryImageItem;

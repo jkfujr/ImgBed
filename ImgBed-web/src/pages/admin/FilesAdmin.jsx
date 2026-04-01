@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, Typography, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
@@ -16,7 +16,6 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
-import AddIcon from '@mui/icons-material/Add';
 import ImageIcon from '@mui/icons-material/Image';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
@@ -554,7 +553,13 @@ export default function FilesAdmin() {
         {data.length > 0 && (
           <>
             <Box sx={{ display: viewMode === 'masonry' ? 'block' : 'none' }}>
-              <Masonry columns={cols} spacing={1.5}>
+              <Masonry
+                columns={cols}
+                spacing={1.5}
+                defaultColumns={cols}
+                defaultHeight={800}
+                sx={{ alignContent: 'flex-start' }}
+              >
                 {data.map(item => (
                   <MasonryImageItem
                     key={item.id}
