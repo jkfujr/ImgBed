@@ -216,6 +216,7 @@ systemApp.get('/load-balance', async (c) => {
         scope: cfg.storage?.loadBalanceScope || 'global',
         enabledTypes: cfg.storage?.loadBalanceEnabledTypes || [],
         weights: cfg.storage?.loadBalanceWeights || {},
+        failoverEnabled: cfg.storage?.failoverEnabled !== false,
         stats: storageManager.getUsageStats()
       }
     });
@@ -231,7 +232,7 @@ systemApp.get('/load-balance', async (c) => {
 systemApp.put('/load-balance', async (c) => {
   try {
     const body = await c.req.json();
-    const { strategy, scope, enabledTypes, weights } = body;
+    const { strategy, scope, enabledTypes, weights, failoverEnabled } = body;
 
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
@@ -255,6 +256,10 @@ systemApp.put('/load-balance', async (c) => {
 
     if (weights !== undefined) {
       cfg.storage.loadBalanceWeights = weights;
+    }
+
+    if (failoverEnabled !== undefined) {
+      cfg.storage.failoverEnabled = Boolean(failoverEnabled);
     }
 
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');

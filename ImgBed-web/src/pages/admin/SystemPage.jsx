@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, TextField, Button, CircularProgress,
   Alert, Divider, FormControl, InputLabel, Select, MenuItem, Grid,
-  Tabs, Tab, FormControlLabel, Radio, RadioGroup, FormGroup, Checkbox,
+  Tabs, Tab, FormControlLabel, Radio, RadioGroup, FormGroup, Checkbox, Switch,
 } from '@mui/material';
 import { api, StorageDocs } from '../../api';
 import { BORDER_RADIUS } from '../../utils/constants';
@@ -28,6 +28,7 @@ export default function SystemPage() {
   const [lbScope, setLbScope] = useState('global');
   const [lbEnabledTypes, setLbEnabledTypes] = useState([]);
   const [lbWeights, setLbWeights] = useState({});
+  const [failoverEnabled, setFailoverEnabled] = useState(true);
   const [availableChannels, setAvailableChannels] = useState([]);
 
   // 上传配置 - 容量检查
@@ -65,6 +66,7 @@ export default function SystemPage() {
         setLbWeights(res.data.weights || {});
         setLbScope(res.data.scope || 'global');
         setLbEnabledTypes(res.data.enabledTypes || []);
+        setFailoverEnabled(res.data.failoverEnabled !== false);
         setUploadStrategy(strategy === 'default' ? 'default' : 'load-balance');
       }
     } catch (err) {
@@ -95,7 +97,8 @@ export default function SystemPage() {
         strategy: finalStrategy,
         scope: lbScope,
         enabledTypes: lbEnabledTypes,
-        weights: lbWeights
+        weights: lbWeights,
+        failoverEnabled
       });
       if (res.code === 0) {
         setLbResult({ type: 'success', msg: '负载均衡配置已保存' });
@@ -235,7 +238,6 @@ export default function SystemPage() {
       {/* 分页 2: 存储策略 */}
       {currentTab === 1 && (
         <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-          <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储策略</Typography>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {lbResult && (
               <Alert severity={lbResult.type} onClose={() => setLbResult(null)}>{lbResult.msg}</Alert>
@@ -378,6 +380,27 @@ export default function SystemPage() {
                   </>
                 )}
 
+                <Divider />
+
+                {/* 失败自动切换 */}
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={failoverEnabled}
+                      onChange={(e) => setFailoverEnabled(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography>上传失败自动切换渠道</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        上传失败时自动尝试其他可用渠道（最多重试 3 次）
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ alignItems: 'flex-start', ml: 0 }}
+                />
+
                 <Box>
                   <Button variant="contained" onClick={handleSaveLb} disabled={lbSaving}>
                     {lbSaving ? <CircularProgress size={18} color="inherit" /> : '保存策略'}
@@ -398,7 +421,6 @@ export default function SystemPage() {
               <Alert severity={uploadResult.type} onClose={() => setUploadResult(null)}>{uploadResult.msg}</Alert>
             )}
             <FormControl component="fieldset">
-              <Typography variant="body2" fontWeight="medium" mb={1}>容量检查模式</Typography>
               <RadioGroup
                 value={quotaCheckMode}
                 onChange={(e) => setQuotaCheckMode(e.target.value)}

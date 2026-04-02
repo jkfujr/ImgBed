@@ -24,6 +24,8 @@ const defaultConfig = {
   storage: {
     default: "local-1",
     allowedUploadChannels: ["local-1"],
+    // 上传失败时自动切换到其他可用渠道
+    failoverEnabled: true,
     storages: [
       {
         id: "local-1",

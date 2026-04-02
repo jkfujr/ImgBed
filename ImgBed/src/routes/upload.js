@@ -15,6 +15,28 @@ const generateId = () => {
 };
 
 /**
+ * 判断上传错误是否可重试（用于失败自动切换）
+ * 文件格式、大小等客户端错误在上传流程早期已被拦截，
+ * 能走到 storage.put() 的错误基本都是渠道侧问题，默认视为可重试。
+ */
+function isRetryableError(error) {
+    // 网络层错误
+    const networkCodes = ['ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN'];
+    if (networkCodes.includes(error.code)) return true;
+
+    // HTTP 状态码（部分存储 SDK 会将状态码挂在 error 上）
+    const status = error.status || error.statusCode || error.response?.status;
+    if (status && (status === 429 || status >= 500)) return true;
+
+    // 通用错误消息匹配
+    const msg = (error.message || '').toLowerCase();
+    if (msg.includes('timeout') || msg.includes('network') || msg.includes('unavailable')) return true;
+
+    // 默认视为可重试
+    return true;
+}
+
+/**
  * 文件上传接口
  * POST /api/upload
  * （可选择是否需要 adminAuth。根据需求目前加上管理员拦截。若作为公共图床，后续可配置为宽松模式）
@@ -150,18 +172,63 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     const fileId = `${hash}_${safeBaseName || 'file'}${extension}`;
     const newFileName = fileId; 
     
-    // 执行底层物理存储
+    // 执行底层物理存储（支持失败自动切换）
+    const failoverEnabled = config.storage?.failoverEnabled !== false;
+    const maxRetries = 3; // 最多尝试的备选渠道数
+    const failedChannels = [];
     let storageResult;
-    try {
-        storageResult = await storage.put(file, {
-            id: fileId,
-            fileName: newFileName,
-            originalName: originalName,
-            mimeType: file.type || 'application/octet-stream' 
-        });
-    } catch(err) {
-        console.error(`[Upload] 向底层存储渠道抛掷时发生错误:`, err);
-        throw new Error("底层文件流转储失败: " + err.message);
+    let finalChannelId = channelId;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const currentStorage = storageManager.getStorage(finalChannelId);
+        if (!currentStorage) {
+            failedChannels.push({ id: finalChannelId, error: '渠道实例不存在' });
+            // 渠道不存在，尝试切换到其他渠道
+            if (failoverEnabled && attempt < maxRetries) {
+                const excludeIds = failedChannels.map(f => f.id);
+                const nextChannelId = storageManager.selectUploadChannel(null, excludeIds);
+                if (nextChannelId) {
+                    console.log(`[Upload Failover] 渠道 ${finalChannelId} 不存在，切换到: ${nextChannelId}`);
+                    finalChannelId = nextChannelId;
+                    continue;
+                }
+            }
+            throw new Error(`找不到可用的存储渠道`);
+        }
+
+        try {
+            storageResult = await currentStorage.put(file, {
+                id: fileId,
+                fileName: newFileName,
+                originalName: originalName,
+                mimeType: file.type || 'application/octet-stream'
+            });
+            break; // 上传成功，跳出循环
+        } catch (err) {
+            console.warn(`[Upload Failover] 渠道 ${finalChannelId} 上传失败: ${err.message}`);
+            failedChannels.push({ id: finalChannelId, error: err.message });
+
+            // 判断是否继续切换
+            if (!failoverEnabled || !isRetryableError(err) || attempt >= maxRetries) {
+                throw new Error('底层文件流转储失败: ' + err.message
+                    + (failedChannels.length > 1 ? ` (已尝试 ${failedChannels.length} 个渠道)` : ''));
+            }
+
+            // 复用 selectUploadChannel，排除已失败的渠道
+            const excludeIds = failedChannels.map(f => f.id);
+            const nextChannelId = storageManager.selectUploadChannel(null, excludeIds);
+            if (!nextChannelId) {
+                throw new Error('所有可用渠道均已尝试，上传失败');
+            }
+
+            console.log(`[Upload Failover] 切换到备选渠道: ${nextChannelId}`);
+            finalChannelId = nextChannelId;
+        }
+    }
+
+    // 如果发生了渠道切换，记录日志
+    if (failedChannels.length > 0) {
+        console.info(`[Upload Failover] 文件 ${fileId} 经过 ${failedChannels.length} 次切换后成功上传到 ${finalChannelId}`);
     }
 
     const auth = c.get('auth');
@@ -180,11 +247,11 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
         size: Number(file.size),
         
         // Storage binding
-        storage_channel: String(storageManager.instances.get(channelId)?.type || 'unknown'), 
-        storage_key: String(storageResult.id || newFileName), 
+        storage_channel: String(storageManager.instances.get(finalChannelId)?.type || 'unknown'),
+        storage_key: String(storageResult.id || newFileName),
         storage_config: JSON.stringify({
-            instance_id: channelId, 
-            extra_result: storageResult 
+            instance_id: finalChannelId,
+            extra_result: storageResult
         }),
         
         // 环境信息
@@ -213,23 +280,36 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     }
 
     // 增量更新容量缓存
-    storageManager.updateQuotaCache(channelId, file.size);
-    storageManager.recordUpload(channelId);
-    console.log(`[Upload] 文件上传成功 - ID: ${fileId}, Channel: ${channelId}`);
+    storageManager.updateQuotaCache(finalChannelId, file.size);
+    storageManager.recordUpload(finalChannelId);
+    console.log(`[Upload] 文件上传成功 - ID: ${fileId}, Channel: ${finalChannelId}`);
     
     // 最后返回成功数据和拼接的访问Url
+    const responseData = {
+        id: fileId,
+        url: `/${fileId}`,
+        file_name: newFileName,
+        original_name: originalName,
+        size: file.size,
+        width: width,
+        height: height
+    };
+
+    // 发生过渠道切换时附带信息
+    if (failedChannels.length > 0) {
+        responseData.failover = {
+            retries: failedChannels.length,
+            failed: failedChannels.map(f => f.id),
+            final_channel: finalChannelId
+        };
+    }
+
     return c.json({
       code: 0,
-      message: '文件上传成功',
-      data: {
-          id: fileId,
-          url: `/${fileId}`, 
-          file_name: newFileName,
-          original_name: originalName,
-          size: file.size,
-          width: width,
-          height: height
-      }
+      message: failedChannels.length > 0
+          ? `文件上传成功（经过 ${failedChannels.length} 次渠道切换）`
+          : '文件上传成功',
+      data: responseData
     });
 
   } catch (err) {

@@ -305,12 +305,12 @@ class StorageManager {
      * @param {string|null} preferredType 偏好的渠道类型（用于按类型负载均衡）
      * @returns {string|null} 返回选中的渠道 ID，无可用渠道时返回 null
      */
-    selectUploadChannel(preferredType = null) {
+    selectUploadChannel(preferredType = null, excludeIds = []) {
         const strategy = this.config.loadBalanceStrategy || 'default';
 
-        // 获取所有允许上传的渠道
+        // 获取所有允许上传的渠道（排除指定的渠道，用于失败自动切换场景）
         let uploadableChannels = Array.from(this.instances.entries())
-            .filter(([id]) => this.isUploadAllowed(id))
+            .filter(([id]) => !excludeIds.includes(id) && this.isUploadAllowed(id))
             .map(([id, entry]) => ({ id, type: entry.type, weight: entry.weight || 1 }));
 
         // 如果启用了按类型负载均衡且指定了偏好类型，则只筛选该类型
