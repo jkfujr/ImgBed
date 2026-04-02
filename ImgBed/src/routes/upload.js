@@ -10,11 +10,6 @@ const path = require('path');
 
 const uploadApp = new Hono();
 
-// 获取毫秒级时间戳混合随机码的简易ID生成器
-const generateId = () => {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-};
-
 /**
  * 判断上传错误是否可重试（用于失败自动切换）
  * 文件格式、大小等客户端错误在上传流程早期已被拦截，
@@ -175,6 +170,7 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     
     // 执行底层物理存储（支持失败自动切换）
     const failoverEnabled = config.storage?.failoverEnabled !== false;
+    const lbActive = (config.storage?.loadBalanceStrategy || 'default') !== 'default';
     const maxRetries = 3; // 最多尝试的备选渠道数
     const failedChannels = [];
     let storageResult;
@@ -207,11 +203,9 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
             if (limits.enableMaxLimit) {
                 const maxLimitBytes = limits.maxLimitMB * 1024 * 1024;
                 if (buffer.length > maxLimitBytes) {
-                    return c.json({
-                        code: 413,
-                        message: `文件体积超出最大限制 ${limits.maxLimitMB}MB`,
-                        error: {}
-                    }, 413);
+                    const err = new Error(`文件体积超出最大限制 ${limits.maxLimitMB}MB`);
+                    err._sizeLimit = true;
+                    throw err;
                 }
             }
 
@@ -219,11 +213,9 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
             if (limits.enableSizeLimit) {
                 const sizeLimitBytes = limits.sizeLimitMB * 1024 * 1024;
                 if (buffer.length > sizeLimitBytes && !limits.enableChunking) {
-                    return c.json({
-                        code: 413,
-                        message: `文件体积超出大小限制 ${limits.sizeLimitMB}MB`,
-                        error: {}
-                    }, 413);
+                    const err = new Error(`文件体积超出大小限制 ${limits.sizeLimitMB}MB`);
+                    err._sizeLimit = true;
+                    throw err;
                 }
             }
 
@@ -267,8 +259,22 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
             isChunked = 0;
             chunkCount = 0;
 
-            // 判断是否继续切换
-            if (!failoverEnabled || !isRetryableError(err) || attempt >= maxRetries) {
+            // 判断是否可以切换到其他渠道
+            // 大小限制错误：需要开启 failover 或负载均衡才自动切换
+            // 其他错误：需要开启 failover 且为可重试错误
+            const canRetry = err._sizeLimit
+                ? (failoverEnabled || lbActive)
+                : (failoverEnabled && isRetryableError(err));
+
+            if (!canRetry || attempt >= maxRetries) {
+                // 如果全部渠道都因大小限制失败，返回 413
+                if (err._sizeLimit) {
+                    return c.json({
+                        code: 413,
+                        message: err.message + (failedChannels.length > 1 ? ` (已尝试 ${failedChannels.length} 个渠道)` : ''),
+                        error: {}
+                    }, 413);
+                }
                 throw new Error('底层文件流转储失败: ' + err.message
                     + (failedChannels.length > 1 ? ` (已尝试 ${failedChannels.length} 个渠道)` : ''));
             }

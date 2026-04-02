@@ -348,8 +348,15 @@ class StorageManager {
             case 'weighted':
                 return this._selectWeighted(uploadableChannels);
             case 'default':
-            default:
-                return this.getDefaultStorageId();
+            default: {
+                const defaultId = this.getDefaultStorageId();
+                // 默认渠道未被排除时直接返回
+                if (!excludeIds.includes(defaultId)) {
+                    return defaultId;
+                }
+                // 默认渠道被排除（如 failover 场景），从剩余可用渠道中选择
+                return uploadableChannels.length > 0 ? uploadableChannels[0].id : null;
+            }
         }
     }
 
