@@ -235,7 +235,7 @@ export default function SystemPage() {
       {/* 分页 2: 存储策略 */}
       {currentTab === 1 && (
         <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-          <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储上传策略</Typography>
+          <Typography variant="subtitle1" fontWeight="bold" mb={2}>存储策略</Typography>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {lbResult && (
               <Alert severity={lbResult.type} onClose={() => setLbResult(null)}>{lbResult.msg}</Alert>
@@ -392,7 +392,7 @@ export default function SystemPage() {
       {/* 分页 3: 上传配置 */}
       {currentTab === 2 && (
         <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-          <Typography variant="subtitle1" fontWeight="bold" mb={2}>容量检查配置</Typography>
+          <Typography variant="subtitle1" fontWeight="bold" mb={2}>容量检查</Typography>
           <Box display="flex" flexDirection="column" gap={2.5}>
             {uploadResult && (
               <Alert severity={uploadResult.type} onClose={() => setUploadResult(null)}>{uploadResult.msg}</Alert>
@@ -406,7 +406,7 @@ export default function SystemPage() {
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
                   <Radio checked={quotaCheckMode === 'auto'} value="auto" size="medium" />
                   <Box sx={{ pt: 0.5 }}>
-                    <Typography>自动（推荐）</Typography>
+                    <Typography>自动</Typography>
                     <Typography variant="body2" color="text.secondary">
                       内存缓存已用容量 + 上传/删除增量更新 + 定时全量校正。
                     </Typography>
@@ -415,7 +415,7 @@ export default function SystemPage() {
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
                   <Radio checked={quotaCheckMode === 'always'} value="always" size="medium" />
                   <Box sx={{ pt: 0.5 }}>
-                    <Typography>每次上传全量检查</Typography>
+                    <Typography>全量检查</Typography>
                     <Typography variant="body2" color="text.secondary">
                       每次上传都遍历数据库全量统计，准确但较慢，不推荐
                     </Typography>
