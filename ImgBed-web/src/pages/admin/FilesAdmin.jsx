@@ -347,19 +347,57 @@ export default function FilesAdmin() {
   const handleCreateFolderConfirm = async (folderPath) => {
     try {
       const token = localStorage.getItem('token');
-      const fullPath = currentDir ? `${currentDir}/${folderPath}` : folderPath;
-      const placeholderFile = new File([''], '.gitkeep', { type: 'text/plain' });
-      const formData = new FormData();
-      formData.append('file', placeholderFile);
-      formData.append('directory', fullPath);
+      // 支持多级路径：按 / 拆分后逐级创建
+      const segments = folderPath.split('/').filter(s => s.trim());
 
-      await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
+      // 确定父目录 ID：如果当前在子目录中，需要先查找当前目录的 ID
+      let parentId = null;
+      if (currentDir) {
+        const listRes = await fetch('/api/directories?type=flat', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const listData = await listRes.json();
+        if (listData.code === 0) {
+          const dirs = listData.data.list || listData.data || [];
+          const cur = dirs.find(d => d.path === currentDir);
+          if (cur) parentId = cur.id;
+        }
+      }
+
+      for (const segment of segments) {
+        const res = await fetch('/api/directories', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name: segment.trim(), parent_id: parentId })
+        });
+        const data = await res.json();
+        if (data.code === 0 && data.data) {
+          parentId = data.data.id;
+        } else if (data.code === 409) {
+          // 同名目录已存在，查询其 ID 继续创建下一级
+          const listRes = await fetch('/api/directories?type=flat', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const listData = await listRes.json();
+          if (listData.code === 0) {
+            const dirs = listData.data.list || listData.data || [];
+            const existing = dirs.find(d => d.name === segment.trim() && d.parent_id === parentId);
+            if (existing) {
+              parentId = existing.id;
+              continue;
+            }
+          }
+          console.error('创建文件夹失败:', data.message);
+          break;
+        } else {
+          console.error('创建文件夹失败:', data.message);
+          break;
+        }
+      }
+
       handleRefresh();
     } catch (err) {
       console.error('创建文件夹失败:', err);
@@ -516,13 +554,13 @@ export default function FilesAdmin() {
 
       {/* 内容滚动区 */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 0 }}>
-        {/* 目录卡片 */}
-        {directories.length > 0 && (
+        {/* 目录卡片（仅瀑布流视图显示独立卡片区） */}
+        {directories.length > 0 && viewMode === 'masonry' && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
             {directories.map(dir => (
               <Paper key={dir.path} variant="outlined"
                 onClick={() => navigateToDir(dir.path)}
-                sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.5,
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1,
                   cursor: 'pointer', borderRadius: BORDER_RADIUS.md,
                   '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
                   transition: 'all 0.15s' }}
@@ -541,8 +579,8 @@ export default function FilesAdmin() {
           </Box>
         )}
 
-        {/* 空状态 */}
-        {!loading && data.length === 0 && (
+        {/* 空状态（无文件且无子目录时显示） */}
+        {!loading && data.length === 0 && directories.length === 0 && (
           <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
             <Typography>暂无文件</Typography>
           </Box>
@@ -550,7 +588,7 @@ export default function FilesAdmin() {
 
         {/* 优化：两个视图都保留在 DOM 中，只通过 display:none 隐藏未选中的
             这样切换视图时不会销毁重建 DOM，图片不会重新加载，切换更流畅 */}
-        {data.length > 0 && (
+        {(data.length > 0 || directories.length > 0) && (
           <>
             <Box sx={{ display: viewMode === 'masonry' ? 'block' : 'none' }}>
               <Masonry
@@ -598,6 +636,32 @@ export default function FilesAdmin() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
+                  {/* 列表视图中的文件夹行 */}
+                  {viewMode === 'list' && directories.map(dir => (
+                    <TableRow key={`dir-${dir.path}`} hover
+                      onClick={() => navigateToDir(dir.path)}
+                      sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    >
+                      <TableCell padding="checkbox" />
+                      <TableCell sx={{ width: 64, p: 0.5 }}>
+                        <Box sx={{ width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <FolderIcon color="warning" sx={{ fontSize: 32 }} />
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 280 }}>
+                        <Typography variant="body2" fontWeight="medium">{dir.name}</Typography>
+                      </TableCell>
+                      <TableCell><Typography variant="caption" color="text.secondary">-</Typography></TableCell>
+                      <TableCell><Typography variant="caption" color="text.secondary">-</Typography></TableCell>
+                      <TableCell><Typography variant="caption" color="text.secondary">-</Typography></TableCell>
+                      <TableCell><Typography variant="caption" color="text.secondary">-</Typography></TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{dir.path}</Typography>
+                      </TableCell>
+                      <TableCell><Typography variant="caption" color="text.secondary">-</Typography></TableCell>
+                      <TableCell align="right" />
+                    </TableRow>
+                  ))}
                   {data.map(item => (
                     <TableRow key={item.id} hover selected={selected.has(item.id)}>
                       <TableCell padding="checkbox">
