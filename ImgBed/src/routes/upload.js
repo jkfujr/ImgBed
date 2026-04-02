@@ -200,9 +200,43 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
         }
 
         try {
+            // 获取有效上传限制（渠道级优先，未开启则回退到系统级）
+            const limits = storageManager.getEffectiveUploadLimits(finalChannelId);
+
+            // 最大限制检查（硬上限，最先检查）
+            if (limits.enableMaxLimit) {
+                const maxLimitBytes = limits.maxLimitMB * 1024 * 1024;
+                if (buffer.length > maxLimitBytes) {
+                    return c.json({
+                        code: 413,
+                        message: `文件体积超出最大限制 ${limits.maxLimitMB}MB`,
+                        error: {}
+                    }, 413);
+                }
+            }
+
+            // 大小限制检查
+            if (limits.enableSizeLimit) {
+                const sizeLimitBytes = limits.sizeLimitMB * 1024 * 1024;
+                if (buffer.length > sizeLimitBytes && !limits.enableChunking) {
+                    return c.json({
+                        code: 413,
+                        message: `文件体积超出大小限制 ${limits.sizeLimitMB}MB`,
+                        error: {}
+                    }, 413);
+                }
+            }
+
             // 分块上传三分支判断
             const mimeType = file.type || 'application/octet-stream';
-            const chunkAnalysis = ChunkManager.analyze(currentStorage, buffer.length);
+            const chunkAnalysis = ChunkManager.analyze(currentStorage, buffer.length, {
+                channelConfig: limits.enableChunking ? {
+                    enableChunking: true,
+                    sizeLimitMB: limits.sizeLimitMB,
+                    chunkSizeMB: limits.chunkSizeMB,
+                    maxChunks: limits.maxChunks,
+                } : null
+            });
 
             if (chunkAnalysis.needsChunking && chunkAnalysis.config.mode === 'native') {
                 // S3 原生 multipart（完成后是完整对象，不标记 is_chunked）

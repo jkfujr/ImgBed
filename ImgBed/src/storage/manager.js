@@ -220,6 +220,8 @@ class StorageManager {
 
             this.instances.clear();
             this.config = fileCfg.storage || {};
+            // 上传限制配置
+            this.uploadConfig = fileCfg.upload || {};
 
             for (const sFile of storagesInFile) {
                 const sDb = dbMap.get(sFile.id);
@@ -237,6 +239,14 @@ class StorageManager {
                             weight: sDb ? Number(sDb.weight) : (sFile.weight || 1),
                             quotaLimitGB: sDb ? sDb.quota_limit_gb : sFile.quotaLimitGB,
                             disableThresholdPercent: sFile.disableThresholdPercent || 95,
+                            // 渠道级上传限制配置
+                            enableSizeLimit: Boolean(sFile.enableSizeLimit),
+                            sizeLimitMB: sFile.sizeLimitMB,
+                            enableChunking: Boolean(sFile.enableChunking),
+                            chunkSizeMB: sFile.chunkSizeMB,
+                            maxChunks: sFile.maxChunks,
+                            enableMaxLimit: Boolean(sFile.enableMaxLimit),
+                            maxLimitMB: sFile.maxLimitMB,
                             instance: inst
                         });
                     } catch (e) {
@@ -549,6 +559,53 @@ class StorageManager {
             stats[id] = bytes;
         }
         return stats;
+    }
+
+    /**
+     * 获取渠道的有效上传限制配置（渠道级优先，未开启则回退到系统级）
+     * @param {string} storageId 渠道 ID
+     * @returns {Object} { enableSizeLimit, sizeLimitMB, enableChunking, chunkSizeMB, maxChunks, enableMaxLimit, maxLimitMB }
+     */
+    getEffectiveUploadLimits(storageId) {
+        const entry = this.instances.get(storageId);
+        const sys = this.uploadConfig || {};
+
+        // 渠道开启了大小限制 → 用渠道自己的配置
+        if (entry && entry.enableSizeLimit) {
+            return {
+                enableSizeLimit: true,
+                sizeLimitMB: entry.sizeLimitMB || sys.defaultSizeLimitMB || 10,
+                enableChunking: Boolean(entry.enableChunking),
+                chunkSizeMB: entry.chunkSizeMB || sys.defaultChunkSizeMB || 5,
+                maxChunks: entry.maxChunks ?? sys.defaultMaxChunks ?? 0,
+                enableMaxLimit: Boolean(entry.enableMaxLimit),
+                maxLimitMB: entry.maxLimitMB || sys.defaultMaxLimitMB || 100,
+            };
+        }
+
+        // 渠道未开启 → 回退到系统级配置
+        if (sys.enableSizeLimit) {
+            return {
+                enableSizeLimit: true,
+                sizeLimitMB: sys.defaultSizeLimitMB || 10,
+                enableChunking: Boolean(sys.enableChunking),
+                chunkSizeMB: sys.defaultChunkSizeMB || 5,
+                maxChunks: sys.defaultMaxChunks ?? 0,
+                enableMaxLimit: Boolean(sys.enableMaxLimit),
+                maxLimitMB: sys.defaultMaxLimitMB || 100,
+            };
+        }
+
+        // 都未开启
+        return {
+            enableSizeLimit: false,
+            sizeLimitMB: 10,
+            enableChunking: false,
+            chunkSizeMB: 5,
+            maxChunks: 0,
+            enableMaxLimit: false,
+            maxLimitMB: 100,
+        };
     }
 }
 

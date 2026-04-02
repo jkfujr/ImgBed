@@ -3,7 +3,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, FormControlLabel, Switch, FormControl,
   InputLabel, Select, MenuItem, InputAdornment, IconButton,
-  Box, Typography, Alert, CircularProgress
+  Box, Typography, Alert, CircularProgress, Divider
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -16,6 +16,16 @@ const EMPTY_FORM = {
   enableQuota: false,
   quotaLimitGB: 10,
   disableThresholdPercent: 95,
+  // 大小限制
+  enableSizeLimit: false,
+  sizeLimitMB: 10,
+  // 分片上传
+  enableChunking: false,
+  chunkSizeMB: 5,
+  maxChunks: 0,
+  // 最大限制
+  enableMaxLimit: false,
+  maxLimitMB: 100,
   config: {},
 };
 
@@ -46,6 +56,13 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
           enableQuota: editTarget.quotaLimitGB != null && editTarget.quotaLimitGB > 0,
           quotaLimitGB: editTarget.quotaLimitGB ?? 10,
           disableThresholdPercent: editTarget.disableThresholdPercent ?? 95,
+          enableSizeLimit: editTarget.enableSizeLimit ?? false,
+          sizeLimitMB: editTarget.sizeLimitMB ?? 10,
+          enableChunking: editTarget.enableChunking ?? false,
+          chunkSizeMB: editTarget.chunkSizeMB ?? 5,
+          maxChunks: editTarget.maxChunks ?? 0,
+          enableMaxLimit: editTarget.enableMaxLimit ?? false,
+          maxLimitMB: editTarget.maxLimitMB ?? 100,
           config: editConfig
         });
         setStep(1);
@@ -92,6 +109,13 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
         enableQuota: form.enableQuota,
         quotaLimitGB: form.quotaLimitGB,
         disableThresholdPercent: form.disableThresholdPercent,
+        enableSizeLimit: form.enableSizeLimit,
+        sizeLimitMB: form.sizeLimitMB,
+        enableChunking: form.enableChunking,
+        chunkSizeMB: form.chunkSizeMB,
+        maxChunks: form.maxChunks,
+        enableMaxLimit: form.enableMaxLimit,
+        maxLimitMB: form.maxLimitMB,
         config: configPayload,
       };
 
@@ -206,6 +230,95 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
                   helperText="建议范围：80-100，默认 95"
                   slotProps={{ htmlInput: { min: 1, max: 100, step: 1 } }}
                 />
+              </>
+            )}
+
+            <Divider />
+
+            {/* 大小限制 */}
+            <FormControlLabel
+              control={<Switch
+                checked={form.enableSizeLimit}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setField('enableSizeLimit', checked);
+                  if (!checked) {
+                    setField('enableChunking', false);
+                    setField('enableMaxLimit', false);
+                  }
+                }}
+              />}
+              label="大小限制"
+            />
+            {form.enableSizeLimit && (
+              <>
+                <TextField
+                  label="单文件大小限制 (MB)"
+                  size="small"
+                  type="number"
+                  value={form.sizeLimitMB}
+                  onChange={(e) => setField('sizeLimitMB', Number(e.target.value) || 10)}
+                  helperText="超过此大小的文件将被拒绝上传（开启分片后可突破此限制）"
+                  slotProps={{ htmlInput: { min: 1, max: 10000, step: 1 } }}
+                />
+
+                {/* 分片上传 */}
+                <FormControlLabel
+                  control={<Switch
+                    checked={form.enableChunking}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setField('enableChunking', checked);
+                      if (!checked) {
+                        setField('enableMaxLimit', false);
+                      }
+                    }}
+                  />}
+                  label="分片上传"
+                  sx={{ ml: 2 }}
+                />
+                {form.enableChunking && (
+                  <Box sx={{ ml: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <TextField
+                      label="分片大小 (MB)"
+                      size="small"
+                      type="number"
+                      value={form.chunkSizeMB}
+                      onChange={(e) => setField('chunkSizeMB', Number(e.target.value) || 5)}
+                      helperText="每个分片的大小，默认 5MB"
+                      slotProps={{ htmlInput: { min: 1, max: 1000, step: 1 } }}
+                    />
+                    <TextField
+                      label="最大分片数"
+                      size="small"
+                      type="number"
+                      value={form.maxChunks}
+                      onChange={(e) => setField('maxChunks', Number(e.target.value) || 0)}
+                      helperText="0 表示自动计算（根据文件大小和分片大小）"
+                      slotProps={{ htmlInput: { min: 0, max: 10000, step: 1 } }}
+                    />
+
+                    {/* 最大限制 */}
+                    <FormControlLabel
+                      control={<Switch
+                        checked={form.enableMaxLimit}
+                        onChange={(e) => setField('enableMaxLimit', e.target.checked)}
+                      />}
+                      label="最大限制"
+                    />
+                    {form.enableMaxLimit && (
+                      <TextField
+                        label="单文件硬上限 (MB)"
+                        size="small"
+                        type="number"
+                        value={form.maxLimitMB}
+                        onChange={(e) => setField('maxLimitMB', Number(e.target.value) || 100)}
+                        helperText="即使分片上传也不允许超过此值"
+                        slotProps={{ htmlInput: { min: 1, max: 100000, step: 1 } }}
+                      />
+                    )}
+                  </Box>
+                )}
               </>
             )}
           </Box>

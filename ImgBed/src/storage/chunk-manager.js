@@ -9,10 +9,25 @@ class ChunkManager {
      * 判断是否需要分块上传
      * @param {StorageProvider} storage - 存储渠道实例
      * @param {number} fileSize - 文件大小（字节）
+     * @param {Object} options - 可选参数
+     * @param {Object} options.channelConfig - 渠道级分块配置覆盖
      * @returns {{ needsChunking: boolean, config?: Object, totalChunks?: number }}
      */
-    static analyze(storage, fileSize) {
-        const config = storage.getChunkConfig();
+    static analyze(storage, fileSize, options = {}) {
+        let config = storage.getChunkConfig();
+        const { channelConfig } = options;
+
+        // 渠道级配置覆盖（前端管理员设置的分片参数优先于代码默认值）
+        if (channelConfig && channelConfig.enableChunking) {
+            config = {
+                ...config,
+                enabled: true,
+                chunkThreshold: (channelConfig.sizeLimitMB || 10) * 1024 * 1024,
+                chunkSize: (channelConfig.chunkSizeMB || 5) * 1024 * 1024,
+                maxChunks: channelConfig.maxChunks > 0 ? channelConfig.maxChunks : (config.maxChunks || 1000),
+            };
+        }
+
         if (!config.enabled || fileSize <= config.chunkThreshold) {
             return { needsChunking: false };
         }

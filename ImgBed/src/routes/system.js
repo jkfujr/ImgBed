@@ -86,6 +86,35 @@ systemApp.put('/config', async (c) => {
         cfg.upload = cfg.upload || {};
         cfg.upload.fullCheckIntervalHours = Math.max(1, Number(body.upload.fullCheckIntervalHours) || 6);
       }
+      if (body.upload.defaultSizeLimitMB !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.defaultSizeLimitMB = Number(body.upload.defaultSizeLimitMB) || 10;
+      }
+      if (body.upload.defaultChunkSizeMB !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.defaultChunkSizeMB = Number(body.upload.defaultChunkSizeMB) || 5;
+      }
+      if (body.upload.defaultMaxChunks !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.defaultMaxChunks = Number(body.upload.defaultMaxChunks) || 0;
+      }
+      if (body.upload.defaultMaxLimitMB !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.defaultMaxLimitMB = Number(body.upload.defaultMaxLimitMB) || 100;
+      }
+      // 上传限制开关
+      if (body.upload.enableSizeLimit !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.enableSizeLimit = Boolean(body.upload.enableSizeLimit);
+      }
+      if (body.upload.enableChunking !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.enableChunking = Boolean(body.upload.enableChunking);
+      }
+      if (body.upload.enableMaxLimit !== undefined) {
+        cfg.upload = cfg.upload || {};
+        cfg.upload.enableMaxLimit = Boolean(body.upload.enableMaxLimit);
+      }
     }
 
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
@@ -308,6 +337,16 @@ systemApp.post('/storages', async (c) => {
       // 配额处理 - enableQuota=false 时存 null 表示不限制
       quotaLimitGB: enableQuota ? Number(quotaLimitGB) || 10 : null,
       disableThresholdPercent: enableQuota ? (Math.max(1, Math.min(100, Number(disableThresholdPercent) || 95))) : 95,
+      // 大小限制
+      enableSizeLimit: Boolean(body.enableSizeLimit),
+      sizeLimitMB: Number(body.sizeLimitMB) || 10,
+      // 分片上传
+      enableChunking: Boolean(body.enableChunking),
+      chunkSizeMB: Number(body.chunkSizeMB) || 5,
+      maxChunks: Number(body.maxChunks) || 0,
+      // 最大限制
+      enableMaxLimit: Boolean(body.enableMaxLimit),
+      maxLimitMB: Number(body.maxLimitMB) || 100,
       config: storConfig
     };
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
@@ -361,6 +400,16 @@ systemApp.put('/storages/:id', async (c) => {
         existing.quotaLimitGB = null;
       }
     }
+    // 大小限制字段
+    if (body.enableSizeLimit !== undefined) existing.enableSizeLimit = Boolean(body.enableSizeLimit);
+    if (body.sizeLimitMB !== undefined) existing.sizeLimitMB = Number(body.sizeLimitMB) || 10;
+    // 分片上传字段
+    if (body.enableChunking !== undefined) existing.enableChunking = Boolean(body.enableChunking);
+    if (body.chunkSizeMB !== undefined) existing.chunkSizeMB = Number(body.chunkSizeMB) || 5;
+    if (body.maxChunks !== undefined) existing.maxChunks = Number(body.maxChunks) || 0;
+    // 最大限制字段
+    if (body.enableMaxLimit !== undefined) existing.enableMaxLimit = Boolean(body.enableMaxLimit);
+    if (body.maxLimitMB !== undefined) existing.maxLimitMB = Number(body.maxLimitMB) || 100;
     if (body.config !== undefined) {
       existing.config = existing.config || {};
       for (const [k, v] of Object.entries(body.config)) {

@@ -37,6 +37,15 @@ export default function SystemPage() {
   const [savingUpload, setSavingUpload] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
 
+  // 上传配置 - 上传限制
+  const [sysEnableSizeLimit, setSysEnableSizeLimit] = useState(false);
+  const [sysEnableChunking, setSysEnableChunking] = useState(false);
+  const [sysEnableMaxLimit, setSysEnableMaxLimit] = useState(false);
+  const [defaultSizeLimitMB, setDefaultSizeLimitMB] = useState(10);
+  const [defaultChunkSizeMB, setDefaultChunkSizeMB] = useState(5);
+  const [defaultMaxChunks, setDefaultMaxChunks] = useState(0);
+  const [defaultMaxLimitMB, setDefaultMaxLimitMB] = useState(100);
+
   useEffect(() => {
     api.get('/api/system/config').then((res) => {
       if (res.code === 0) {
@@ -46,6 +55,13 @@ export default function SystemPage() {
         // 加载上传配置
         setQuotaCheckMode(res.data.upload?.quotaCheckMode || 'auto');
         setFullCheckIntervalHours(res.data.upload?.fullCheckIntervalHours || 6);
+        setSysEnableSizeLimit(res.data.upload?.enableSizeLimit ?? false);
+        setDefaultSizeLimitMB(res.data.upload?.defaultSizeLimitMB || 10);
+        setSysEnableChunking(res.data.upload?.enableChunking ?? false);
+        setDefaultChunkSizeMB(res.data.upload?.defaultChunkSizeMB || 5);
+        setDefaultMaxChunks(res.data.upload?.defaultMaxChunks ?? 0);
+        setSysEnableMaxLimit(res.data.upload?.enableMaxLimit ?? false);
+        setDefaultMaxLimitMB(res.data.upload?.defaultMaxLimitMB || 100);
       }
     }).catch(() => {
       setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
@@ -155,7 +171,14 @@ export default function SystemPage() {
       const payload = {
         upload: {
           quotaCheckMode,
-          fullCheckIntervalHours
+          fullCheckIntervalHours,
+          enableSizeLimit: sysEnableSizeLimit,
+          defaultSizeLimitMB,
+          enableChunking: sysEnableChunking,
+          defaultChunkSizeMB,
+          defaultMaxChunks,
+          enableMaxLimit: sysEnableMaxLimit,
+          defaultMaxLimitMB,
         }
       };
       const res = await api.put('/api/system/config', payload);
@@ -457,6 +480,104 @@ export default function SystemPage() {
                 slotProps={{ htmlInput: { min: 1, max: 168, step: 1 } }}
                 sx={{ maxWidth: 300 }}
               />
+            )}
+
+            <Divider sx={{ my: 1 }} />
+
+            <Typography variant="subtitle1" fontWeight="bold" mb={1}>上传限制</Typography>
+            <Typography variant="body2" color="text.secondary" mb={1}>
+              渠道未单独开启对应开关时，将使用此处配置
+            </Typography>
+
+            {/* 大小限制 */}
+            <FormControlLabel
+              control={<Switch
+                checked={sysEnableSizeLimit}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSysEnableSizeLimit(checked);
+                  if (!checked) {
+                    setSysEnableChunking(false);
+                    setSysEnableMaxLimit(false);
+                  }
+                }}
+              />}
+              label="大小限制"
+            />
+            {sysEnableSizeLimit && (
+              <>
+                <TextField
+                  label="单文件大小限制 (MB)"
+                  size="small"
+                  type="number"
+                  value={defaultSizeLimitMB}
+                  onChange={(e) => setDefaultSizeLimitMB(Number(e.target.value) || 10)}
+                  helperText={'超过此大小的文件将被拒绝上传（开启分片后可突破此限制）'}
+                  slotProps={{ htmlInput: { min: 1, max: 10000, step: 1 } }}
+                  sx={{ maxWidth: 300 }}
+                />
+
+                {/* 分片上传 */}
+                <FormControlLabel
+                  control={<Switch
+                    checked={sysEnableChunking}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSysEnableChunking(checked);
+                      if (!checked) {
+                        setSysEnableMaxLimit(false);
+                      }
+                    }}
+                  />}
+                  label="分片上传"
+                  sx={{ ml: 2 }}
+                />
+                {sysEnableChunking && (
+                  <Box sx={{ ml: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <TextField
+                      label="分片大小 (MB)"
+                      size="small"
+                      type="number"
+                      value={defaultChunkSizeMB}
+                      onChange={(e) => setDefaultChunkSizeMB(Number(e.target.value) || 5)}
+                      helperText={'每个分片的大小，默认 5MB'}
+                      slotProps={{ htmlInput: { min: 1, max: 1000, step: 1 } }}
+                      sx={{ maxWidth: 300 }}
+                    />
+                    <TextField
+                      label="最大分片数"
+                      size="small"
+                      type="number"
+                      value={defaultMaxChunks}
+                      onChange={(e) => setDefaultMaxChunks(Number(e.target.value) || 0)}
+                      helperText={'0 表示自动计算（根据文件大小和分片大小）'}
+                      slotProps={{ htmlInput: { min: 0, max: 10000, step: 1 } }}
+                      sx={{ maxWidth: 300 }}
+                    />
+
+                    {/* 最大限制 */}
+                    <FormControlLabel
+                      control={<Switch
+                        checked={sysEnableMaxLimit}
+                        onChange={(e) => setSysEnableMaxLimit(e.target.checked)}
+                      />}
+                      label="最大限制"
+                    />
+                    {sysEnableMaxLimit && (
+                      <TextField
+                        label="单文件硬上限 (MB)"
+                        size="small"
+                        type="number"
+                        value={defaultMaxLimitMB}
+                        onChange={(e) => setDefaultMaxLimitMB(Number(e.target.value) || 100)}
+                        helperText={'即使分片上传也不允许超过此值'}
+                        slotProps={{ htmlInput: { min: 1, max: 100000, step: 1 } }}
+                        sx={{ maxWidth: 300 }}
+                      />
+                    )}
+                  </Box>
+                )}
+              </>
             )}
 
             <Box>
