@@ -3,6 +3,7 @@ const { Readable } = require('stream');
 const { db } = require('../database');
 const config = require('../config');
 const storageManager = require('../storage/manager');
+const ChunkManager = require('../storage/chunk-manager');
 
 const viewApp = new Hono();
 
@@ -121,11 +122,38 @@ viewApp.get('/:id', async (c) => {
              }
         }
 
-        // 4. 处理分片合并逻辑 (如以后有 `is_chunked=true` 支持)
+        // 4. 分块文件合并读取
         if (fileRecord.is_chunked) {
-             // TODO: 支持获取文件组所有的 chunk 切片合并发送的情况
-             console.warn('[View API] 遇到了分片大文件的访问。暂未在当前迭代完整实现该协议!');
-             return c.text('Not Implemented Chunk Merge', 501);
+            const chunks = await ChunkManager.getChunks(fileRecord.id);
+            if (!chunks || chunks.length === 0) {
+                return c.json({ code: 500, message: '分块记录缺失，无法重组文件' }, 500);
+            }
+
+            const totalSize = fileRecord.size;
+            const getStorageFn = (storageId) => storageManager.getStorage(storageId);
+
+            const mergedStream = ChunkManager.createChunkedReadStream(chunks, getStorageFn, {
+                start, end, totalSize
+            });
+
+            const headers = new Headers();
+            headers.set('Content-Type', fileRecord.mime_type || 'application/octet-stream');
+            headers.set('Cache-Control', 'public, max-age=31536000');
+            headers.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileRecord.original_name)}`);
+
+            if (isPartial) {
+                headers.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+                headers.set('Content-Length', String(end - start + 1));
+                headers.set('Accept-Ranges', 'bytes');
+            } else {
+                headers.set('Content-Length', String(totalSize));
+                headers.set('Accept-Ranges', 'bytes');
+            }
+
+            return new Response(mergedStream, {
+                status: isPartial ? 206 : 200,
+                headers
+            });
         }
 
         // 5. 调用渠道 getStream 拉流

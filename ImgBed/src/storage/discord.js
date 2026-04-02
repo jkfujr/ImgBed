@@ -8,6 +8,7 @@ class DiscordStorage extends StorageProvider {
     constructor(config) {
         super();
         this.botToken = config.botToken;
+        this.channelId = config.channelId;
         this.baseURL = 'https://discord.com/api/v10';
         this.defaultHeaders = {
             'Authorization': `Bot ${this.botToken}`,
@@ -154,7 +155,20 @@ class DiscordStorage extends StorageProvider {
     // --- 以下为 StorageProvider 接口实现 ---
 
     async put(file, options) {
-        throw new Error('[DiscordStorage] 通用 put 上传出于重构计划策略暂不提供（建议禁用 Discord 上传以防封号）。');
+        if (!this.channelId) throw new Error('[DiscordStorage] 缺少 channelId，无法上传');
+        const { fileName, mimeType } = options;
+
+        let fileBlob;
+        if (file instanceof Buffer) {
+            fileBlob = new Blob([file], { type: mimeType || 'application/octet-stream' });
+        } else {
+            fileBlob = file;
+        }
+
+        const responseData = await this.sendFile(fileBlob, this.channelId, fileName || 'file');
+        const fileInfo = this.getFileInfo(responseData);
+        if (!fileInfo) throw new Error('[DiscordStorage] 上传后未能获取消息 ID');
+        return { id: `${this.channelId}/${fileInfo.message_id}` };
     }
 
     async getStream(fileId, options) {
@@ -212,6 +226,30 @@ class DiscordStorage extends StorageProvider {
         } catch (err) {
             return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
         }
+    }
+
+    // ========== 分块上传扩展 ==========
+
+    getChunkConfig() {
+        return {
+            enabled: true,
+            chunkThreshold: 20 * 1024 * 1024,  // 20MB 触发分块
+            chunkSize: 20 * 1024 * 1024,         // 20MB/块（Discord Nitro 上限 500MB，基础上限约 25MB）
+            maxChunks: 50,
+            mode: 'generic'
+        };
+    }
+
+    async putChunk(chunkBuffer, options) {
+        if (!this.channelId) throw new Error('[DiscordStorage] 缺少 channelId，无法上传分块');
+        const { fileId, chunkIndex } = options;
+        const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
+        const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });
+
+        const responseData = await this.sendFile(blob, this.channelId, chunkName);
+        const fileInfo = this.getFileInfo(responseData);
+        if (!fileInfo) throw new Error(`[DiscordStorage] 分块 ${chunkIndex} 上传后未能获取消息 ID`);
+        return { storageKey: `${this.channelId}/${fileInfo.message_id}`, size: chunkBuffer.length };
     }
 }
 

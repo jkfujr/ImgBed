@@ -19,12 +19,65 @@ const db = new Kysely({
   }),
 });
 
-const ensureColumn = (tableName, columnName, columnSql) => {
+// ========== 数据库版本迁移机制 ==========
+
+const CURRENT_SCHEMA_VERSION = 2;
+
+/**
+ * 安全添加列（仅在迁移函数内部使用）
+ */
+const _addColumnIfNotExists = (tableName, columnName, columnSql) => {
   const columns = sqlite.prepare(`PRAGMA table_info(${tableName})`).all();
   const exists = columns.some((column) => column.name === columnName);
   if (!exists) {
     sqlite.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
+    console.log(`[数据库迁移] ${tableName} 表添加列: ${columnName}`);
   }
+};
+
+/**
+ * 迁移函数列表（索引 = 目标版本号）
+ * 每个函数负责从 version-1 升级到 version
+ */
+const migrations = [
+  // v0 → v1: 基础表结构由 CREATE TABLE IF NOT EXISTS 创建，无额外操作
+  () => {},
+  // v1 → v2: files 表新增 uploader_type/uploader_id，chunks 表新增 size
+  () => {
+    _addColumnIfNotExists('files', 'uploader_type', 'uploader_type TEXT');
+    _addColumnIfNotExists('files', 'uploader_id', 'uploader_id TEXT');
+    _addColumnIfNotExists('chunks', 'size', 'size INTEGER DEFAULT 0');
+  }
+];
+
+/**
+ * 执行数据库迁移
+ * 检测当前版本，备份旧库，逐版本升级
+ */
+const runMigrations = () => {
+  const currentVersion = sqlite.pragma('user_version', { simple: true });
+
+  if (currentVersion >= CURRENT_SCHEMA_VERSION) return;
+
+  // 备份旧数据库
+  if (currentVersion > 0 && fs.existsSync(dbPath)) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const bakPath = `${dbPath}.v${currentVersion}.${timestamp}.bak`;
+    fs.copyFileSync(dbPath, bakPath);
+    console.log(`[数据库迁移] 已备份旧数据库: ${path.basename(bakPath)}`);
+  }
+
+  // 逐版本执行迁移
+  for (let v = currentVersion; v < CURRENT_SCHEMA_VERSION; v++) {
+    const migrateFn = migrations[v];
+    if (migrateFn) {
+      console.log(`[数据库迁移] 执行迁移 v${v} → v${v + 1}`);
+      migrateFn();
+    }
+  }
+
+  sqlite.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+  console.log(`[数据库迁移] 版本升级完成: v${currentVersion} → v${CURRENT_SCHEMA_VERSION}`);
 };
 
 // 初始化数据库表
@@ -112,6 +165,7 @@ const initDb = () => {
                 storage_id TEXT NOT NULL,
                 storage_key TEXT NOT NULL,
                 storage_config JSON,
+                size INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -201,9 +255,10 @@ const initDb = () => {
                 END;
         `);
 
-        ensureColumn('files', 'uploader_type', 'uploader_type TEXT');
-        ensureColumn('files', 'uploader_id', 'uploader_id TEXT');
-        console.log('[数据库] 表结构初始化完成。');;
+        // 执行版本迁移（备份旧库 + 逐版本升级）
+        runMigrations();
+
+        console.log('[数据库] 表结构初始化完成。');
     } catch (err) {
         console.error('[数据库] 初始化失败:', err);
         throw err; // 如果初始化失败则阻断启动

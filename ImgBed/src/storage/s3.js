@@ -3,6 +3,7 @@ const StorageProvider = require('./base');
 // 注意: 需要运行 npm install @aws-sdk/client-s3 后使用，此时作为示例代码
 // 因为目前还未 npm 安装 s3 sdk，这里使用动态 require 并做错误提示
 let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
+let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
 try {
     const s3 = require('@aws-sdk/client-s3');
     S3Client = s3.S3Client;
@@ -11,6 +12,10 @@ try {
     DeleteObjectCommand = s3.DeleteObjectCommand;
     HeadObjectCommand = s3.HeadObjectCommand;
     HeadBucketCommand = s3.HeadBucketCommand;
+    CreateMultipartUploadCommand = s3.CreateMultipartUploadCommand;
+    UploadPartCommand = s3.UploadPartCommand;
+    CompleteMultipartUploadCommand = s3.CompleteMultipartUploadCommand;
+    AbortMultipartUploadCommand = s3.AbortMultipartUploadCommand;
 } catch (e) {
     // defer throw to usage
 }
@@ -73,14 +78,16 @@ class S3Storage extends StorageProvider {
         };
     }
 
-    async getStream(fileId, options) {
-        const command = new GetObjectCommand({
+    async getStream(fileId, options = {}) {
+        const params = {
             Bucket: this.bucket,
             Key: this._getFullPath(fileId)
-        });
+        };
+        if (options.start !== undefined && options.end !== undefined) {
+            params.Range = `bytes=${options.start}-${options.end}`;
+        }
+        const command = new GetObjectCommand(params);
         const response = await this.s3.send(command);
-        
-        // 返回浏览器适用的流或 Buffer
         return response.Body;
     }
 
@@ -126,6 +133,63 @@ class S3Storage extends StorageProvider {
         } catch (err) {
             return { ok: false, message: `连接失败: ${err.message}` };
         }
+    }
+
+    // ========== 分块上传扩展 ==========
+
+    getChunkConfig() {
+        return {
+            enabled: true,
+            chunkThreshold: 100 * 1024 * 1024,  // 100MB 触发
+            chunkSize: 50 * 1024 * 1024,          // 50MB/块
+            maxChunks: 10000,
+            mode: 'native'                         // S3 原生 multipart
+        };
+    }
+
+    async initMultipartUpload({ fileName, mimeType }) {
+        const key = this._getFullPath(fileName);
+        const cmd = new CreateMultipartUploadCommand({
+            Bucket: this.bucket,
+            Key: key,
+            ContentType: mimeType || 'application/octet-stream'
+        });
+        const res = await this.s3.send(cmd);
+        return { uploadId: res.UploadId, key };
+    }
+
+    async uploadPart(chunkBuffer, { uploadId, key, partNumber }) {
+        const cmd = new UploadPartCommand({
+            Bucket: this.bucket,
+            Key: key,
+            UploadId: uploadId,
+            PartNumber: partNumber,
+            Body: chunkBuffer
+        });
+        const res = await this.s3.send(cmd);
+        return { partNumber, etag: res.ETag };
+    }
+
+    async completeMultipartUpload({ uploadId, key, parts }) {
+        const cmd = new CompleteMultipartUploadCommand({
+            Bucket: this.bucket,
+            Key: key,
+            UploadId: uploadId,
+            MultipartUpload: {
+                Parts: parts.map(p => ({ PartNumber: p.partNumber, ETag: p.etag }))
+            }
+        });
+        await this.s3.send(cmd);
+        return { id: key };
+    }
+
+    async abortMultipartUpload({ uploadId, key }) {
+        const cmd = new AbortMultipartUploadCommand({
+            Bucket: this.bucket,
+            Key: key,
+            UploadId: uploadId
+        });
+        await this.s3.send(cmd);
     }
 }
 

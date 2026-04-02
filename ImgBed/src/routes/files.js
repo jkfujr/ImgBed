@@ -3,6 +3,7 @@ const { db } = require('../database');
 const sharp = require('sharp');
 const { adminAuth, requirePermission } = require('../middleware/auth');
 const storageManager = require('../storage/manager');
+const ChunkManager = require('../storage/chunk-manager');
 
 const filesApp = new Hono();
 
@@ -132,7 +133,7 @@ filesApp.delete('/:id', adminAuth, async (c) => {
         const id = c.req.param('id');
         
         // 核心步1：先查明身份，解析 JSON 取出映射所依赖的 instanceId
-        const fileRecord = await db.selectFrom('files').select(['size', 'storage_key', 'storage_config']).where('id', '=', id).executeTakeFirst();
+        const fileRecord = await db.selectFrom('files').select(['size', 'storage_key', 'storage_config', 'is_chunked']).where('id', '=', id).executeTakeFirst();
         if (!fileRecord) {
              return c.json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} }, 200);
         }
@@ -157,16 +158,20 @@ filesApp.delete('/:id', adminAuth, async (c) => {
              }
         }
 
+        // 分块文件额外清理
+        if (fileRecord.is_chunked) {
+            const getStorageFn = (storageId) => storageManager.getStorage(storageId);
+            await ChunkManager.deleteChunks(id, getStorageFn).catch(e => {
+                console.warn(`[Files API] 分块清理失败（忽略）:`, e.message);
+            });
+        }
+
         // 核心步3: 销毁 SQLite SQL 层面的记录数据
         await db.deleteFrom('files').where('id', '=', id).execute();
 
-        // 记录删除到使用统计并更新容量缓存
+        // 记录删除到使用统计
         if (instanceId) {
             storageManager.recordDelete(instanceId);
-            const fileSize = Number(fileRecord.size) || 0;
-            if (fileSize > 0) {
-                storageManager.updateQuotaCache(instanceId, -fileSize);
-            }
         }
 
         return c.json({ code: 0, message: '执行单体删除扫尾动作结束', data: { id } });
@@ -210,6 +215,11 @@ filesApp.post('/batch', adminAuth, async (c) => {
                     if (fileSize > 0) {
                         storageManager.updateQuotaCache(instanceId, -fileSize);
                     }
+                }
+                // 分块文件额外清理
+                if (fileRecord.is_chunked) {
+                    const getStorageFn = (storageId) => storageManager.getStorage(storageId);
+                    await ChunkManager.deleteChunks(fileRecord.id, getStorageFn).catch(() => {});
                 }
                 // 从当前库中移除此图
                 await db.deleteFrom('files').where('id', '=', fileRecord.id).execute();

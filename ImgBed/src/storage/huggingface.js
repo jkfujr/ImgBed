@@ -208,6 +208,27 @@ class HuggingFaceStorage extends StorageProvider {
             return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
         }
     }
+
+    // ========== 分块上传扩展 ==========
+
+    getChunkConfig() {
+        return {
+            enabled: true,
+            chunkThreshold: 40 * 1024 * 1024,  // 40MB 触发分块
+            chunkSize: 40 * 1024 * 1024,         // 40MB/块（HF 单文件建议不超过 50MB）
+            maxChunks: 100,
+            mode: 'generic'
+        };
+    }
+
+    async putChunk(chunkBuffer, options) {
+        const { fileId, chunkIndex, fileName } = options;
+        // 分块以 {fileId}/chunk_{index} 形式存入 HF 数据集
+        const chunkPath = `chunks/${fileId}/chunk_${String(chunkIndex).padStart(4, '0')}`;
+        const filesData = { [chunkPath]: chunkBuffer };
+        await this.commit(`Upload chunk ${chunkIndex} of ${fileName || fileId}`, filesData);
+        return { storageKey: chunkPath, size: chunkBuffer.length };
+    }
 }
 
 module.exports = HuggingFaceStorage;

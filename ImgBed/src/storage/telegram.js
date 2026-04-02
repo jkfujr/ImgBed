@@ -8,6 +8,7 @@ class TelegramStorage extends StorageProvider {
     constructor(config) {
         super();
         this.botToken = config.botToken;
+        this.chatId = config.chatId;
         this.proxyUrl = config.proxyUrl || '';
         // 如果设置了代理域名，使用代理域名，否则使用官方 API
         const apiDomain = this.proxyUrl ? `https://${this.proxyUrl}` : 'https://api.telegram.org';
@@ -133,8 +134,22 @@ class TelegramStorage extends StorageProvider {
     // --- 以下为 StorageProvider 接口实现，映射旧逻辑 ---
 
     async put(file, options) {
-        // 因 Telegram 上传被设为可选禁用或废弃（由重构计划可知旧版渠道重点是保留读取），不建议在通用 put 里触发。
-        throw new Error('[TelegramStorage] 通用 put 上传由于历史包袱暂时不直接支持。建议走专用上传或仅保留读取。');
+        if (!this.chatId) throw new Error('[TelegramStorage] 缺少 chatId，无法上传');
+        const { fileName, mimeType } = options;
+
+        let fileBlob;
+        if (file instanceof Buffer) {
+            fileBlob = new Blob([file], { type: mimeType || 'application/octet-stream' });
+        } else {
+            fileBlob = file;
+        }
+
+        const responseData = await this.sendFile(
+            fileBlob, this.chatId, 'sendDocument', 'document', '', fileName || 'file'
+        );
+        const fileInfo = this.getFileInfo(responseData);
+        if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取 file_id');
+        return { id: fileInfo.file_id };
     }
 
     async getStream(fileId, options) {
@@ -176,6 +191,32 @@ class TelegramStorage extends StorageProvider {
         } catch (err) {
             return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
         }
+    }
+
+    // ========== 分块上传扩展 ==========
+
+    getChunkConfig() {
+        return {
+            enabled: true,
+            chunkThreshold: 16 * 1024 * 1024,  // 16MB 触发分块
+            chunkSize: 16 * 1024 * 1024,         // 16MB/块（TG 单文件上限约 50MB，保守取 16MB）
+            maxChunks: 50,
+            mode: 'generic'
+        };
+    }
+
+    async putChunk(chunkBuffer, options) {
+        if (!this.chatId) throw new Error('[TelegramStorage] 缺少 chatId，无法上传分块');
+        const { fileId, chunkIndex } = options;
+        const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
+        const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });
+
+        const responseData = await this.sendFile(
+            blob, this.chatId, 'sendDocument', 'document', '', chunkName
+        );
+        const fileInfo = this.getFileInfo(responseData);
+        if (!fileInfo) throw new Error(`[TelegramStorage] 分块 ${chunkIndex} 上传后未能获取 file_id`);
+        return { storageKey: fileInfo.file_id, size: chunkBuffer.length };
     }
 }
 

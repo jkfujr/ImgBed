@@ -1,6 +1,7 @@
 const { Hono } = require('hono');
 const crypto = require('crypto');
 const storageManager = require('../storage/manager');
+const ChunkManager = require('../storage/chunk-manager');
 const sharp = require('sharp');
 const { db } = require('../database');
 const { requirePermission } = require('../middleware/auth');
@@ -178,6 +179,8 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     const failedChannels = [];
     let storageResult;
     let finalChannelId = channelId;
+    let isChunked = 0;
+    let chunkCount = 0;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const currentStorage = storageManager.getStorage(finalChannelId);
@@ -197,16 +200,38 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
         }
 
         try {
-            storageResult = await currentStorage.put(file, {
-                id: fileId,
-                fileName: newFileName,
-                originalName: originalName,
-                mimeType: file.type || 'application/octet-stream'
-            });
+            // 分块上传三分支判断
+            const mimeType = file.type || 'application/octet-stream';
+            const chunkAnalysis = ChunkManager.analyze(currentStorage, buffer.length);
+
+            if (chunkAnalysis.needsChunking && chunkAnalysis.config.mode === 'native') {
+                // S3 原生 multipart（完成后是完整对象，不标记 is_chunked）
+                const result = await ChunkManager.uploadS3Multipart(currentStorage, buffer, {
+                    fileId, fileName: newFileName, originalName, mimeType, storageId: finalChannelId
+                });
+                storageResult = { id: result.id };
+            } else if (chunkAnalysis.needsChunking) {
+                // 通用分块上传（TG/Discord/HF）
+                const result = await ChunkManager.uploadChunked(currentStorage, buffer, {
+                    fileId, fileName: newFileName, originalName, mimeType, storageId: finalChannelId
+                });
+                storageResult = { id: fileId };
+                isChunked = 1;
+                chunkCount = result.chunkCount;
+            } else {
+                // 直接上传（不分块）
+                storageResult = await currentStorage.put(buffer, {
+                    id: fileId, fileName: newFileName, originalName, mimeType
+                });
+            }
             break; // 上传成功，跳出循环
         } catch (err) {
             console.warn(`[Upload Failover] 渠道 ${finalChannelId} 上传失败: ${err.message}`);
             failedChannels.push({ id: finalChannelId, error: err.message });
+
+            // 重置分块状态，避免上一个渠道的分块结果污染下一个渠道
+            isChunked = 0;
+            chunkCount = 0;
 
             // 判断是否继续切换
             if (!failoverEnabled || !isRetryableError(err) || attempt >= maxRetries) {
@@ -264,8 +289,8 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
         directory: String(body['directory'] || '/'),
         tags: body['tags'] ? JSON.stringify(body['tags'].toString().split(',')) : null,
         is_public: (body['is_public'] === 'true' || body['is_public'] === true || body['is_public'] === '1' || !!body['is_public']) ? 1 : 0,
-        is_chunked: 0,
-        chunk_count: 0,
+        is_chunked: isChunked,
+        chunk_count: chunkCount,
         width: width,
         height: height,
         exif: exif
