@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box, Typography, IconButton, Paper, Divider, Chip, Button, Dialog, useTheme, useMediaQuery
 } from '@mui/material';
@@ -20,48 +20,145 @@ const ImageDetailLightbox = ({
   const [imgTransform, setImgTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isReady, setIsReady] = useState(false);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [shouldAnimate, setShouldAnimate] = useState(false);
 
-  // 当切换图片或打开时重置状态
-  useEffect(() => {
-    if (open) {
-      setImgTransform({ x: 0, y: 0, scale: 1 });
+  const containerRef = useRef(null);
+  const transformMapRef = useRef({}); // 每张图的独立缩放/位移状态
+  const itemIdRef = useRef(null);     // 当前图片 id，供回调读取
+
+  // 计算初始自适应缩放（同步逻辑，不依赖 Effect）
+  const calculateInitialScale = useCallback((targetItem, container) => {
+    if (!targetItem || !container) return { x: 0, y: 0, scale: 1 };
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    if (containerWidth === 0 || containerHeight === 0) return { x: 0, y: 0, scale: 1 };
+
+    let initialScale = 1;
+    const imgW = Number(targetItem.width) || 0;
+    const imgH = Number(targetItem.height) || 0;
+
+    if (imgW > 0 && imgH > 0) {
+      const containerRatio = containerWidth / containerHeight;
+      const imgRatio = imgW / imgH;
+
+      if (imgRatio > containerRatio) {
+        initialScale = (containerWidth * 0.9) / imgW;
+      } else {
+        initialScale = (containerHeight * 0.9) / imgH;
+      }
+      initialScale = Math.min(Math.max(initialScale, 0.01), 1);
     }
-  }, [open, item?.id]);
-
-  const containerRef = React.useRef(null);
-
-  const handleWheel = useCallback((e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setImgTransform(prev => ({
-      ...prev,
-      scale: Math.min(Math.max(prev.scale * delta, 0.2), 15)
-    }));
+    return { x: 0, y: 0, scale: initialScale };
   }, []);
 
+  // 核心：打开或切换图片时计算并应用缩放
+  useEffect(() => {
+    if (!open || !item) {
+      // 异步重置，避免同步 setState 警告
+      Promise.resolve().then(() => {
+        setIsReady(false);
+        setIsImageLoaded(false);
+        setShouldAnimate(false);
+      });
+      itemIdRef.current = null;
+      return;
+    }
+
+    itemIdRef.current = item.id;
+
+    const applyTransform = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      let state = transformMapRef.current[item.id];
+      if (!state) {
+        state = calculateInitialScale(item, container);
+        transformMapRef.current[item.id] = state;
+      }
+
+      setImgTransform(state);
+      setIsReady(true);
+      setShouldAnimate(false);
+    };
+
+    // 首次尝试（DOM 可能已就绪）
+    requestAnimationFrame(applyTransform);
+
+    // Dialog 动画结束后再校正一次并开启动画
+    const timer = setTimeout(() => {
+      applyTransform();
+      setShouldAnimate(true);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [open, item, calculateInitialScale]);
+
+  // 状态变更同步到 Map（通过 ref 读取 id，避免依赖 item）
+  const updateTransform = useCallback((newStateOrUpdater) => {
+    setImgTransform(prev => {
+      const next = typeof newStateOrUpdater === 'function' ? newStateOrUpdater(prev) : newStateOrUpdater;
+      const currentId = itemIdRef.current;
+      if (currentId) {
+        transformMapRef.current[currentId] = next;
+      }
+      return next;
+    });
+  }, []);
+
+  const handleImageLoad = useCallback(() => {
+    setIsImageLoaded(true);
+    // 如果图片加载完发现还没有计算过（虽然 useEffect 已经算了，但万一尺寸有变），补算一次
+    if (containerRef.current && item) {
+      const container = containerRef.current;
+      // 如果是第一次加载，或者尺寸异常，重新算并更新
+      if (!transformMapRef.current[item.id] || transformMapRef.current[item.id].scale === 1) {
+        const state = calculateInitialScale(item, container);
+        updateTransform(state);
+      }
+    }
+  }, [item, calculateInitialScale, updateTransform]);
+
+  const handleWheel = useCallback((e) => {
+    if (!isReady) return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    updateTransform(prev => ({
+      ...prev,
+      scale: Math.min(Math.max(prev.scale * delta, 0.01), 50)
+    }));
+  }, [isReady, updateTransform]);
+
+  // 绑定非被动 Wheel 事件
   useEffect(() => {
     const node = containerRef.current;
-    if (node) {
-      node.addEventListener('wheel', handleWheel, { passive: false });
-      return () => node.removeEventListener('wheel', handleWheel);
+    if (open && node) {
+      const wheelHandler = (e) => handleWheel(e);
+      node.addEventListener('wheel', wheelHandler, { passive: false });
+      return () => node.removeEventListener('wheel', wheelHandler);
     }
-  }, [handleWheel]);
+  }, [open, handleWheel]);
 
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     setIsDragging(true);
-    setDragStart({ x: e.clientX - imgTransform.x, y: e.clientY - imgTransform.y });
+    setDragStart({ x: e.clientX, y: e.clientY });
   };
 
   const handleMouseMove = useCallback((e) => {
     if (!isDragging) return;
-    setImgTransform(prev => ({
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    updateTransform(prev => ({
       ...prev,
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
+      x: prev.x + dx,
+      y: prev.y + dy
     }));
-  }, [isDragging, dragStart]);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  }, [isDragging, dragStart, updateTransform]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -145,7 +242,6 @@ const ImageDetailLightbox = ({
             cursor: isDragging ? 'grabbing' : 'grab',
             userSelect: 'none'
           }}
-          onWheel={handleWheel}
           onMouseDown={handleMouseDown}
         >
           <Box
@@ -153,16 +249,16 @@ const ImageDetailLightbox = ({
             src={`/${item.id}`}
             alt={item.original_name || item.file_name}
             draggable={false}
-            onLoad={(e) => {
-              // 可以在这里处理加载完成后的动画或占位图隐藏
-              e.target.style.opacity = 1;
-            }}
+            onLoad={handleImageLoad}
             sx={{
+              width: item.width ? `${item.width}px` : 'auto',
+              height: item.height ? `${item.height}px` : 'auto',
               maxWidth: 'none',
               maxHeight: 'none',
-              opacity: 0, // 初始透明，防止闪烁，配合 onLoad
+              opacity: isReady && isImageLoaded ? 1 : 0,
               transform: `translate(${imgTransform.x}px, ${imgTransform.y}px) scale(${imgTransform.scale})`,
-              transition: isDragging ? 'none' : 'transform 0.1s ease-out, opacity 0.3s ease-in',
+              transformOrigin: 'center center',
+              transition: (!shouldAnimate || isDragging) ? 'opacity 0.3s' : 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s',
               pointerEvents: 'none',
               filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))'
             }}
