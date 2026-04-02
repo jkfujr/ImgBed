@@ -554,24 +554,6 @@ export default function FilesAdmin() {
 
       {/* 内容滚动区 */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 0 }}>
-        {/* 目录卡片（仅瀑布流视图显示独立卡片区） */}
-        {directories.length > 0 && viewMode === 'masonry' && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
-            {directories.map(dir => (
-              <Paper key={dir.path} variant="outlined"
-                onClick={() => navigateToDir(dir.path)}
-                sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1,
-                  cursor: 'pointer', borderRadius: BORDER_RADIUS.md,
-                  '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
-                  transition: 'all 0.15s' }}
-              >
-                <FolderIcon color="warning" />
-                <Typography variant="body2" fontWeight="medium">{dir.name}</Typography>
-              </Paper>
-            ))}
-          </Box>
-        )}
-
         {/* 首次加载 */}
         {loading && data.length === 0 && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -598,6 +580,30 @@ export default function FilesAdmin() {
                 defaultHeight={800}
                 sx={{ alignContent: 'flex-start' }}
               >
+                {directories.map(dir => (
+                  <Paper key={`dir-${dir.path}`} variant="outlined"
+                    onClick={() => navigateToDir(dir.path)}
+                    sx={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 1,
+                      p: 3,
+                      aspectRatio: '1',
+                      cursor: 'pointer',
+                      borderRadius: BORDER_RADIUS.md,
+                      bgcolor: 'background.paper',
+                      '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <FolderIcon color="warning" sx={{ fontSize: 48 }} />
+                    <Typography variant="body2" fontWeight="medium" textAlign="center" noWrap sx={{ width: '100%', px: 1 }}>
+                      {dir.name}
+                    </Typography>
+                  </Paper>
+                ))}
                 {data.map(item => (
                   <MasonryImageItem
                     key={item.id}
