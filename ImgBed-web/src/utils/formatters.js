@@ -97,7 +97,7 @@ export function parseTags(tags) {
       const split = parsed.split(',').map(t => t.trim()).filter(Boolean);
       return split;
     }
-  } catch (e) {
+  } catch {
     if (typeof tags === 'string') {
       return tags.split(',').map(t => t.trim()).filter(Boolean);
     }

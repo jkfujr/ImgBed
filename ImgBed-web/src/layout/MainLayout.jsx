@@ -22,10 +22,14 @@ import CreateFolderDialog from '../components/common/CreateFolderDialog';
 import ChannelDialog from '../components/common/ChannelDialog';
 import SearchDialog from '../components/common/SearchDialog';
 import { useRefresh } from '../contexts/RefreshContext';
+import { useUpload } from '../hooks/useUpload';
+import { useCreateDirectory } from '../hooks/useCreateDirectory';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
   const { triggerRefresh } = useRefresh();
+  const { upload } = useUpload({ refreshMode: 'global' });
+  const { createDirectory } = useCreateDirectory();
   const navigate = useNavigate();
   const location = useLocation();
   const [anchorEl, setAnchorEl] = React.useState(null);
@@ -87,17 +91,10 @@ export default function MainLayout() {
 
   const handlePasteUploadFile = async (file) => {
     try {
-      const token = localStorage.getItem('token');
-      const formData = new FormData();
-      formData.append('file', file);
-      await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
-      triggerRefresh();
+      const result = await upload(file);
+      if (!result.success) {
+        console.error('上传失败:', result.error);
+      }
     } catch (err) {
       console.error('上传失败:', err);
     }
@@ -105,45 +102,10 @@ export default function MainLayout() {
 
   const handleCreateFolderConfirm = async (folderPath) => {
     try {
-      const token = localStorage.getItem('token');
-      // 支持多级路径：按 / 拆分后逐级创建
-      const segments = folderPath.split('/').filter(s => s.trim());
-      let parentId = null;
-
-      for (const segment of segments) {
-        const res = await fetch('/api/directories', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ name: segment.trim(), parent_id: parentId })
-        });
-        const data = await res.json();
-        if (data.code === 0 && data.data) {
-          // 创建成功，用返回的 id 作为下一级的 parent_id
-          parentId = data.data.id;
-        } else if (data.code === 409) {
-          // 同名目录已存在，查询其 id 作为 parent_id 继续创建下一级
-          const listRes = await fetch('/api/directories?type=flat', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const listData = await listRes.json();
-          if (listData.code === 0) {
-            const existing = listData.data.find(d => d.name === segment.trim() && d.parent_id === parentId);
-            if (existing) {
-              parentId = existing.id;
-              continue;
-            }
-          }
-          console.error('创建文件夹失败:', data.message);
-          break;
-        } else {
-          console.error('创建文件夹失败:', data.message);
-          break;
-        }
+      const result = await createDirectory(folderPath, { parentId: null });
+      if (!result.success) {
+        console.error('创建文件夹失败:', result.error);
       }
-
       triggerRefresh();
     } catch (err) {
       console.error('创建文件夹失败:', err);

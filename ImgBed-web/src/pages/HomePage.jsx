@@ -1,20 +1,21 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
-  IconButton, LinearProgress, Chip, Tooltip, List, ListItem, Divider
+  IconButton, LinearProgress, Tooltip, List, ListItem, Divider
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import api from '../api';
 import { ALLOWED_IMAGE_EXTENSIONS, BORDER_RADIUS } from '../utils/constants';
+import { useUpload } from '../hooks/useUpload';
 
 // 单个文件的状态：idle | uploading | done | error
 const createFileEntry = (file) => ({
   id: Math.random().toString(36).slice(2),
   file,
+  previewUrl: URL.createObjectURL(file),
   status: 'idle',   // idle | uploading | done | error
   result: null,     // 成功时的响应数据
   errorMsg: null,
@@ -23,8 +24,22 @@ const createFileEntry = (file) => ({
 export default function HomePage() {
   const [entries, setEntries] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const { upload } = useUpload({ refreshMode: 'none' });
   const [toast, setToast] = useState({ open: false, msg: '', type: 'info' });
   const inputRef = useRef(null);
+  const entriesRef = useRef([]);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  useEffect(() => () => {
+    entriesRef.current.forEach((entry) => {
+      if (entry.previewUrl) {
+        URL.revokeObjectURL(entry.previewUrl);
+      }
+    });
+  }, []);
 
   const showToast = (msg, type = 'info') => setToast({ open: true, msg, type });
 
@@ -32,37 +47,58 @@ export default function HomePage() {
   const patchEntry = (id, patch) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
+  const revokeEntryPreview = (entry) => {
+    if (entry?.previewUrl) {
+      URL.revokeObjectURL(entry.previewUrl);
+    }
+  };
+
   // 检查文件扩展名是否在允许列表中
   const isAllowedImage = (fileName) => {
     const lower = fileName.toLowerCase();
-    return ALLOWED_IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
+    return ALLOWED_IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
   };
 
   const handleFileChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    const valid = files.filter((f) => {
-      // 同时检查 MIME 类型 和 文件扩展名
-      const isImageType = f.type.startsWith('image/');
-      const isAllowedExt = isAllowedImage(f.name);
-      if (!isImageType && !isAllowedExt) {
-        showToast(`「${f.name}」不是图片，已跳过`, 'warning');
-        return false;
-      }
-      return true;
-    });
-    if (valid.length > 0) {
-      setEntries((prev) => [...prev, ...valid.map(createFileEntry)]);
-    }
+    appendFiles(Array.from(e.target.files || []));
     // 清空 input，允许重复选择同一文件
     e.target.value = null;
   };
 
+  const collectValidImages = (files) => {
+    const valid = [];
+    files.forEach((f) => {
+      const isImageType = f.type.startsWith('image/');
+      const isAllowedExt = isAllowedImage(f.name);
+      if (!isImageType && !isAllowedExt) {
+        showToast(`「${f.name}」不是图片，已跳过`, 'warning');
+        return;
+      }
+      valid.push(f);
+    });
+    return valid;
+  };
+
+  const appendFiles = (files) => {
+    const valid = collectValidImages(files);
+    if (valid.length > 0) {
+      setEntries((prev) => [...prev, ...valid.map(createFileEntry)]);
+    }
+  };
+
   const handleRemove = (id) => {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    setEntries((prev) => {
+      const target = prev.find((e) => e.id === id);
+      revokeEntryPreview(target);
+      return prev.filter((e) => e.id !== id);
+    });
   };
 
   const handleClearDone = () => {
-    setEntries((prev) => prev.filter((e) => e.status !== 'done'));
+    setEntries((prev) => {
+      prev.filter((e) => e.status === 'done').forEach(revokeEntryPreview);
+      return prev.filter((e) => e.status !== 'done');
+    });
   };
 
   const handleCopy = (text) => {
@@ -74,16 +110,12 @@ export default function HomePage() {
   const uploadOne = async (entry) => {
     patchEntry(entry.id, { status: 'uploading' });
     try {
-      const formData = new FormData();
-      formData.append('file', entry.file);
-      const res = await api.post('/api/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      if (res.code === 0) {
-        const fullUrl = window.location.origin + res.data.url;
-        patchEntry(entry.id, { status: 'done', result: { ...res.data, fullUrl } });
+      const result = await upload(entry.file);
+      if (result.success) {
+        const fullUrl = window.location.origin + result.data.url;
+        patchEntry(entry.id, { status: 'done', result: { ...result.data, fullUrl } });
       } else {
-        patchEntry(entry.id, { status: 'error', errorMsg: res.message || '上传失败' });
+        patchEntry(entry.id, { status: 'error', errorMsg: result.error });
       }
     } catch (err) {
       patchEntry(entry.id, {
@@ -125,17 +157,7 @@ export default function HomePage() {
             e.preventDefault();
             if (uploading) return;
             const files = Array.from(e.dataTransfer.files || []);
-            const valid = files.filter((f) => {
-              // 同时检查 MIME 类型 和 文件扩展名
-              const isImageType = f.type.startsWith('image/');
-              const isAllowedExt = isAllowedImage(f.name);
-              if (!isImageType && !isAllowedExt) {
-                showToast(`「${f.name}」不是图片，已跳过`, 'warning');
-                return false;
-              }
-              return true;
-            });
-            if (valid.length > 0) setEntries((prev) => [...prev, ...valid.map(createFileEntry)]);
+            appendFiles(files);
           }}
           sx={{
             border: '2px dashed',
@@ -191,7 +213,7 @@ export default function HomePage() {
                     {/* 缩略图 */}
                     <Box
                       component="img"
-                      src={URL.createObjectURL(entry.file)}
+                      src={entry.previewUrl}
                       alt={entry.file.name}
                       sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: BORDER_RADIUS.sm, flexShrink: 0 }}
                     />

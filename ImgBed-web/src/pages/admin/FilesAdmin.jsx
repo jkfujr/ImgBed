@@ -31,6 +31,8 @@ import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from 
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
 import { useNavigate } from 'react-router-dom';
 import { useRefresh } from '../../contexts/RefreshContext';
+import { useUpload } from '../../hooks/useUpload';
+import { useCreateDirectory } from '../../hooks/useCreateDirectory';
 
 import { DEFAULT_PAGE_SIZE, BORDER_RADIUS } from '../../utils/constants';
 
@@ -49,7 +51,7 @@ export default function FilesAdmin() {
   const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [directories, setDirectories] = useState([]);
   const [currentDir, setCurrentDir] = useState(null);
@@ -62,10 +64,6 @@ export default function FilesAdmin() {
   const pathInputRef = useRef(null);
   const pageRef = useRef(0);
   const sentinelRef = useRef(null);
-  const loadingRef = useRef(false);
-  // 用 ref 存储最新的 currentDir，避免 loadPage 闭包问题
-  const latestParamsRef = useRef({ currentDir: null });
-  latestParamsRef.current = { currentDir };
 
   // 迁移相关状态
   const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
@@ -85,6 +83,8 @@ export default function FilesAdmin() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
 
+  const { createDirectory } = useCreateDirectory();
+
   const handleOpenDetail = useCallback((item) => {
     setSelectedItem(item);
     setDetailOpen(true);
@@ -95,39 +95,52 @@ export default function FilesAdmin() {
     setSelectedItem(null);
   };
 
-  const loadPage = useCallback(async (pageNum, append) => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const { currentDir: dir } = latestParamsRef.current;
-      const params = { page: pageNum, pageSize: PAGE_SIZE };
-      if (dir) params.directory = dir;
-      const res = await FileDocs.list(params);
-      if (res.code === 0 && res.data) {
-        const list = res.data.list || [];
-        const tot = res.data.pagination?.total || 0;
-        setData(prev => append ? [...prev, ...list] : list);
-        setTotal(tot);
-        const loaded = append ? (pageNum - 1) * PAGE_SIZE + list.length : list.length;
-        setHasMore(loaded < tot);
-        pageRef.current = pageNum;
-      }
-    } catch (err) {
-      setError('获取文件列表失败');
-      console.error(err);
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, []); // 空依赖，通过 ref 获取最新参数
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+  }, []);
 
-  const fetchDirectories = useCallback(async () => {
+  const selectAll = useCallback(() => {
+    setSelected(new Set(data.map((d) => d.id)));
+  }, [data]);
+
+  const resetDirectoryView = useCallback(() => {
+    setData([]);
+    setDirectories([]);
+    setHasMore(false);
+    clearSelection();
+    setError(null);
+    pageRef.current = 0;
+  }, [clearSelection]);
+
+  const loadDirectoryData = useCallback(async ({ showLoading = false } = {}) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+    resetDirectoryView();
+
     try {
-      const res = await DirectoryDocs.list({ type: 'flat' });
-      if (res.code === 0 && res.data) {
-        const allDirs = res.data.list || res.data || [];
+      // 并行加载文件列表和目录列表
+      const [pageRes, dirsRes] = await Promise.all([
+        (async () => {
+          const params = { page: 1, pageSize: PAGE_SIZE };
+          if (currentDir) params.directory = currentDir;
+          return FileDocs.list(params);
+        })(),
+        DirectoryDocs.list({ type: 'flat' })
+      ]);
+
+      // 处理文件列表
+      if (pageRes.code === 0 && pageRes.data) {
+        const list = pageRes.data.list || [];
+        setData(list);
+        setTotal(pageRes.data.pagination?.total || 0);
+        setHasMore(list.length < (pageRes.data.pagination?.total || 0));
+        pageRef.current = 1;
+      }
+
+      // 处理目录树
+      if (dirsRes.code === 0 && dirsRes.data) {
+        const allDirs = dirsRes.data.list || dirsRes.data || [];
         const parentPath = currentDir || '/';
         const children = allDirs.filter(d => {
           if (d.path === parentPath) return false;
@@ -140,57 +153,40 @@ export default function FilesAdmin() {
         setDirectories(children);
       }
     } catch (err) {
-      console.error('获取目录失败', err);
-      setDirectories([]);
+      console.error('加载失败', err);
+      setError('加载失败');
+    } finally {
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  }, [currentDir]);
+  }, [currentDir, resetDirectoryView]);
 
   // 搜索或目录变化时重置并加载第一页
   useEffect(() => {
-    setData([]);
-    setDirectories([]);
-    setHasMore(false);
-    setSelected(new Set());
-    pageRef.current = 0;
-    loadPage(1, false);
-    fetchDirectories();
-  }, [currentDir]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadDirectoryData({ showLoading: true });
+  }, [loadDirectoryData]);
 
   // 监听外部刷新触发
   useEffect(() => {
     if (refreshTrigger > 0) {
-      handleRefresh();
+      loadDirectoryData();
     }
-  }, [refreshTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshTrigger, loadDirectoryData]);
 
-  // 无限滚动 sentinel
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !loadingRef.current) {
-          setHasMore(more => {
-            if (more) loadPage(pageRef.current + 1, true);
-            return more;
-          });
-        }
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadPage]);
+  const handleRefresh = useCallback(() => {
+    loadDirectoryData({ showLoading: true });
+  }, [loadDirectoryData]);
 
-  const handleRefresh = () => {
-    setData([]);
-    setDirectories([]);
-    setHasMore(false);
-    setSelected(new Set());
-    pageRef.current = 0;
-    loadPage(1, false);
-    fetchDirectories();
-  };
+  const refreshAfterMutation = useCallback(() => {
+    clearSelection();
+    handleRefresh();
+  }, [clearSelection, handleRefresh]);
+
+  const { upload } = useUpload({
+    refreshMode: 'callback',
+    onRefresh: handleRefresh
+  });
 
   const toggleSelect = (id) => {
     setSelected(prev => {
@@ -213,8 +209,7 @@ export default function FilesAdmin() {
         await FileDocs.batch({ action: 'delete', ids: deleteDialog.ids });
       }
       setDeleteDialog({ open: false, ids: [], label: '' });
-      setSelected(new Set());
-      handleRefresh();
+      refreshAfterMutation();
     } catch (e) {
       console.error(e);
     } finally {
@@ -254,8 +249,7 @@ export default function FilesAdmin() {
       });
       if (res.code === 0) {
         setMigrationResult(res.data);
-        setSelected(new Set());
-        setTimeout(handleRefresh, 1000);
+        refreshAfterMutation();
       } else {
         setMigrationResult({ success: 0, failed: migrateDialog.ids.length, skipped: 0, errors: [{ reason: res.message }] });
       }
@@ -298,108 +292,38 @@ export default function FilesAdmin() {
     setCreateMenuAnchor(null);
   };
 
-  const handleUploadImage = () => {
+  const runAfterCreateMenuClose = (action) => {
     handleCreateMenuClose();
+    action();
+  };
+
+  const handleUploadImage = () => {
     setUploadMode('file');
     setPasteDialogOpen(true);
   };
 
   const handleUploadDirectory = () => {
-    handleCreateMenuClose();
     setUploadMode('folder');
     setPasteDialogOpen(true);
   };
 
-  const uploadFile = async (file) => {
-    const token = localStorage.getItem('token');
-    console.log('Token:', token ? `${token.substring(0, 20)}...` : 'null');
-
-    const formData = new FormData();
-    formData.append('file', file);
-    if (currentDir) formData.append('directory', currentDir);
-
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
-      body: formData
-    });
-
-    console.log('Response status:', response.status);
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('Upload error:', error);
-      throw new Error(error.message || '上传失败');
-    }
-    return response.json();
-  };
-
   const handlePasteUploadFile = async (file) => {
     try {
-      await uploadFile(file);
-      handleRefresh();
+      const result = await upload(file, { directory: currentDir || undefined });
+      if (!result.success) {
+        console.error('上传失败:', result.error);
+      }
     } catch (err) {
       console.error('上传失败:', err);
-      throw err;
     }
   };
 
   const handleCreateFolderConfirm = async (folderPath) => {
     try {
-      const token = localStorage.getItem('token');
-      // 支持多级路径：按 / 拆分后逐级创建
-      const segments = folderPath.split('/').filter(s => s.trim());
-
-      // 确定父目录 ID：如果当前在子目录中，需要先查找当前目录的 ID
-      let parentId = null;
-      if (currentDir) {
-        const listRes = await fetch('/api/directories?type=flat', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const listData = await listRes.json();
-        if (listData.code === 0) {
-          const dirs = listData.data.list || listData.data || [];
-          const cur = dirs.find(d => d.path === currentDir);
-          if (cur) parentId = cur.id;
-        }
+      const result = await createDirectory(folderPath, { currentPath: currentDir });
+      if (!result.success) {
+        console.error('创建文件夹失败:', result.error);
       }
-
-      for (const segment of segments) {
-        const res = await fetch('/api/directories', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ name: segment.trim(), parent_id: parentId })
-        });
-        const data = await res.json();
-        if (data.code === 0 && data.data) {
-          parentId = data.data.id;
-        } else if (data.code === 409) {
-          // 同名目录已存在，查询其 ID 继续创建下一级
-          const listRes = await fetch('/api/directories?type=flat', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const listData = await listRes.json();
-          if (listData.code === 0) {
-            const dirs = listData.data.list || listData.data || [];
-            const existing = dirs.find(d => d.name === segment.trim() && d.parent_id === parentId);
-            if (existing) {
-              parentId = existing.id;
-              continue;
-            }
-          }
-          console.error('创建文件夹失败:', data.message);
-          break;
-        } else {
-          console.error('创建文件夹失败:', data.message);
-          break;
-        }
-      }
-
       handleRefresh();
     } catch (err) {
       console.error('创建文件夹失败:', err);
@@ -498,7 +422,7 @@ export default function FilesAdmin() {
             onClick={() => triggerDelete([...selected], `${selected.size} 个文件`)}>
             批量删除
           </Button>
-          <Button size="small" onClick={() => setSelected(new Set())}>取消选择</Button>
+          <Button size="small" onClick={clearSelection}>取消选择</Button>
         </Paper>
       )}
 
@@ -511,29 +435,31 @@ export default function FilesAdmin() {
         onClose={handleCreateMenuClose}
         transformOrigin={{ horizontal: 'left', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
-        PaperProps={{
-          elevation: 3,
-          sx: { mt: 1, minWidth: 180, borderRadius: BORDER_RADIUS.md }
+        slotProps={{
+          paper: {
+            elevation: 3,
+            sx: { mt: 1, minWidth: 180, borderRadius: BORDER_RADIUS.md }
+          }
         }}
       >
-        <MenuItem onClick={handleUploadImage}>
+        <MenuItem onClick={() => runAfterCreateMenuClose(() => handleUploadImage())}>
           <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
           上传图片
         </MenuItem>
-        <MenuItem onClick={handleUploadDirectory}>
+        <MenuItem onClick={() => runAfterCreateMenuClose(() => handleUploadDirectory())}>
           <ListItemIcon><FolderIcon fontSize="small" /></ListItemIcon>
           上传目录
         </MenuItem>
-        <MenuItem onClick={() => { handleCreateMenuClose(); setPasteDialogOpen(true); }}>
+        <MenuItem onClick={() => runAfterCreateMenuClose(() => setPasteDialogOpen(true))}>
           <ListItemIcon><ContentPasteIcon fontSize="small" /></ListItemIcon>
           剪贴板上传
         </MenuItem>
         <Divider />
-        <MenuItem onClick={() => { handleCreateMenuClose(); setFolderDialogOpen(true); }}>
+        <MenuItem onClick={() => runAfterCreateMenuClose(() => setFolderDialogOpen(true))}>
           <ListItemIcon><CreateNewFolderIcon fontSize="small" /></ListItemIcon>
           创建文件夹
         </MenuItem>
-        <MenuItem onClick={() => { handleCreateMenuClose(); navigate('/admin/storage-channels'); }}>
+        <MenuItem onClick={() => runAfterCreateMenuClose(() => navigate('/admin/storage-channels'))}>
           <ListItemIcon><StorageIcon fontSize="small" /></ListItemIcon>
           新增渠道
         </MenuItem>
@@ -628,8 +554,8 @@ export default function FilesAdmin() {
                         indeterminate={selected.size > 0 && selected.size < data.length}
                         checked={data.length > 0 && selected.size === data.length}
                         onChange={() => {
-                          if (selected.size === data.length) setSelected(new Set());
-                          else setSelected(new Set(data.map(d => d.id)));
+                          if (selected.size === data.length) clearSelection();
+                          else selectAll();
                         }} />
                     </TableCell>
                     <TableCell sx={{ width: 64 }}>预览</TableCell>

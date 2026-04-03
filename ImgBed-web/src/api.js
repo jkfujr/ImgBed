@@ -60,6 +60,42 @@ export const FileDocs = {
 
 export const DirectoryDocs = {
    list: (params) => api.get('/api/directories', { params }),
+   create: (payload) => api.post('/api/directories', payload),
+   findByPath: async (path) => {
+     const res = await api.get('/api/directories', { params: { type: 'flat' } });
+     if (res.code === 0) {
+       const dirs = res.data.list || res.data || [];
+       return dirs.find(d => d.path === path) || null;
+     }
+     return null;
+   }
+};
+
+export const UploadDocs = {
+  /**
+   * 上传单个文件
+   * @param {File} file - 文件对象
+   * @param {Object} options - 可选参数
+   * @param {string} options.directory - 目标目录
+   * @param {string} options.channel - 指定渠道
+   * @param {string} options.tags - 标签（逗号分隔）
+   * @param {boolean} options.is_public - 是否公开
+   * @param {Function} options.onUploadProgress - 上传进度回调
+   */
+  upload: (file, options = {}) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (options.directory) formData.append('directory', options.directory);
+    if (options.channel) formData.append('channel', options.channel);
+    if (options.tags) formData.append('tags', options.tags);
+    if (options.is_public !== undefined) formData.append('is_public', options.is_public);
+
+    return api.post('/api/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: options.onUploadProgress
+    });
+  }
 };
 
 export const StorageDocs = {
