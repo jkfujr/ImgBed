@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useMemo } from 'react';
 import { Box, Alert, useTheme, useMediaQuery } from '@mui/material';
 import FilesAdminToolbar from '../../components/admin/FilesAdminToolbar';
 import FilesAdminSelectionBar from '../../components/admin/FilesAdminSelectionBar';
@@ -15,6 +15,7 @@ export default function FilesAdmin() {
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
   const isMd = useMediaQuery(theme.breakpoints.up('md'));
   const [prefCols] = useUserPreference('pref_masonry_cols', '0');
+  const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
 
   let autoCols = 2;
   if (isXl) {
@@ -26,12 +27,6 @@ export default function FilesAdmin() {
   }
   const cols = parseInt(prefCols, 10) > 0 ? parseInt(prefCols, 10) : autoCols;
 
-  const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
-  const [pathEditing, setPathEditing] = useState(false);
-  const [pathInput, setPathInput] = useState('');
-  const pathInputRef = useRef(null);
-  const sentinelRef = useRef(null);
-
   const {
     data, total, loading, hasMore, directories, currentDir, selected, error,
     deleteDialog, deleting, migrateDialog, detailOpen, selectedItem,
@@ -40,55 +35,27 @@ export default function FilesAdmin() {
     handleRefresh, refreshAfterMutation,
     toggleSelect,
     triggerDelete, closeDeleteDialog, confirmDelete,
-    navigateToDir: rawNavigateToDir,
+    navigateToDir,
     openMigrate, closeMigrate,
   } = useFilesAdmin();
-
-  const navigateToDir = (path) => {
-    rawNavigateToDir(path);
-    setPathEditing(false);
-  };
-
-  const startPathEdit = () => {
-    setPathInput(currentDir || '/');
-    setPathEditing(true);
-    setTimeout(() => pathInputRef.current?.focus(), 0);
-  };
-
-  const commitPathEdit = () => {
-    const raw = pathInput.trim();
-    let normalized = null;
-
-    if (raw !== '/' && raw !== '') {
-      normalized = raw.startsWith('/') ? raw : `/${raw}`;
-    }
-
-    navigateToDir(normalized);
-  };
-
-  const cancelPathEdit = () => setPathEditing(false);
 
   const handleViewModeChange = (_, val) => {
     if (!val) return;
     setViewMode(val);
   };
 
-  const breadcrumbs = currentDir ? currentDir.split('/').filter(Boolean) : [];
+  const breadcrumbs = useMemo(
+    () => (currentDir ? currentDir.split('/').filter(Boolean) : []),
+    [currentDir]
+  );
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
       <FilesAdminToolbar
         currentDir={currentDir}
         breadcrumbs={breadcrumbs}
-        pathEditing={pathEditing}
-        pathInput={pathInput}
-        pathInputRef={pathInputRef}
         loading={loading}
         viewMode={viewMode}
-        onPathInputChange={(e) => setPathInput(e.target.value)}
-        onCommitPathEdit={commitPathEdit}
-        onCancelPathEdit={cancelPathEdit}
-        onStartPathEdit={startPathEdit}
         onNavigateToDir={navigateToDir}
         onViewModeChange={handleViewModeChange}
         onRefresh={handleRefresh}
@@ -118,7 +85,6 @@ export default function FilesAdmin() {
         onNavigateToDir={navigateToDir}
         onOpenDetail={handleOpenDetail}
         onTriggerDelete={triggerDelete}
-        sentinelRef={sentinelRef}
       />
 
       <ConfirmDialog

@@ -26,6 +26,7 @@ export function useFilesAdmin() {
   const [detailItem, setDetailItem] = useState(null);
 
   const pageRef = useRef(0);
+  const cacheRef = useRef(new Map());
 
   const handleOpenDetail = useCallback((item) => setDetailItem(item), []);
   const handleCloseDetail = useCallback(() => setDetailItem(null), []);
@@ -36,76 +37,111 @@ export function useFilesAdmin() {
     setSelected(new Set(listData.data.map((d) => d.id)));
   }, [listData.data]);
 
-  const resetDirectoryView = useCallback(() => {
-    setListData(EMPTY_LIST);
+  const getCacheKey = useCallback((dir) => dir || '/', []);
+
+  const buildDirectoryChildren = useCallback((allDirs, dir) => {
+    const parentPath = dir || '/';
+    return allDirs.filter((d) => {
+      if (d.path === parentPath) return false;
+      const prefix = parentPath === '/' ? '/' : `${parentPath}/`;
+      if (!d.path.startsWith(prefix)) return false;
+      const suffix = d.path.slice(prefix.length);
+      return suffix.length > 0 && !suffix.includes('/');
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
+  const fetchListPage = useCallback(async (dir) => {
+    const params = { page: 1, pageSize: PAGE_SIZE };
+    if (dir) params.directory = dir;
+    const pageRes = await FileDocs.list(params);
+    const list = pageRes.code === 0 && pageRes.data ? (pageRes.data.list || []) : [];
+    const total = pageRes.code === 0 && pageRes.data ? (pageRes.data.pagination?.total || 0) : 0;
+    return {
+      data: list,
+      total,
+      hasMore: list.length < total,
+    };
+  }, []);
+
+  const loadDirectoryData = useCallback(async ({
+    showLoading = false,
+    forceReload = false,
+    keepDirectories = false,
+  } = {}) => {
+    if (showLoading) setLoading(true);
     clearSelection();
     setError(null);
     pageRef.current = 0;
-  }, [clearSelection]);
 
-  const loadDirectoryData = useCallback(async ({ showLoading = false } = {}) => {
-    if (showLoading) setLoading(true);
-    resetDirectoryView();
+    const cacheKey = getCacheKey(currentDir);
+    const cached = cacheRef.current.get(cacheKey);
 
     try {
-      const [pageRes, dirsRes] = await Promise.all([
-        (async () => {
-          const params = { page: 1, pageSize: PAGE_SIZE };
-          if (currentDir) params.directory = currentDir;
-          return FileDocs.list(params);
-        })(),
-        DirectoryDocs.list({ type: 'flat' }),
-      ]);
-
-      const newList = { ...EMPTY_LIST };
-
-      if (pageRes.code === 0 && pageRes.data) {
-        const list = pageRes.data.list || [];
-        newList.data = list;
-        newList.total = pageRes.data.pagination?.total || 0;
-        newList.hasMore = list.length < newList.total;
-        pageRef.current = 1;
+      if (!forceReload && cached) {
+        setListData(cached);
+        pageRef.current = cached.data.length > 0 ? 1 : 0;
+        return;
       }
 
-      if (dirsRes.code === 0 && dirsRes.data) {
-        const allDirs = dirsRes.data.list || dirsRes.data || [];
-        const parentPath = currentDir || '/';
-        const children = allDirs.filter((d) => {
-          if (d.path === parentPath) return false;
-          const prefix = parentPath === '/' ? '/' : `${parentPath}/`;
-          if (!d.path.startsWith(prefix)) return false;
-          const suffix = d.path.slice(prefix.length);
-          return suffix.length > 0 && !suffix.includes('/');
-        });
-        children.sort((a, b) => a.name.localeCompare(b.name));
-        newList.directories = children;
+      let allDirs = null;
+      let directories = [];
+
+      if (keepDirectories && cached) {
+        directories = cached.directories;
+      } else {
+        const dirsRes = await DirectoryDocs.list({ type: 'flat' });
+        if (dirsRes.code === 0 && dirsRes.data) {
+          allDirs = dirsRes.data.list || dirsRes.data || [];
+          directories = buildDirectoryChildren(allDirs, currentDir);
+        }
       }
+
+      const listResult = await fetchListPage(currentDir);
+      const newList = {
+        data: listResult.data,
+        total: listResult.total,
+        hasMore: listResult.hasMore,
+        directories,
+      };
 
       setListData(newList);
+      cacheRef.current.set(cacheKey, newList);
+      pageRef.current = listResult.data.length > 0 ? 1 : 0;
+
+      if (allDirs) {
+        const cachedEntries = Array.from(cacheRef.current.entries());
+        for (const [key, value] of cachedEntries) {
+          const dir = key === '/' ? null : key;
+          cacheRef.current.set(key, {
+            ...value,
+            directories: buildDirectoryChildren(allDirs, dir),
+          });
+        }
+      }
     } catch (err) {
       logger.error('加载失败', err);
       setError('加载失败');
+      setListData(EMPTY_LIST);
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [currentDir, resetDirectoryView]);
+  }, [buildDirectoryChildren, clearSelection, currentDir, fetchListPage, getCacheKey]);
 
   useEffect(() => {
     loadDirectoryData({ showLoading: true });
   }, [loadDirectoryData]);
 
   useEffect(() => {
-    if (refreshTrigger > 0) loadDirectoryData();
+    if (refreshTrigger > 0) loadDirectoryData({ forceReload: true });
   }, [refreshTrigger, loadDirectoryData]);
 
   const handleRefresh = useCallback(() => {
-    loadDirectoryData({ showLoading: true });
+    loadDirectoryData({ showLoading: true, forceReload: true });
   }, [loadDirectoryData]);
 
   const refreshAfterMutation = useCallback(() => {
-    clearSelection();
-    handleRefresh();
-  }, [clearSelection, handleRefresh]);
+    loadDirectoryData({ showLoading: true, forceReload: true, keepDirectories: true });
+  }, [loadDirectoryData]);
 
   const toggleSelect = (id) => {
     setSelected((prev) => {

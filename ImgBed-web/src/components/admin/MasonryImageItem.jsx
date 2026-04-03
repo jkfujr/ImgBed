@@ -1,7 +1,10 @@
-import { memo } from 'react';
-import { Box, Checkbox, Typography, IconButton, Tooltip, useTheme } from '@mui/material';
+import { memo, useState } from 'react';
+import { Box, Checkbox, Typography, IconButton, useTheme } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
+import { fmtDate } from '../../utils/formatters';
+
+const getImageSrc = (item) => `/${item.id}`;
 
 /**
  * 瀑布流图片展示核心 - 仅在 id 改变时重渲染
@@ -9,7 +12,7 @@ import { BORDER_RADIUS } from '../../utils/constants';
 const MasonryImage = memo(({ item, onOpenDetail }) => (
   <Box
     component="img"
-    src={`/${item.id}`}
+    src={getImageSrc(item)}
     onClick={() => onOpenDetail?.(item)}
     loading="lazy"
     sx={{
@@ -28,7 +31,7 @@ const MasonryImage = memo(({ item, onOpenDetail }) => (
 MasonryImage.displayName = 'MasonryImage';
 
 /**
- * 瀑布流项容器 - 采用全 CSS 悬浮逻辑，避免 React 状态触发重渲染
+ * 瀑布流项容器 - 初始仅保留必要结构，悬浮后再挂载信息与操作层
  */
 const MasonryImageItem = memo(({
   item,
@@ -38,84 +41,77 @@ const MasonryImageItem = memo(({
   onOpenDetail,
 }) => {
   const theme = useTheme();
+  const [hovered, setHovered] = useState(false);
   const selectedOutlineColor = `${theme.palette.primary.main}80`;
   const deleteHoverColor = theme.palette.error.main;
+  const showOverlay = hovered || isSelected;
 
   return (
     <Box
-    sx={{
-      position: 'relative',
-      borderRadius: BORDER_RADIUS.md,
-      overflow: 'hidden',
-      lineHeight: 0,
-      boxShadow: isSelected ? `0 0 0 3px ${selectedOutlineColor}` : 'none',
-      transition: 'box-shadow 0.2s',
-      '&:hover .overlay-controls': { opacity: 1 },
-      // 关键修复：防止 hover 缩放溢出容器
-      '&:hover img': {
-        transform: 'scale(1.02)',
-        opacity: 0.95
-      }
-    }}
-  >
-    <MasonryImage item={item} onOpenDetail={onOpenDetail} />
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      sx={{
+        position: 'relative',
+        borderRadius: BORDER_RADIUS.md,
+        overflow: 'hidden',
+        lineHeight: 0,
+        boxShadow: isSelected ? `0 0 0 3px ${selectedOutlineColor}` : 'none',
+        transition: 'box-shadow 0.2s',
+        '&:hover img': {
+          transform: 'scale(1.02)',
+          opacity: 0.95
+        }
+      }}
+    >
+      <MasonryImage item={item} onOpenDetail={onOpenDetail} />
 
-    {/* 选框控制层 */}
-    <Box className="overlay-controls" sx={{
-      position: 'absolute', top: 8, left: 8,
-      opacity: isSelected ? 1 : 0, transition: 'opacity 0.2s',
-      zIndex: 2
-    }}>
-      <Checkbox
-        size="small"
-        checked={isSelected}
-        onChange={() => toggleSelect(item.id)}
-        sx={{
-          bgcolor: 'rgba(255,255,255,0.9)',
-          borderRadius: BORDER_RADIUS.sm,
-          p: 0.5,
-          '&.Mui-checked': { bgcolor: 'white' },
-          '&:hover': { bgcolor: 'white' }
-        }}
-      />
-    </Box>
-
-    {/* 底部信息与操作条 */}
-    <Box className="overlay-controls" sx={{
-      position: 'absolute', bottom: 0, left: 0, right: 0,
-      background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
-      color: 'white', px: 1.5, pt: 3, pb: 1,
-      display: 'flex', alignItems: 'flex-end',
-      opacity: 0,
-      transition: 'opacity 0.2s',
-      pointerEvents: 'none',
-      '& > *': { pointerEvents: 'auto' }
-    }}>
-      <Box sx={{ flex: 1, overflow: 'hidden', mb: 0.5 }}>
-        <Typography variant="caption" noWrap sx={{ display: 'block', fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
-          {item.original_name || item.file_name}
-        </Typography>
-        <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.7rem' }}>
-          {fmtDate(item.created_at)}
-        </Typography>
-      </Box>
-      <Tooltip title="删除">
-        <IconButton
+      <Box sx={{
+        position: 'absolute', top: 8, left: 8,
+        opacity: showOverlay ? 1 : 0, transition: 'opacity 0.2s',
+        zIndex: 2
+      }}>
+        <Checkbox
           size="small"
-          sx={{ color: 'white', '&:hover': { color: deleteHoverColor, bgcolor: 'rgba(255,255,255,0.1)' } }}
-          onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}
-        >
-          <DeleteIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
+          checked={isSelected}
+          onChange={() => toggleSelect(item.id)}
+          sx={{
+            bgcolor: 'rgba(255,255,255,0.9)',
+            borderRadius: BORDER_RADIUS.sm,
+            p: 0.5,
+            '&.Mui-checked': { bgcolor: 'white' },
+            '&:hover': { bgcolor: 'white' }
+          }}
+        />
+      </Box>
+
+      {showOverlay && (
+        <Box sx={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+          color: 'white', px: 1.5, pt: 3, pb: 1,
+          display: 'flex', alignItems: 'flex-end'
+        }}>
+          <Box sx={{ flex: 1, overflow: 'hidden', mb: 0.5 }}>
+            <Typography variant="caption" noWrap sx={{ display: 'block', fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+              {item.original_name || item.file_name}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.7rem' }}>
+              {fmtDate(item.created_at)}
+            </Typography>
+          </Box>
+          <IconButton
+            size="small"
+            title="删除"
+            sx={{ color: 'white', '&:hover': { color: deleteHoverColor, bgcolor: 'rgba(255,255,255,0.1)' } }}
+            onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      )}
     </Box>
-  </Box>
   );
 }, (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
 MasonryImageItem.displayName = 'MasonryImageItem';
 
 export { MasonryImageItem as default };
-
-// 需要导入 fmtDate，这里避免循环依赖，在使用处导入传入
-// 由于 memo 比较函数只关注 id 和 selected，fmtDate 改变不影响
-import { fmtDate } from '../../utils/formatters';

@@ -1,5 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import {
-  Box, Breadcrumbs, Button, Divider, IconButton, Link, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography
+  Box, Breadcrumbs, Divider, IconButton, Link, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography
 } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
@@ -10,19 +11,44 @@ import { BORDER_RADIUS } from '../../utils/constants';
 export default function FilesAdminToolbar({
   currentDir,
   breadcrumbs,
-  pathEditing,
-  pathInput,
-  pathInputRef,
   loading,
   viewMode,
-  onPathInputChange,
-  onCommitPathEdit,
-  onCancelPathEdit,
-  onStartPathEdit,
-  onNavigateToDir,
   onViewModeChange,
   onRefresh,
+  onNavigateToDir,
 }) {
+  const [pathEditing, setPathEditing] = useState(false);
+  const [pathInput, setPathInput] = useState('');
+  const pathInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!pathEditing) return;
+    setPathInput(currentDir || '/');
+  }, [currentDir, pathEditing]);
+
+  useEffect(() => {
+    if (!pathEditing) return undefined;
+    const timer = setTimeout(() => pathInputRef.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [pathEditing]);
+
+  const commitPathEdit = () => {
+    const raw = pathInput.trim();
+    let normalized = null;
+
+    if (raw !== '/' && raw !== '') {
+      normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    }
+
+    onNavigateToDir(normalized);
+    setPathEditing(false);
+  };
+
+  const cancelPathEdit = () => {
+    setPathEditing(false);
+    setPathInput(currentDir || '/');
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -31,18 +57,18 @@ export default function FilesAdminToolbar({
             inputRef={pathInputRef}
             size="small"
             value={pathInput}
-            onChange={onPathInputChange}
-            onBlur={onCommitPathEdit}
+            onChange={(e) => setPathInput(e.target.value)}
+            onBlur={commitPathEdit}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') onCommitPathEdit();
-              if (e.key === 'Escape') onCancelPathEdit();
+              if (e.key === 'Enter') commitPathEdit();
+              if (e.key === 'Escape') cancelPathEdit();
             }}
             sx={{ flex: 1, minWidth: 0 }}
             autoFocus
           />
         ) : (
           <Box
-            onClick={onStartPathEdit}
+            onClick={() => setPathEditing(true)}
             sx={{
               flex: 1,
               minWidth: 0,

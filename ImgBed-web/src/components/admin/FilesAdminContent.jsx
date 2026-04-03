@@ -1,6 +1,17 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import FilesAdminMasonryView from './FilesAdminMasonryView';
 import FilesAdminListView from './FilesAdminListView';
+
+const INITIAL_RENDER_COUNT = {
+  masonry: 24,
+  list: 40,
+};
+
+const RENDER_STEP = {
+  masonry: 24,
+  list: 40,
+};
 
 export default function FilesAdminContent({
   loading,
@@ -17,9 +28,40 @@ export default function FilesAdminContent({
   onNavigateToDir,
   onOpenDetail,
   onTriggerDelete,
-  sentinelRef,
 }) {
   const hasItems = data.length > 0 || directories.length > 0;
+  const initialRenderCount = INITIAL_RENDER_COUNT[viewMode] || INITIAL_RENDER_COUNT.masonry;
+  const renderStep = RENDER_STEP[viewMode] || RENDER_STEP.masonry;
+  const [visibleCount, setVisibleCount] = useState(initialRenderCount);
+  const sentinelRef = useRef(null);
+
+  useEffect(() => {
+    setVisibleCount(initialRenderCount);
+  }, [initialRenderCount, data, directories]);
+
+  const visibleData = useMemo(
+    () => data.slice(0, visibleCount),
+    [data, visibleCount]
+  );
+  const hasMoreVisible = visibleCount < data.length;
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMoreVisible) return undefined;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((prev) => Math.min(prev + renderStep, data.length));
+      }
+    }, {
+      root: null,
+      rootMargin: '200px 0px',
+      threshold: 0,
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [data.length, hasMoreVisible, renderStep]);
 
   return (
     <Box sx={{ flexGrow: 1, overflow: 'auto', overflowX: 'hidden', minHeight: 0 }}>
@@ -35,40 +77,41 @@ export default function FilesAdminContent({
         </Box>
       )}
 
-      {hasItems && (
-        <>
-          <Box sx={{ display: viewMode === 'masonry' ? 'block' : 'none' }}>
-            <FilesAdminMasonryView
-              directories={directories}
-              data={data}
-              cols={cols}
-              selected={selected}
-              onNavigateToDir={onNavigateToDir}
-              onToggleSelect={onToggleSelect}
-              onTriggerDelete={onTriggerDelete}
-              onOpenDetail={onOpenDetail}
-            />
-          </Box>
+      {hasItems && viewMode === 'masonry' && (
+        <FilesAdminMasonryView
+          directories={directories}
+          data={visibleData}
+          cols={cols}
+          selected={selected}
+          onNavigateToDir={onNavigateToDir}
+          onToggleSelect={onToggleSelect}
+          onTriggerDelete={onTriggerDelete}
+          onOpenDetail={onOpenDetail}
+        />
+      )}
 
-          <Box sx={{ display: viewMode === 'list' ? 'block' : 'none' }}>
-            <FilesAdminListView
-              directories={directories}
-              data={data}
-              selected={selected}
-              onToggleSelect={onToggleSelect}
-              onSelectAll={onSelectAll}
-              onClearSelection={onClearSelection}
-              onNavigateToDir={onNavigateToDir}
-              onOpenDetail={onOpenDetail}
-              onTriggerDelete={onTriggerDelete}
-            />
-          </Box>
-        </>
+      {hasItems && viewMode === 'list' && (
+        <FilesAdminListView
+          directories={directories}
+          data={visibleData}
+          selected={selected}
+          onToggleSelect={onToggleSelect}
+          onSelectAll={onSelectAll}
+          onClearSelection={onClearSelection}
+          onNavigateToDir={onNavigateToDir}
+          onOpenDetail={onOpenDetail}
+          onTriggerDelete={onTriggerDelete}
+        />
       )}
 
       <Box ref={sentinelRef} sx={{ py: 1, display: 'flex', justifyContent: 'center' }}>
         {loading && data.length > 0 && <CircularProgress size={24} />}
-        {!hasMore && data.length > 0 && (
+        {!loading && hasMoreVisible && (
+          <Typography variant="caption" color="text.secondary">
+            已渲染 {visibleData.length} / {data.length} 个文件，继续滚动以加载更多
+          </Typography>
+        )}
+        {!hasMoreVisible && !hasMore && data.length > 0 && (
           <Typography variant="caption" color="text.secondary">共 {total} 个文件，已全部加载</Typography>
         )}
       </Box>
