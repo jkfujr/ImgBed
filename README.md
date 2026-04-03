@@ -8,8 +8,8 @@
 
 ## 项目结构
 
-- `ImgBed/ImgBed`：后端服务，提供认证、文件管理、上传、目录管理、存储通道、系统配置和图片直链访问等能力
-- `ImgBed/ImgBed-web`：前端管理端，提供登录、图片管理、目录管理、存储通道管理和系统设置等页面
+- `/ImgBed`：后端服务，提供认证、文件管理、上传、目录管理、存储通道、系统配置和图片直链访问等能力
+- `/ImgBed-web`：前端管理端，提供登录、图片管理、目录管理、存储通道管理和系统设置等页面
 
 ## 功能特性
 
@@ -25,14 +25,14 @@
 ### 后端
 
 ```bash
-cd ImgBed/ImgBed
+cd /ImgBed
 npm install
 ```
 
 ### 前端
 
 ```bash
-cd ImgBed/ImgBed-web
+cd /ImgBed-web
 npm install
 ```
 
@@ -41,28 +41,28 @@ npm install
 ### 后端开发模式
 
 ```bash
-cd ImgBed/ImgBed
+cd /ImgBed
 npm run dev
 ```
 
 ### 后端生产启动
 
 ```bash
-cd ImgBed/ImgBed
+cd /ImgBed
 npm start
 ```
 
 ### 前端开发模式
 
 ```bash
-cd ImgBed/ImgBed-web
+cd /ImgBed-web
 npm run dev
 ```
 
 ### 前端打包
 
 ```bash
-cd ImgBed/ImgBed-web
+cd /ImgBed-web
 npm run build
 ```
 
@@ -70,7 +70,7 @@ npm run build
 
 ## 配置
 
-后端配置文件位于 `ImgBed/ImgBed/config.json`，常用配置项如下：
+后端配置文件位于 `//config.json`，常用配置项如下：
 
 - `server`：服务端口与主机地址
 - `database`：数据库文件路径
