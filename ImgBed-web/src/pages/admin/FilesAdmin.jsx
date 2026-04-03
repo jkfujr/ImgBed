@@ -7,7 +7,7 @@ import FilesAdminMigrateDialog from '../../components/admin/FilesAdminMigrateDia
 import ImageDetailLightbox from '../../components/admin/ImageDetailLightbox';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { useUserPreference } from '../../hooks/useUserPreference';
-import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
+import { FileDocs, DirectoryDocs } from '../../api';
 import { useRefresh } from '../../contexts/RefreshContext';
 import { DEFAULT_PAGE_SIZE } from '../../utils/constants';
 
@@ -41,10 +41,6 @@ export default function FilesAdmin() {
   const sentinelRef = useRef(null);
 
   const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
-  const [migrating, setMigrating] = useState(false);
-  const [migrationResult, setMigrationResult] = useState(null);
-  const [targetChannel, setTargetChannel] = useState('');
-  const [availableChannels, setAvailableChannels] = useState([]);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -170,48 +166,6 @@ export default function FilesAdmin() {
     }
   };
 
-  const fetchWritableChannels = useCallback(async () => {
-    try {
-      const res = await StorageDocs.list();
-      if (res.code === 0) {
-        const writable = (res.data.list || []).filter(
-          (s) => s.enabled && s.allowUpload && ['local', 's3', 'huggingface'].includes(s.type)
-        );
-        setAvailableChannels(writable);
-      }
-    } catch (err) {
-      console.error('获取可写入渠道失败', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchWritableChannels();
-  }, [fetchWritableChannels]);
-
-  const handleConfirmMigrate = async () => {
-    if (!targetChannel || migrateDialog.ids.length === 0) return;
-    setMigrating(true);
-    setMigrationResult(null);
-    try {
-      const res = await FileDocs.batch({
-        action: 'migrate',
-        ids: migrateDialog.ids,
-        target_channel: targetChannel,
-      });
-      if (res.code === 0) {
-        setMigrationResult(res.data);
-        refreshAfterMutation();
-      } else {
-        setMigrationResult({ success: 0, failed: migrateDialog.ids.length, skipped: 0, errors: [{ reason: res.message }] });
-      }
-    } catch (e) {
-      console.error(e);
-      setMigrationResult({ success: 0, failed: migrateDialog.ids.length, skipped: 0, errors: [{ reason: '网络错误' }] });
-    } finally {
-      setMigrating(false);
-    }
-  };
-
   const breadcrumbs = currentDir ? currentDir.split('/').filter(Boolean) : [];
 
   const navigateToDir = (path) => {
@@ -261,7 +215,6 @@ export default function FilesAdmin() {
 
       <FilesAdminSelectionBar
         selectedCount={selected.size}
-        canMigrate={availableChannels.length > 0}
         onOpenMigrate={() => setMigrateDialog({ open: true, ids: [...selected] })}
         onDeleteSelected={() => triggerDelete([...selected], `${selected.size} 个文件`)}
         onClearSelection={clearSelection}
@@ -309,14 +262,9 @@ export default function FilesAdmin() {
 
       <FilesAdminMigrateDialog
         open={migrateDialog.open}
-        migrating={migrating}
-        targetChannel={targetChannel}
-        availableChannels={availableChannels}
         ids={migrateDialog.ids}
-        migrationResult={migrationResult}
         onClose={() => setMigrateDialog({ open: false, ids: [] })}
-        onTargetChannelChange={(e) => setTargetChannel(e.target.value)}
-        onConfirm={handleConfirmMigrate}
+        onSuccess={refreshAfterMutation}
       />
     </Box>
   );

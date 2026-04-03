@@ -1,12 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  Box, Typography, IconButton, Paper, Divider, Chip, Button, Dialog, useTheme, useMediaQuery
-} from '@mui/material';
+import { Box, Typography, IconButton, Paper, Divider, Chip, Button, Dialog, useTheme, useMediaQuery } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from '../../utils/formatters';
 import { BORDER_RADIUS } from '../../utils/constants';
+import useImageTransform from '../../hooks/useImageTransform';
 
 const ImageDetailLightbox = ({
   open,
@@ -17,182 +15,17 @@ const ImageDetailLightbox = ({
   const theme = useTheme();
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
 
-  const [imgTransform, setImgTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [isReady, setIsReady] = useState(false);
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [shouldAnimate, setShouldAnimate] = useState(false);
-  const [showZoomIndicator, setShowZoomIndicator] = useState(false);
-
-  const containerRef = useRef(null);
-  const transformMapRef = useRef({}); // 每张图的独立缩放/位移状态
-  const itemIdRef = useRef(null);     // 当前图片 id，供回调读取
-  const zoomTimerRef = useRef(null);  // 缩放提示定时器
-  const dragStartRef = useRef({ x: 0, y: 0 }); // 拖动起点（用 ref 避免闭包）
-
-  // 计算初始自适应缩放（同步逻辑，不依赖 Effect）
-  const calculateInitialScale = useCallback((targetItem, container) => {
-    if (!targetItem || !container) return { x: 0, y: 0, scale: 1 };
-
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
-    if (containerWidth === 0 || containerHeight === 0) return { x: 0, y: 0, scale: 1 };
-
-    let initialScale = 1;
-    const imgW = Number(targetItem.width) || 0;
-    const imgH = Number(targetItem.height) || 0;
-
-    if (imgW > 0 && imgH > 0) {
-      const containerRatio = containerWidth / containerHeight;
-      const imgRatio = imgW / imgH;
-
-      if (imgRatio > containerRatio) {
-        initialScale = (containerWidth * 0.9) / imgW;
-      } else {
-        initialScale = (containerHeight * 0.9) / imgH;
-      }
-      initialScale = Math.min(Math.max(initialScale, 0.01), 1);
-    }
-    return { x: 0, y: 0, scale: initialScale };
-  }, []);
-
-  // 核心：打开或切换图片时计算并应用缩放
-  useEffect(() => {
-    if (!open || !item) {
-      // 异步重置，避免同步 setState 警告
-      Promise.resolve().then(() => {
-        setIsReady(false);
-        setIsImageLoaded(false);
-        setShouldAnimate(false);
-      });
-      itemIdRef.current = null;
-      return;
-    }
-
-    itemIdRef.current = item.id;
-
-    const applyTransform = () => {
-      const container = containerRef.current;
-      if (!container) return;
-
-      let state = transformMapRef.current[item.id];
-      if (!state) {
-        state = calculateInitialScale(item, container);
-        transformMapRef.current[item.id] = state;
-      }
-
-      setImgTransform(state);
-      setIsReady(true);
-      setShouldAnimate(false);
-    };
-
-    // 首次尝试（DOM 可能已就绪）
-    requestAnimationFrame(applyTransform);
-
-    // Dialog 动画结束后再校正一次并开启动画
-    const timer = setTimeout(() => {
-      applyTransform();
-      setShouldAnimate(true);
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [open, item, calculateInitialScale]);
-
-  // 状态变更同步到 Map（通过 ref 读取 id，避免依赖 item）
-  const updateTransform = useCallback((newStateOrUpdater) => {
-    setImgTransform(prev => {
-      const next = typeof newStateOrUpdater === 'function' ? newStateOrUpdater(prev) : newStateOrUpdater;
-      const currentId = itemIdRef.current;
-      if (currentId) {
-        transformMapRef.current[currentId] = next;
-      }
-      return next;
-    });
-  }, []);
-
-  const handleImageLoad = useCallback(() => {
-    setIsImageLoaded(true);
-    const currentId = itemIdRef.current;
-    const container = containerRef.current;
-    if (!container || !currentId) return;
-
-    // 从 transformMapRef 获取当前图片信息，避免依赖 item
-    const currentItem = item; // 此时 item 是最新的
-    if (!transformMapRef.current[currentId] || transformMapRef.current[currentId].scale === 1) {
-      const state = calculateInitialScale(currentItem, container);
-      updateTransform(state);
-    }
-  }, [item, calculateInitialScale, updateTransform]);
-
-  const handleWheel = useCallback((e) => {
-    if (!isReady) return;
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    updateTransform(prev => ({
-      ...prev,
-      scale: Math.min(Math.max(prev.scale * delta, 0.01), 50)
-    }));
-
-    // 显示缩放提示
-    setShowZoomIndicator(true);
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    zoomTimerRef.current = setTimeout(() => {
-      setShowZoomIndicator(false);
-    }, 1500);
-  }, [isReady, updateTransform]);
-
-  // 绑定非被动 Wheel 事件
-  useEffect(() => {
-    const node = containerRef.current;
-    if (open && node) {
-      node.addEventListener('wheel', handleWheel, { passive: false });
-      return () => node.removeEventListener('wheel', handleWheel);
-    }
-  }, [open, handleWheel]);
-
-  // 清理定时器
-  useEffect(() => {
-    return () => {
-      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    };
-  }, []);
-
-  const handleMouseDown = (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    setIsDragging(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleMouseMove = useCallback((e) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    updateTransform(prev => ({
-      ...prev,
-      x: prev.x + dx,
-      y: prev.y + dy
-    }));
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-  }, [isDragging, updateTransform]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    } else {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  const {
+    containerRef,
+    imgTransform,
+    isDragging,
+    isReady,
+    isImageLoaded,
+    shouldAnimate,
+    showZoomIndicator,
+    handleImageLoad,
+    handleMouseDown,
+  } = useImageTransform({ open, item });
 
   if (!item) return null;
 

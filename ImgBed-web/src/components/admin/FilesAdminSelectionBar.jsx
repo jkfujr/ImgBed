@@ -1,12 +1,10 @@
-import React from 'react';
-import { Box, Divider, Paper, Button, Typography } from '@mui/material';
+import { Divider, Paper, Button, Typography } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function FilesAdminSelectionBar({
   selectedCount,
-  canMigrate,
   onOpenMigrate,
   onDeleteSelected,
   onClearSelection,
@@ -33,11 +31,9 @@ export default function FilesAdminSelectionBar({
     >
       <Typography variant="body2" fontWeight="medium">已选 {selectedCount} 项</Typography>
       <Divider orientation="vertical" flexItem />
-      {canMigrate && (
-        <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />} onClick={onOpenMigrate}>
-          迁移渠道
-        </Button>
-      )}
+      <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />} onClick={onOpenMigrate}>
+        迁移渠道
+      </Button>
       <Button size="small" color="error" variant="contained" startIcon={<DeleteIcon />} onClick={onDeleteSelected}>
         批量删除
       </Button>
