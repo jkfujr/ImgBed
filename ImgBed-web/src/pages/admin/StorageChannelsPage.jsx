@@ -1,4 +1,3 @@
-import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Grid, Card, CardContent, CardActions,
   IconButton, Chip, Tooltip, CircularProgress, Alert,
@@ -15,99 +14,56 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
 import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
-import { StorageDocs, SystemConfigDocs } from '../../api';
+import { useStorageChannels } from '../../hooks/useStorageChannels';
+
+/** 渠道卡片内的容量进度条 */
+function QuotaBar({ storage, quotaStats }) {
+  const quotaLimitGB = storage.quotaLimitGB;
+  if (!quotaLimitGB || quotaLimitGB <= 0) return null;
+
+  const usedBytes = quotaStats[storage.id] || 0;
+  const usedGB = bytesToGB(usedBytes);
+  const percent = calculateQuotaPercent(usedBytes, quotaLimitGB);
+  const thresholdPercent = storage.disableThresholdPercent ?? 95;
+  const isOverThreshold = percent >= thresholdPercent;
+
+  let color = 'primary';
+  if (percent >= thresholdPercent) color = 'error';
+  else if (percent > 70) color = 'warning';
+
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+        <Typography variant="caption" color="text.secondary">
+          {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
+        </Typography>
+        <Typography variant="caption" color={isOverThreshold ? 'error' : 'text.secondary'}>
+          {percent.toFixed(1)}%
+        </Typography>
+      </Box>
+      <LinearProgress
+        variant="determinate"
+        value={percent}
+        color={color}
+        sx={{ height: 8, borderRadius: BORDER_RADIUS.sm }}
+      />
+      {isOverThreshold && (
+        <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+          已达到停用阈值，上传将被自动禁用
+        </Typography>
+      )}
+    </Box>
+  );
+}
 
 export default function StorageChannelsPage() {
-  const [storages, setStorages] = useState([]);
-  const [defaultId, setDefaultId] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [quotaStats, setQuotaStats] = useState({});
-  const [stats, setStats] = useState(null);
-
-  // 弹窗状态
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState(null);
-
-  // 删除确认弹窗
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const loadStorages = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // 并行请求：渠道列表 + 容量统计 + 统计信息，减少总加载时间
-      const [listRes, quotaRes, statsRes] = await Promise.all([
-        StorageDocs.list(),
-        SystemConfigDocs.quotaStats().catch(() => ({ code: -1, data: { stats: {} } })),
-        StorageDocs.stats().catch(() => ({ code: -1, data: null }))
-      ]);
-
-      if (listRes.code === 0) {
-        setStorages(listRes.data.list || []);
-        setDefaultId(listRes.data.default || '');
-      } else {
-        setError(listRes.message || '加载失败');
-      }
-
-      if (quotaRes.code === 0 && quotaRes.data) {
-        setQuotaStats(quotaRes.data.stats || {});
-      }
-
-      if (statsRes.code === 0 && statsRes.data) {
-        setStats(statsRes.data);
-      }
-    } catch {
-      setError('网络错误，请检查后端服务');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadStorages(); }, [loadStorages]);
-
-  // 打开编辑弹窗
-  const openEdit = (s) => {
-    setEditTarget(s);
-    setDialogOpen(true);
-  };
-
-  const closeDialog = () => {
-    setDialogOpen(false);
-    setEditTarget(null);
-  };
-
-  // 启用/禁用切换
-  const handleToggle = async (s) => {
-    try {
-      const res = await StorageDocs.toggle(s.id);
-      if (res.code === 0) loadStorages();
-    } catch { /* 忽略 */ }
-  };
-
-  // 设为默认
-  const handleSetDefault = async (id) => {
-    try {
-      const res = await StorageDocs.setDefault(id);
-      if (res.code === 0) loadStorages();
-    } catch { /* 忽略 */ }
-  };
-
-  // 确认删除
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const res = await StorageDocs.remove(deleteTarget.id);
-      if (res.code === 0) {
-        setDeleteTarget(null);
-        loadStorages();
-      }
-    } catch { /* 忽略 */ } finally {
-      setDeleting(false);
-    }
-  };
+  const {
+    storages, defaultId, loading, error, quotaStats, stats,
+    dialogOpen, editTarget, deleteTarget, deleting,
+    loadStorages, openEdit, closeDialog,
+    handleToggle, handleSetDefault, handleDelete,
+    setDeleteTarget, clearError, onDialogSuccess,
+  } = useStorageChannels();
 
   return (
     <Box>
@@ -131,7 +87,7 @@ export default function StorageChannelsPage() {
         </Tooltip>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={clearError}>{error}</Alert>}
 
       {loading ? (
         <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>
@@ -143,7 +99,6 @@ export default function StorageChannelsPage() {
             const group = storages.filter((s) => s.type === type);
             return (
               <Box key={type}>
-                {/* 分组标题 */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
                   <Chip label={type} size="small" color={TYPE_COLORS[type] || 'default'} />
                   <Typography variant="body2" color="text.secondary">{group.length} 个渠道</Typography>
@@ -168,50 +123,7 @@ export default function StorageChannelsPage() {
                               color={s.enabled ? 'success' : 'default'} variant="outlined" />
                             {s.allowUpload && <Chip label="允许上传" size="small" color="primary" variant="outlined" />}
                           </Box>
-
-                          {/* 容量进度条 - 仅在启用容量限制时显示 */}
-                          {(() => {
-                            const quotaLimitGB = s.quotaLimitGB;
-                            if (!quotaLimitGB || quotaLimitGB <= 0) return null;
-
-                            const usedBytes = quotaStats[s.id] || 0;
-                            const usedGB = bytesToGB(usedBytes);
-                            const percent = calculateQuotaPercent(usedBytes, quotaLimitGB);
-                            const thresholdPercent = s.disableThresholdPercent ?? 95;
-                            const isOverThreshold = percent >= thresholdPercent;
-
-                            // 根据百分比选颜色
-                            let color = 'primary';
-                            if (percent >= thresholdPercent) {
-                              color = 'error';
-                            } else if (percent > 70) {
-                              color = 'warning';
-                            }
-
-                            return (
-                              <Box sx={{ mt: 2 }}>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
-                                  </Typography>
-                                  <Typography variant="caption" color={isOverThreshold ? 'error' : 'text.secondary'}>
-                                    {percent.toFixed(1)}%
-                                  </Typography>
-                                </Box>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={percent}
-                                  color={color}
-                                  sx={{ height: 8, borderRadius: BORDER_RADIUS.sm }}
-                                />
-                                {isOverThreshold && (
-                                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                                    已达到停用阈值，上传将被自动禁用
-                                  </Typography>
-                                )}
-                              </Box>
-                            );
-                          })()}
+                          <QuotaBar storage={s} quotaStats={quotaStats} />
                         </CardContent>
                         <Divider />
                         <CardActions sx={{ px: 1.5, py: 0.5 }}>
@@ -241,7 +153,6 @@ export default function StorageChannelsPage() {
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
                             </span>
-
                           </Tooltip>
                         </CardActions>
                       </Card>
@@ -254,18 +165,13 @@ export default function StorageChannelsPage() {
         </Box>
       )}
 
-      {/* 新增/编辑弹窗 */}
       <ChannelDialog
         open={dialogOpen}
         onClose={closeDialog}
         editTarget={editTarget}
-        onSuccess={() => {
-          closeDialog();
-          loadStorages();
-        }}
+        onSuccess={onDialogSuccess}
       />
 
-      {/* 删除确认弹窗 */}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="确认删除"
@@ -279,5 +185,3 @@ export default function StorageChannelsPage() {
     </Box>
   );
 }
-
-
