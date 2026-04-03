@@ -1,15 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
-  IconButton, LinearProgress, Tooltip, List, ListItem, Divider
+  List, Divider
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
 import { ALLOWED_IMAGE_EXTENSIONS, BORDER_RADIUS } from '../utils/constants';
 import { useUpload } from '../hooks/useUpload';
+import HomeFileItem from '../components/home/HomeFileItem';
 
 // 单个文件的状态：idle | uploading | done | error
 const createFileEntry = (file) => ({
@@ -206,51 +203,12 @@ export default function HomePage() {
               {entries.map((entry, idx) => (
                 <React.Fragment key={entry.id}>
                   {idx > 0 && <Divider />}
-                  <ListItem
-                    disablePadding
-                    sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
-                  >
-                    {/* 缩略图 */}
-                    <Box
-                      component="img"
-                      src={entry.previewUrl}
-                      alt={entry.file.name}
-                      sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: BORDER_RADIUS.sm, flexShrink: 0 }}
-                    />
-                    {/* 文件名 + 状态 */}
-                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                      <Typography variant="body2" noWrap title={entry.file.name}>
-                        {entry.file.name}
-                      </Typography>
-                      {entry.status === 'uploading' && <LinearProgress sx={{ mt: 0.5, height: 3, borderRadius: BORDER_RADIUS.sm }} />}
-                      {entry.status === 'error' && (
-                        <Typography variant="caption" color="error">{entry.errorMsg}</Typography>
-                      )}
-                      {entry.status === 'done' && entry.result && (
-                        <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
-                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 240 }}>
-                            {entry.result.fullUrl}
-                          </Typography>
-                          <Tooltip title="复制链接">
-                            <IconButton size="small" onClick={() => handleCopy(entry.result.fullUrl)}>
-                              <ContentCopyIcon sx={{ fontSize: 14 }} />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      )}
-                    </Box>
-                    {/* 状态图标 */}
-                    {entry.status === 'done' && <CheckCircleIcon color="success" fontSize="small" />}
-                    {entry.status === 'error' && <ErrorIcon color="error" fontSize="small" />}
-                    {/* 移除按钮 */}
-                    {entry.status !== 'uploading' && (
-                      <Tooltip title="移除">
-                        <IconButton size="small" onClick={() => handleRemove(entry.id)} disabled={uploading && entry.status === 'uploading'}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </ListItem>
+                  <HomeFileItem
+                    entry={entry}
+                    uploading={uploading}
+                    onCopy={handleCopy}
+                    onRemove={handleRemove}
+                  />
                 </React.Fragment>
               ))}
             </List>

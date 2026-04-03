@@ -3,18 +3,14 @@ import {
   Box, Typography, Checkbox, Chip,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Button, CircularProgress,
-  Paper, Breadcrumbs, Link, ToggleButtonGroup, ToggleButton, Divider,
+  Paper, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, Alert,
   FormControl, InputLabel, Select, MenuItem, LinearProgress,
-  useTheme, useMediaQuery, Menu, ListItemIcon, TextField
+  useTheme, useMediaQuery, Menu, ListItemIcon
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InfoIcon from '@mui/icons-material/Info';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import FolderIcon from '@mui/icons-material/Folder';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import ViewModuleIcon from '@mui/icons-material/ViewModule';
-import ViewListIcon from '@mui/icons-material/ViewList';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import ImageIcon from '@mui/icons-material/Image';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
@@ -26,6 +22,7 @@ import ImageDetailLightbox from '../../components/admin/ImageDetailLightbox';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import PasteUploadDialog from '../../components/common/PasteUploadDialog';
 import CreateFolderDialog from '../../components/common/CreateFolderDialog';
+import FilesAdminToolbar from '../../components/admin/FilesAdminToolbar';
 import { useUserPreference } from '../../hooks/useUserPreference';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from '../../utils/formatters';
 import { FileDocs, DirectoryDocs, StorageDocs } from '../../api';
@@ -332,77 +329,23 @@ export default function FilesAdmin() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-      {/* 顶部工具栏：路径栏（左）+ 操作区（右） */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
-        {/* 左侧路径栏：点击进入编辑，回车/失焦确认 */}
-        {pathEditing ? (
-          <TextField
-            inputRef={pathInputRef}
-            size="small"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            onBlur={commitPathEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitPathEdit();
-              if (e.key === 'Escape') cancelPathEdit();
-            }}
-            sx={{ flex: 1, minWidth: 0 }}
-            autoFocus
-          />
-        ) : (
-          <Box
-            onClick={startPathEdit}
-            sx={{
-              flex: 1, minWidth: 0,
-              cursor: 'text',
-              display: 'flex', alignItems: 'center',
-              px: 1.5, py: 1,
-              border: 1, borderColor: 'divider', borderRadius: BORDER_RADIUS.sm,
-              bgcolor: 'background.paper',
-              transition: 'border-color 0.15s, box-shadow 0.15s',
-              '&:hover': { borderColor: 'primary.main', boxShadow: '0 0 0 1px theme.palette.primary.main' },
-            }}
-          >
-            <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} sx={{ fontSize: 14 }}>
-              <Link component="button" underline="hover"
-                color={currentDir ? 'inherit' : 'text.primary'}
-                onClick={(e) => { e.stopPropagation(); navigateToDir(null); }}
-                sx={{ cursor: 'pointer', fontWeight: !currentDir ? 'bold' : 'normal', fontSize: 14, border: 'none', background: 'none', p: 0 }}
-              >根目录</Link>
-              {breadcrumbs.map((seg, i) => {
-                const path = '/' + breadcrumbs.slice(0, i + 1).join('/');
-                const isLast = i === breadcrumbs.length - 1;
-                return isLast ? (
-                  <Typography key={path} fontSize={14} fontWeight="bold" color="text.primary" noWrap>{seg}</Typography>
-                ) : (
-                  <Link key={path} component="button" underline="hover" color="inherit"
-                    onClick={(e) => { e.stopPropagation(); navigateToDir(path); }}
-                    sx={{ cursor: 'pointer', fontSize: 14, border: 'none', background: 'none', p: 0 }}
-                  >{seg}</Link>
-                );
-              })}
-            </Breadcrumbs>
-          </Box>
-        )}
+      <FilesAdminToolbar
+        currentDir={currentDir}
+        breadcrumbs={breadcrumbs}
+        pathEditing={pathEditing}
+        pathInput={pathInput}
+        pathInputRef={pathInputRef}
+        loading={loading}
+        viewMode={viewMode}
+        onPathInputChange={(e) => setPathInput(e.target.value)}
+        onCommitPathEdit={commitPathEdit}
+        onCancelPathEdit={cancelPathEdit}
+        onStartPathEdit={startPathEdit}
+        onNavigateToDir={navigateToDir}
+        onViewModeChange={handleViewModeChange}
+        onRefresh={handleRefresh}
+      />
 
-        {/* 右侧操作区 */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <ToggleButtonGroup value={viewMode} exclusive onChange={handleViewModeChange} size="small"
-            sx={{ bgcolor: 'background.paper' }}>
-            <ToggleButton value="masonry" aria-label="瀑布流">
-              <Tooltip title="瀑布流"><ViewModuleIcon fontSize="small" /></Tooltip>
-            </ToggleButton>
-            <ToggleButton value="list" aria-label="详细列表">
-              <Tooltip title="详细列表"><ViewListIcon fontSize="small" /></Tooltip>
-            </ToggleButton>
-          </ToggleButtonGroup>
-          <IconButton size="small" onClick={handleRefresh} disabled={loading}>
-            <Tooltip title="刷新"><RefreshIcon fontSize="small" /></Tooltip>
-          </IconButton>
-        </Box>
-      </Box>
-
-      {/* 批量选中工具栏（底部居中浮出） */}
       {selected.size > 0 && (
         <Paper elevation={6} sx={{
           position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',

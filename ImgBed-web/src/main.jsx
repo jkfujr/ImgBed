@@ -1,19 +1,27 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
 import Layout from './layout/MainLayout';
-import HomePage from './pages/HomePage';
-import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import FilesAdmin from './pages/admin/FilesAdmin';
-import SettingsPage from './pages/admin/SettingsPage';
-import SystemPage from './pages/admin/SystemPage';
-import StorageChannelsPage from './pages/admin/StorageChannelsPage';
 import { AuthProvider } from './contexts/AuthProvider';
 import { RefreshProvider } from './contexts/RefreshContext';
 import RequireAuth from './components/RequireAuth';
+
+const HomePage = lazy(() => import('./pages/HomePage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const FilesAdmin = lazy(() => import('./pages/admin/FilesAdmin'));
+const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
+const SystemPage = lazy(() => import('./pages/admin/SystemPage'));
+const StorageChannelsPage = lazy(() => import('./pages/admin/StorageChannelsPage'));
+
+const routeFallback = (
+  <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <CircularProgress />
+  </Box>
+);
 
 // 主题配置
 const theme = createTheme({
@@ -44,6 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <RefreshProvider>
           <BrowserRouter>
+            <Suspense fallback={routeFallback}>
               <Routes>
                   {/* 公共布局 */}
                   <Route path="/" element={<Layout />}>
@@ -64,6 +73,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                       <Route path="*" element={<Navigate to="/" replace/>} />
                   </Route>
               </Routes>
+            </Suspense>
           </BrowserRouter>
         </RefreshProvider>
       </AuthProvider>

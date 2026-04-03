@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Box, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Tooltip } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -16,11 +16,11 @@ export default function AdminDashboard() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
-  const menuItems = [
+  const menuItems = useMemo(() => ([
     { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
     { text: '存储渠道', icon: <StorageIcon />, path: '/admin/channels' },
     { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },
-  ];
+  ]), []);
 
   const currentWidth = collapsed ? collapsedWidth : drawerWidth;
 
