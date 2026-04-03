@@ -15,18 +15,13 @@ const MasonryImage = memo(({ item, onOpenDetail }) => (
     sx={{
       display: 'block',
       width: '100%',
-      // 关键优化：如果有宽高数据，提前通过 aspect-ratio 占位，防止 Masonry 计算塌陷
       aspectRatio: item.width && item.height ? `${item.width}/${item.height}` : 'auto',
       minHeight: item.width && item.height ? 'auto' : '200px',
       height: 'auto',
       borderRadius: BORDER_RADIUS.md,
       cursor: 'pointer',
       transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s',
-      bgcolor: 'action.hover',
-      '&:hover': {
-        transform: 'scale(1.02)',
-        opacity: 0.95
-      }
+      bgcolor: 'action.hover'
     }}
   />
 ), (prev, next) => prev.item.id === next.item.id);
@@ -51,6 +46,11 @@ const MasonryImageItem = memo(({
       boxShadow: isSelected ? `0 0 0 3px ${'#1976d2'}80` : 'none',
       transition: 'box-shadow 0.2s',
       '&:hover .overlay-controls': { opacity: 1 },
+      // 关键修复：防止 hover 缩放溢出容器
+      '&:hover img': {
+        transform: 'scale(1.02)',
+        opacity: 0.95
+      }
     }}
   >
     <MasonryImage item={item} onOpenDetail={onOpenDetail} />
@@ -81,9 +81,10 @@ const MasonryImageItem = memo(({
       background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
       color: 'white', px: 1.5, pt: 3, pb: 1,
       display: 'flex', alignItems: 'flex-end',
-      opacity: isSelected ? 1 : 0, transition: 'opacity 0.2s',
-      pointerEvents: 'none', // 默认穿透，方便点击图片
-      '& > *': { pointerEvents: 'auto' } // 内部按钮恢复交互
+      opacity: 0,
+      transition: 'opacity 0.2s',
+      pointerEvents: 'none',
+      '& > *': { pointerEvents: 'auto' }
     }}>
       <Box sx={{ flex: 1, overflow: 'hidden', mb: 0.5 }}>
         <Typography variant="caption" noWrap sx={{ display: 'block', fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>

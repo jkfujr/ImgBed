@@ -19,14 +19,16 @@ const ImageDetailLightbox = ({
 
   const [imgTransform, setImgTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isReady, setIsReady] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [shouldAnimate, setShouldAnimate] = useState(false);
+  const [showZoomIndicator, setShowZoomIndicator] = useState(false);
 
   const containerRef = useRef(null);
   const transformMapRef = useRef({}); // 每张图的独立缩放/位移状态
   const itemIdRef = useRef(null);     // 当前图片 id，供回调读取
+  const zoomTimerRef = useRef(null);  // 缩放提示定时器
+  const dragStartRef = useRef({ x: 0, y: 0 }); // 拖动起点（用 ref 避免闭包）
 
   // 计算初始自适应缩放（同步逻辑，不依赖 Effect）
   const calculateInitialScale = useCallback((targetItem, container) => {
@@ -110,14 +112,15 @@ const ImageDetailLightbox = ({
 
   const handleImageLoad = useCallback(() => {
     setIsImageLoaded(true);
-    // 如果图片加载完发现还没有计算过（虽然 useEffect 已经算了，但万一尺寸有变），补算一次
-    if (containerRef.current && item) {
-      const container = containerRef.current;
-      // 如果是第一次加载，或者尺寸异常，重新算并更新
-      if (!transformMapRef.current[item.id] || transformMapRef.current[item.id].scale === 1) {
-        const state = calculateInitialScale(item, container);
-        updateTransform(state);
-      }
+    const currentId = itemIdRef.current;
+    const container = containerRef.current;
+    if (!container || !currentId) return;
+
+    // 从 transformMapRef 获取当前图片信息，避免依赖 item
+    const currentItem = item; // 此时 item 是最新的
+    if (!transformMapRef.current[currentId] || transformMapRef.current[currentId].scale === 1) {
+      const state = calculateInitialScale(currentItem, container);
+      updateTransform(state);
     }
   }, [item, calculateInitialScale, updateTransform]);
 
@@ -129,36 +132,49 @@ const ImageDetailLightbox = ({
       ...prev,
       scale: Math.min(Math.max(prev.scale * delta, 0.01), 50)
     }));
+
+    // 显示缩放提示
+    setShowZoomIndicator(true);
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => {
+      setShowZoomIndicator(false);
+    }, 1500);
   }, [isReady, updateTransform]);
 
   // 绑定非被动 Wheel 事件
   useEffect(() => {
     const node = containerRef.current;
     if (open && node) {
-      const wheelHandler = (e) => handleWheel(e);
-      node.addEventListener('wheel', wheelHandler, { passive: false });
-      return () => node.removeEventListener('wheel', wheelHandler);
+      node.addEventListener('wheel', handleWheel, { passive: false });
+      return () => node.removeEventListener('wheel', handleWheel);
     }
   }, [open, handleWheel]);
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    };
+  }, []);
 
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleMouseMove = useCallback((e) => {
     if (!isDragging) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
     updateTransform(prev => ({
       ...prev,
       x: prev.x + dx,
       y: prev.y + dy
     }));
-    setDragStart({ x: e.clientX, y: e.clientY });
-  }, [isDragging, dragStart, updateTransform]);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+  }, [isDragging, updateTransform]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -263,6 +279,29 @@ const ImageDetailLightbox = ({
               filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))'
             }}
           />
+
+          {/* 缩放倍率提示 */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              bgcolor: 'rgba(0, 0, 0, 0.75)',
+              color: 'white',
+              px: 3,
+              py: 1.5,
+              borderRadius: 2,
+              fontSize: '1.5rem',
+              fontWeight: 'bold',
+              pointerEvents: 'none',
+              opacity: showZoomIndicator ? 1 : 0,
+              transition: 'opacity 0.2s ease-in-out',
+              zIndex: 50
+            }}
+          >
+            {Math.round(imgTransform.scale * 100)}%
+          </Box>
         </Box>
 
         {isLg && (

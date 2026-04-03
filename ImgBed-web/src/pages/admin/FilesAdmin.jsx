@@ -148,6 +148,7 @@ export default function FilesAdmin() {
   // 搜索或目录变化时重置并加载第一页
   useEffect(() => {
     setData([]);
+    setDirectories([]);
     setHasMore(false);
     setSelected(new Set());
     pageRef.current = 0;
@@ -183,6 +184,7 @@ export default function FilesAdmin() {
 
   const handleRefresh = () => {
     setData([]);
+    setDirectories([]);
     setHasMore(false);
     setSelected(new Set());
     pageRef.current = 0;
@@ -553,7 +555,7 @@ export default function FilesAdmin() {
       />
 
       {/* 内容滚动区 */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 0 }}>
+      <Box sx={{ flexGrow: 1, overflow: 'auto', overflowX: 'hidden', minHeight: 0 }}>
         {/* 首次加载 */}
         {loading && data.length === 0 && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
