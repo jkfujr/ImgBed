@@ -1,8 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Box, CircularProgress } from '@mui/material';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { Box, CircularProgress, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
 import Layout from './layout/MainLayout';
 import { AuthProvider } from './contexts/AuthProvider';

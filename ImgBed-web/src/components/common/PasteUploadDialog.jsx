@@ -129,7 +129,7 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
               已选择 {files.length} 个文件
             </Typography>
             <ImageList cols={4} gap={8} sx={{ maxHeight: 300, overflow: 'auto' }}>
-              {files.map((file) => (
+              {files.map((file, index) => (
                 <ImageListItem key={`${file.name}-${file.size}`} sx={{ position: 'relative' }}>
                   <img
                     src={URL.createObjectURL(file)}

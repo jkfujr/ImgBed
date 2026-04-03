@@ -1,4 +1,16 @@
-import { Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Tooltip, Box } from '@mui/material';
+import {
+  Typography,
+  Drawer,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Divider,
+  IconButton,
+  Tooltip,
+  Box
+} from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -22,6 +34,8 @@ export default function AdminSidebar({
   onNavigate,
 }) {
   const currentWidth = collapsed ? ADMIN_COLLAPSED_WIDTH : ADMIN_DRAWER_WIDTH;
+  const headerJustifyContent = collapsed ? 'center' : 'space-between';
+  const headerPaddingX = collapsed ? 0 : 2;
 
   return (
     <Drawer
@@ -44,7 +58,7 @@ export default function AdminSidebar({
         },
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', px: collapsed ? 0 : 2, py: 1, minHeight: 48 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: headerJustifyContent, px: headerPaddingX, py: 1, minHeight: 48 }}>
         {!collapsed && (
           <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
             管理后台
@@ -60,6 +74,12 @@ export default function AdminSidebar({
       <List>
         {ADMIN_MENU_ITEMS.map((item) => {
           const isSelected = currentPath.startsWith(item.path);
+          const itemJustifyContent = collapsed ? 'center' : 'flex-start';
+          const itemPaddingX = collapsed ? 1 : 2;
+          const itemBackgroundColor = isSelected ? 'primary.50' : 'transparent';
+          const itemTextColor = isSelected ? 'primary.main' : 'inherit';
+          const itemHoverBackgroundColor = isSelected ? 'primary.100' : 'action.hover';
+          const itemIconMinWidth = collapsed ? 0 : 40;
           return (
             <ListItem
               disablePadding
@@ -71,14 +91,14 @@ export default function AdminSidebar({
                   onClick={() => onNavigate(item.path)}
                   sx={{
                     borderRadius: BORDER_RADIUS.sm,
-                    justifyContent: collapsed ? 'center' : 'flex-start',
-                    px: collapsed ? 1 : 2,
-                    bgcolor: isSelected ? 'primary.50' : 'transparent',
-                    color: isSelected ? 'primary.main' : 'inherit',
-                    '&:hover': { bgcolor: isSelected ? 'primary.100' : 'action.hover' },
+                    justifyContent: itemJustifyContent,
+                    px: itemPaddingX,
+                    bgcolor: itemBackgroundColor,
+                    color: itemTextColor,
+                    '&:hover': { bgcolor: itemHoverBackgroundColor },
                   }}
                 >
-                  <ListItemIcon sx={{ color: isSelected ? 'primary.main' : 'inherit', minWidth: collapsed ? 0 : 40 }}>
+                  <ListItemIcon sx={{ color: itemTextColor, minWidth: itemIconMinWidth }}>
                     {item.icon}
                   </ListItemIcon>
                   {!collapsed && (

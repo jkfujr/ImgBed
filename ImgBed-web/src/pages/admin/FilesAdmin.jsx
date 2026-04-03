@@ -15,7 +15,15 @@ export default function FilesAdmin() {
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
   const isMd = useMediaQuery(theme.breakpoints.up('md'));
   const [prefCols] = useUserPreference('pref_masonry_cols', '0');
-  const autoCols = isXl ? 5 : isLg ? 4 : isMd ? 3 : 2;
+
+  let autoCols = 2;
+  if (isXl) {
+    autoCols = 5;
+  } else if (isLg) {
+    autoCols = 4;
+  } else if (isMd) {
+    autoCols = 3;
+  }
   const cols = parseInt(prefCols, 10) > 0 ? parseInt(prefCols, 10) : autoCols;
 
   const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
@@ -49,7 +57,12 @@ export default function FilesAdmin() {
 
   const commitPathEdit = () => {
     const raw = pathInput.trim();
-    const normalized = raw === '/' || raw === '' ? null : (raw.startsWith('/') ? raw : `/${raw}`);
+    let normalized = null;
+
+    if (raw !== '/' && raw !== '') {
+      normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    }
+
     navigateToDir(normalized);
   };
 

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Box, Checkbox, Typography, IconButton, Tooltip } from '@mui/material';
+import { Box, Checkbox, Typography, IconButton, Tooltip, useTheme } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
 
@@ -36,14 +36,19 @@ const MasonryImageItem = memo(({
   toggleSelect,
   triggerDelete,
   onOpenDetail,
-}) => (
-  <Box
+}) => {
+  const theme = useTheme();
+  const selectedOutlineColor = `${theme.palette.primary.main}80`;
+  const deleteHoverColor = theme.palette.error.main;
+
+  return (
+    <Box
     sx={{
       position: 'relative',
       borderRadius: BORDER_RADIUS.md,
       overflow: 'hidden',
       lineHeight: 0,
-      boxShadow: isSelected ? `0 0 0 3px ${'#1976d2'}80` : 'none',
+      boxShadow: isSelected ? `0 0 0 3px ${selectedOutlineColor}` : 'none',
       transition: 'box-shadow 0.2s',
       '&:hover .overlay-controls': { opacity: 1 },
       // 关键修复：防止 hover 缩放溢出容器
@@ -97,7 +102,7 @@ const MasonryImageItem = memo(({
       <Tooltip title="删除">
         <IconButton
           size="small"
-          sx={{ color: 'white', '&:hover': { color: '#ff5252', bgcolor: 'rgba(255,255,255,0.1)' } }}
+          sx={{ color: 'white', '&:hover': { color: deleteHoverColor, bgcolor: 'rgba(255,255,255,0.1)' } }}
           onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}
         >
           <DeleteIcon fontSize="small" />
@@ -105,7 +110,8 @@ const MasonryImageItem = memo(({
       </Tooltip>
     </Box>
   </Box>
-), (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
+  );
+}, (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
 MasonryImageItem.displayName = 'MasonryImageItem';
 
 export { MasonryImageItem as default };

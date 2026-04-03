@@ -1,6 +1,18 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Box, Toolbar, Typography, IconButton, Menu, MenuItem, ListItemIcon, Divider, TextField, InputAdornment, AppBar } from '@mui/material';
+import {
+  Box,
+  Toolbar,
+  Typography,
+  IconButton,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  Divider,
+  TextField,
+  InputAdornment,
+  AppBar
+} from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
