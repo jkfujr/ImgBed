@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Box, Checkbox, Chip, IconButton, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material';
@@ -104,8 +103,8 @@ export default function FilesAdminListView({
               <TableCell>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {tags.length > 0 ? (
-                    tags.map((tag, idx) => (
-                      <Chip key={idx} label={tag} size="small" variant="outlined" color="primary" sx={{ fontSize: 10, height: 20 }} />
+                    tags.map((tag) => (
+                      <Chip key={tag} label={tag} size="small" variant="outlined" color="primary" sx={{ fontSize: 10, height: 20 }} />
                     ))
                   ) : (
                     <Typography variant="caption" color="text.secondary">-</Typography>

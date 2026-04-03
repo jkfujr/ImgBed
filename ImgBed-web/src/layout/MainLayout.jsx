@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Box, Toolbar, Typography, IconButton, Menu, MenuItem, ListItemIcon, Divider, TextField, InputAdornment, AppBar } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
@@ -17,8 +17,8 @@ export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [anchorEl, setAnchorEl] = React.useState(null);
-  const [searchDialogOpen, setSearchDialogOpen] = React.useState(false);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   const handleMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);

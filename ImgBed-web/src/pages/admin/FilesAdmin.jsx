@@ -190,7 +190,6 @@ export default function FilesAdmin() {
   const handleViewModeChange = (_, val) => {
     if (!val) return;
     setViewMode(val);
-    localStorage.setItem('pref_view_mode', val);
   };
 
 

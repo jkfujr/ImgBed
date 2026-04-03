@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Grid, Card, CardContent, CardActions,
   IconButton, Chip, Tooltip, CircularProgress, Alert,
   Divider, LinearProgress,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -16,7 +15,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
 import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
-import { api, StorageDocs } from '../../api';
+import { StorageDocs, SystemConfigDocs } from '../../api';
 
 export default function StorageChannelsPage() {
   const [storages, setStorages] = useState([]);
@@ -41,7 +40,7 @@ export default function StorageChannelsPage() {
       // 并行请求：渠道列表 + 容量统计 + 统计信息，减少总加载时间
       const [listRes, quotaRes, statsRes] = await Promise.all([
         StorageDocs.list(),
-        api.get('/api/system/quota-stats').catch(() => ({ code: -1, data: { stats: {} } })),
+        SystemConfigDocs.quotaStats().catch(() => ({ code: -1, data: { stats: {} } })),
         StorageDocs.stats().catch(() => ({ code: -1, data: null }))
       ]);
 

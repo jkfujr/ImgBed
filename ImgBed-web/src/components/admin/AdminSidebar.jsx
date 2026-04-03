@@ -1,4 +1,3 @@
-import React from 'react';
 import { Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Tooltip, Box } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import SettingsIcon from '@mui/icons-material/Settings';

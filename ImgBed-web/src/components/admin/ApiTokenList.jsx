@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   Box, Typography, CircularProgress, IconButton, Tooltip, Stack, Chip,
   Table, TableBody, TableCell, TableHead, TableRow, Paper

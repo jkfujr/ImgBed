@@ -1,5 +1,4 @@
-import React from 'react';
-import { Box, Paper, Typography } from '@mui/material';
+import { Paper, Typography } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import Masonry from '@mui/lab/Masonry';
 import MasonryImageItem from './MasonryImageItem';

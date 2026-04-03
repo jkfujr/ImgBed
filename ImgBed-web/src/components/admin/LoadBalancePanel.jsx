@@ -1,95 +1,21 @@
-import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Button, CircularProgress, Alert, Divider,
   FormControl, InputLabel, Select, MenuItem, Grid, Radio, RadioGroup,
   FormGroup, Checkbox, FormControlLabel, TextField
 } from '@mui/material';
-import { StorageDocs } from '../../api';
+import { useLoadBalance } from '../../hooks/useLoadBalance';
 import { BORDER_RADIUS } from '../../utils/constants';
 
+/** 辅助：更新 config 单字段 */
+function useField(config, setConfig) {
+  return (field, value) => setConfig({ ...config, [field]: value });
+}
+
 export default function LoadBalancePanel() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState(null);
-  const [uploadStrategy, setUploadStrategy] = useState('default');
-  const [lbStrategy, setLbStrategy] = useState('round-robin');
-  const [lbScope, setLbScope] = useState('global');
-  const [lbEnabledTypes, setLbEnabledTypes] = useState([]);
-  const [lbWeights, setLbWeights] = useState({});
-  const [failoverEnabled, setFailoverEnabled] = useState(true);
-  const [availableChannels, setAvailableChannels] = useState([]);
-
-  useEffect(() => {
-    const loadConfig = async () => {
-      setLoading(true);
-      try {
-        const [lbRes, channelsRes] = await Promise.all([
-          StorageDocs.getLoadBalance().catch(() => ({
-            code: -1,
-            data: { strategy: 'default' }
-          })),
-          StorageDocs.list().catch(() => ({
-            code: -1,
-            data: { list: [] }
-          }))
-        ]);
-
-        if (lbRes.code === 0) {
-          const strategy = lbRes.data.strategy || 'default';
-          setLbStrategy(strategy === 'default' ? 'round-robin' : strategy);
-          setLbWeights(lbRes.data.weights || {});
-          setLbScope(lbRes.data.scope || 'global');
-          setLbEnabledTypes(lbRes.data.enabledTypes || []);
-          setFailoverEnabled(lbRes.data.failoverEnabled !== false);
-          setUploadStrategy(strategy === 'default' ? 'default' : 'load-balance');
-        }
-
-        if (channelsRes.code === 0) {
-          setAvailableChannels(channelsRes.data.list || []);
-        }
-      } catch {
-        setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadConfig();
-  }, []);
-
-  const handleSave = async () => {
-    setResult(null);
-    setSaving(true);
-    try {
-      const finalStrategy = uploadStrategy === 'default' ? 'default' : lbStrategy;
-      const res = await StorageDocs.updateLoadBalance({
-        strategy: finalStrategy,
-        scope: lbScope,
-        enabledTypes: lbEnabledTypes,
-        weights: lbWeights,
-        failoverEnabled
-      });
-      if (res.code === 0) {
-        setResult({ type: 'success', msg: '负载均衡配置已保存' });
-      } else {
-        setResult({ type: 'error', msg: res.message || '保存失败' });
-      }
-    } catch (err) {
-      setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const { loading, saving, result, config, setConfig, availableChannels, clearResult, handleSave, toggleType } = useLoadBalance();
+  const update = useField(config, setConfig);
 
   const uniqueTypes = [...new Set(availableChannels.map(s => s.type))];
-
-  const toggleType = (type) => {
-    if (lbEnabledTypes.includes(type)) {
-      setLbEnabledTypes(lbEnabledTypes.filter(t => t !== type));
-    } else {
-      setLbEnabledTypes([...lbEnabledTypes, type]);
-    }
-  };
 
   if (loading) {
     return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
@@ -99,16 +25,16 @@ export default function LoadBalancePanel() {
     <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
       <Box display="flex" flexDirection="column" gap={2.5}>
         {result && (
-          <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
+          <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
         )}
 
         <FormControl component="fieldset">
           <RadioGroup
-            value={uploadStrategy}
-            onChange={(e) => setUploadStrategy(e.target.value)}
+            value={config.uploadStrategy}
+            onChange={(e) => update('uploadStrategy', e.target.value)}
           >
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-              <Radio checked={uploadStrategy === 'default'} value="default" size="medium" />
+              <Radio checked={config.uploadStrategy === 'default'} value="default" size="medium" />
               <Box sx={{ pt: 0.5 }}>
                 <Typography>默认渠道</Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -117,7 +43,7 @@ export default function LoadBalancePanel() {
               </Box>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-              <Radio checked={uploadStrategy === 'load-balance'} value="load-balance" size="medium" />
+              <Radio checked={config.uploadStrategy === 'load-balance'} value="load-balance" size="medium" />
               <Box sx={{ pt: 0.5 }}>
                 <Typography>负载均衡</Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -128,18 +54,18 @@ export default function LoadBalancePanel() {
           </RadioGroup>
         </FormControl>
 
-        {uploadStrategy === 'load-balance' && (
+        {config.uploadStrategy === 'load-balance' && (
           <>
             <Divider />
 
             <FormControl component="fieldset">
               <Typography variant="body2" fontWeight="medium" mb={1}>负载均衡作用域</Typography>
               <RadioGroup
-                value={lbScope}
-                onChange={(e) => setLbScope(e.target.value)}
+                value={config.lbScope}
+                onChange={(e) => update('lbScope', e.target.value)}
               >
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-                  <Radio checked={lbScope === 'global'} value="global" size="medium" />
+                  <Radio checked={config.lbScope === 'global'} value="global" size="medium" />
                   <Box sx={{ pt: 0.5 }}>
                     <Typography>全局负载均衡</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -148,7 +74,7 @@ export default function LoadBalancePanel() {
                   </Box>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-                  <Radio checked={lbScope === 'byType'} value="byType" size="medium" />
+                  <Radio checked={config.lbScope === 'byType'} value="byType" size="medium" />
                   <Box sx={{ pt: 0.5 }}>
                     <Typography>按类型分组负载均衡</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -159,7 +85,7 @@ export default function LoadBalancePanel() {
               </RadioGroup>
             </FormControl>
 
-            {lbScope === 'byType' && uniqueTypes.length > 0 && (
+            {config.lbScope === 'byType' && uniqueTypes.length > 0 && (
               <FormGroup sx={{ pl: 3 }}>
                 <Typography variant="body2" color="text.secondary" mb={1}>
                   勾选开启按类型负载均衡的渠道类型：
@@ -170,7 +96,7 @@ export default function LoadBalancePanel() {
                       <FormControlLabel
                         control={
                           <Checkbox
-                            checked={lbEnabledTypes.includes(type)}
+                            checked={config.lbEnabledTypes.includes(type)}
                             onChange={() => toggleType(type)}
                           />
                         }
@@ -187,9 +113,9 @@ export default function LoadBalancePanel() {
             <FormControl size="small" sx={{ maxWidth: 320 }}>
               <InputLabel>均衡算法</InputLabel>
               <Select
-                value={lbStrategy}
+                value={config.lbStrategy}
                 label="均衡算法"
-                onChange={(e) => setLbStrategy(e.target.value)}
+                onChange={(e) => update('lbStrategy', e.target.value)}
               >
                 <MenuItem value="round-robin">轮询</MenuItem>
                 <MenuItem value="random">随机</MenuItem>
@@ -199,13 +125,13 @@ export default function LoadBalancePanel() {
             </FormControl>
 
             <Typography variant="body2" color="text.secondary">
-              {lbStrategy === 'round-robin' && '在所有可上传渠道中按顺序轮流分配'}
-              {lbStrategy === 'random' && '在所有可上传渠道中随机选择'}
-              {lbStrategy === 'least-used' && '优先选择文件数最少的渠道'}
-              {lbStrategy === 'weighted' && '按各渠道权重比例随机分配'}
+              {config.lbStrategy === 'round-robin' && '在所有可上传渠道中按顺序轮流分配'}
+              {config.lbStrategy === 'random' && '在所有可上传渠道中随机选择'}
+              {config.lbStrategy === 'least-used' && '优先选择文件数最少的渠道'}
+              {config.lbStrategy === 'weighted' && '按各渠道权重比例随机分配'}
             </Typography>
 
-            {lbStrategy === 'weighted' && (
+            {config.lbStrategy === 'weighted' && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
                 {availableChannels.filter(s => s.enabled && s.allowUpload).map(s => (
                   <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -213,9 +139,9 @@ export default function LoadBalancePanel() {
                     <TextField
                       type="number"
                       size="small"
-                      value={lbWeights[s.id] ?? (s.weight ?? 1)}
+                      value={config.lbWeights[s.id] ?? (s.weight ?? 1)}
                       slotProps={{ htmlInput: { min: 1, step: 1 } }}
-                      onChange={(e) => setLbWeights(prev => ({ ...prev, [s.id]: Number(e.target.value) || 1 }))}
+                      onChange={(e) => setConfig(prev => ({ ...prev, lbWeights: { ...prev.lbWeights, [s.id]: Number(e.target.value) || 1 } }))}
                       sx={{ width: 80 }}
                       helperText={`渠道权重: ${s.weight ?? 1}`}
                     />
@@ -234,8 +160,8 @@ export default function LoadBalancePanel() {
         <FormControlLabel
           control={
             <Checkbox
-              checked={failoverEnabled}
-              onChange={(e) => setFailoverEnabled(e.target.checked)}
+              checked={config.failoverEnabled}
+              onChange={(e) => update('failoverEnabled', e.target.checked)}
             />
           }
           label={

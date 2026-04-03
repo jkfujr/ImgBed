@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, Box, Typography, Alert, LinearProgress, ImageList, ImageListItem, IconButton
@@ -129,8 +129,8 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
               已选择 {files.length} 个文件
             </Typography>
             <ImageList cols={4} gap={8} sx={{ maxHeight: 300, overflow: 'auto' }}>
-              {files.map((file, index) => (
-                <ImageListItem key={index} sx={{ position: 'relative' }}>
+              {files.map((file) => (
+                <ImageListItem key={`${file.name}-${file.size}`} sx={{ position: 'relative' }}>
                   <img
                     src={URL.createObjectURL(file)}
                     alt={file.name}

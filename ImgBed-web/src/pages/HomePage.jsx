@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Fragment } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
   List, Divider
@@ -201,7 +201,7 @@ export default function HomePage() {
             </Box>
             <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: BORDER_RADIUS.sm, overflow: 'hidden' }}>
               {entries.map((entry, idx) => (
-                <React.Fragment key={entry.id}>
+                <Fragment key={entry.id}>
                   {idx > 0 && <Divider />}
                   <HomeFileItem
                     entry={entry}
@@ -209,7 +209,7 @@ export default function HomePage() {
                     onCopy={handleCopy}
                     onRemove={handleRemove}
                   />
-                </React.Fragment>
+                </Fragment>
               ))}
             </List>
           </Box>

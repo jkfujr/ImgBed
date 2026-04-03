@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { Button, Menu, MenuItem, ListItemIcon, Divider } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ImageIcon from '@mui/icons-material/Image';
@@ -18,11 +18,11 @@ export default function CreateActionButton() {
   const { triggerRefresh } = useRefresh();
   const { upload } = useUpload({ refreshMode: 'global' });
   const { createDirectory } = useCreateDirectory();
-  const [createMenuAnchor, setCreateMenuAnchor] = React.useState(null);
-  const [pasteDialogOpen, setPasteDialogOpen] = React.useState(false);
-  const [uploadMode, setUploadMode] = React.useState('file');
-  const [folderDialogOpen, setFolderDialogOpen] = React.useState(false);
-  const [channelDialogOpen, setChannelDialogOpen] = React.useState(false);
+  const [createMenuAnchor, setCreateMenuAnchor] = useState(null);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [uploadMode, setUploadMode] = useState('file');
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
 
   const handleCreateMenuOpen = (event) => {
     setCreateMenuAnchor(event.currentTarget);

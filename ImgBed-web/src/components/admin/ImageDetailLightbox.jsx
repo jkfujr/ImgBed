@@ -157,8 +157,8 @@ const ImageDetailLightbox = ({
             </Box>
 
             <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
-              {infoItems.map((info, idx) => (
-                <Box key={idx} sx={{ mb: 2.5 }}>
+              {infoItems.map((info) => (
+                <Box key={info.label} sx={{ mb: 2.5 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: 1 }}>
                     {info.label}
                   </Typography>
@@ -186,8 +186,8 @@ const ImageDetailLightbox = ({
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {parseTags(item.tags).length > 0 ? (
-                    parseTags(item.tags).map((tag, idx) => (
-                      <Chip key={idx} label={tag} size="small" variant="filled" sx={{ bgcolor: 'action.selected', borderRadius: BORDER_RADIUS.sm }} />
+                    parseTags(item.tags).map((tag) => (
+                      <Chip key={tag} label={tag} size="small" variant="filled" sx={{ bgcolor: 'action.selected', borderRadius: BORDER_RADIUS.sm }} />
                     ))
                   ) : (
                     <Typography variant="body2" color="text.disabled">无标签</Typography>

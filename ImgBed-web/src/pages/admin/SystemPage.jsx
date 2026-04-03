@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Box, Tabs, Tab } from '@mui/material';
 import SystemConfigPanel from '../../components/admin/SystemConfigPanel';
 import LoadBalancePanel from '../../components/admin/LoadBalancePanel';

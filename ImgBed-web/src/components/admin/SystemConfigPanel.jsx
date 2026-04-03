@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box, Paper, TextField, Button, CircularProgress, Alert, Divider
 } from '@mui/material';
-import { api } from '../../api';
+import { SystemConfigDocs } from '../../api';
 import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function SystemConfigPanel() {
@@ -17,7 +17,7 @@ export default function SystemConfigPanel() {
     const loadConfig = async () => {
       setLoading(true);
       try {
-        const res = await api.get('/api/system/config');
+        const res = await SystemConfigDocs.get();
         if (res.code === 0) {
           setCorsOrigin(res.data.security?.corsOrigin || '*');
           setMaxFileSize(String((res.data.security?.maxFileSize || 104857600) / (1024 * 1024)));
@@ -44,7 +44,7 @@ export default function SystemConfigPanel() {
         },
         server: { port: parseInt(serverPort) },
       };
-      const res = await api.put('/api/system/config', payload);
+      const res = await SystemConfigDocs.update(payload);
       if (res.code === 0) {
         setResult({ type: 'success', msg: res.message });
       } else {

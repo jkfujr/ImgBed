@@ -111,5 +111,11 @@ export const StorageDocs = {
   updateLoadBalance: (data) => api.put('/api/system/load-balance', data),
 };
 
+export const SystemConfigDocs = {
+  get:        ()     => api.get('/api/system/config'),
+  update:     (data) => api.put('/api/system/config', data),
+  quotaStats: ()     => api.get('/api/system/quota-stats'),
+};
+
 // 导出默认实例
 export default api;

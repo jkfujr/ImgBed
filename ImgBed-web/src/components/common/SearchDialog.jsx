@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, TextField, InputAdornment, Box,
   List, ListItem, ListItemButton, ListItemIcon, ListItemText,

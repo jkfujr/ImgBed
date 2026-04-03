@@ -1,4 +1,3 @@
-import React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import FilesAdminMasonryView from './FilesAdminMasonryView';
 import FilesAdminListView from './FilesAdminListView';
