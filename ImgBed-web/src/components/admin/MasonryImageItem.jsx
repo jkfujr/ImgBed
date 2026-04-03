@@ -108,7 +108,7 @@ const MasonryImageItem = memo(({
 ), (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
 MasonryImageItem.displayName = 'MasonryImageItem';
 
-export default MasonryImageItem;
+export { MasonryImageItem as default };
 
 // 需要导入 fmtDate，这里避免循环依赖，在使用处导入传入
 // 由于 memo 比较函数只关注 id 和 selected，fmtDate 改变不影响

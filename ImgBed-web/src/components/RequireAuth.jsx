@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth';
  * 路由守卫组件：
  * 如果未登录则重定向到 /login
  */
-const RequireAuth = ({ children }) => {
+export default function RequireAuth({ children }) {
     const { isAuthenticated, loading } = useAuth();
 
     if (loading) {
@@ -22,6 +22,4 @@ const RequireAuth = ({ children }) => {
     }
 
     return children;
-};
-
-export default RequireAuth;
+}

@@ -13,6 +13,9 @@ function useField(config, setConfig) {
 export default function UploadConfigPanel() {
   const { loading, saving, result, config, setConfig, clearResult, handleSave } = useUploadConfig();
   const update = useField(config, setConfig);
+  const numHandler = (key, fallback) => (e) => update(key, Number(e.target.value) || fallback);
+  const textHandler = (key) => (e) => update(key, e.target.value);
+  const switchHandler = (key) => (e) => update(key, e.target.checked);
 
   if (loading) {
     return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
@@ -28,7 +31,7 @@ export default function UploadConfigPanel() {
         <FormControl component="fieldset">
           <RadioGroup
             value={config.quotaCheckMode}
-            onChange={(e) => update('quotaCheckMode', e.target.value)}
+            onChange={textHandler('quotaCheckMode')}
           >
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
               <Radio checked={config.quotaCheckMode === 'auto'} value="auto" size="medium" />
@@ -88,7 +91,7 @@ export default function UploadConfigPanel() {
               size="small"
               type="number"
               value={config.defaultSizeLimitMB}
-              onChange={(e) => update('defaultSizeLimitMB', Number(e.target.value) || 10)}
+              onChange={numHandler('defaultSizeLimitMB', 10)}
               helperText={'超过此大小的文件将被拒绝上传（开启分片后可突破此限制）'}
               slotProps={{ htmlInput: { min: 1, max: 10000, step: 1 } }}
               sx={{ maxWidth: 300 }}
@@ -112,7 +115,7 @@ export default function UploadConfigPanel() {
                   size="small"
                   type="number"
                   value={config.defaultChunkSizeMB}
-                  onChange={(e) => update('defaultChunkSizeMB', Number(e.target.value) || 5)}
+                  onChange={numHandler('defaultChunkSizeMB', 5)}
                   helperText={'每个分片的大小，默认 5MB'}
                   slotProps={{ htmlInput: { min: 1, max: 1000, step: 1 } }}
                   sx={{ maxWidth: 300 }}
@@ -122,7 +125,7 @@ export default function UploadConfigPanel() {
                   size="small"
                   type="number"
                   value={config.defaultMaxChunks}
-                  onChange={(e) => update('defaultMaxChunks', Number(e.target.value) || 0)}
+                  onChange={numHandler('defaultMaxChunks', 0)}
                   helperText={'0 表示自动计算（根据文件大小和分片大小）'}
                   slotProps={{ htmlInput: { min: 0, max: 10000, step: 1 } }}
                   sx={{ maxWidth: 300 }}
@@ -131,7 +134,7 @@ export default function UploadConfigPanel() {
                 <FormControlLabel
                   control={<Switch
                     checked={config.enableMaxLimit}
-                    onChange={(e) => update('enableMaxLimit', e.target.checked)}
+                    onChange={switchHandler('enableMaxLimit')}
                   />}
                   label="最大限制"
                 />
@@ -141,7 +144,7 @@ export default function UploadConfigPanel() {
                     size="small"
                     type="number"
                     value={config.defaultMaxLimitMB}
-                    onChange={(e) => update('defaultMaxLimitMB', Number(e.target.value) || 100)}
+                    onChange={numHandler('defaultMaxLimitMB', 100)}
                     helperText={'即使分片上传也不允许超过此值'}
                     slotProps={{ htmlInput: { min: 1, max: 100000, step: 1 } }}
                     sx={{ maxWidth: 300 }}

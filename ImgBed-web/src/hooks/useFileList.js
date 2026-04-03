@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { FileDocs } from '../api';
+import logger from '../utils/logger';
 
 export function useFileList() {
   const [data, setData] = useState([]);
@@ -35,7 +36,7 @@ export function useFileList() {
       }
     } catch (err) {
       setError('获取文件列表失败');
-      console.error(err);
+      logger.error(err);
     } finally {
       setLoading(false);
       loadingRef.current = false;

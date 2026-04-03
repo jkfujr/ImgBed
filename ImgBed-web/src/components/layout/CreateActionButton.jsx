@@ -7,6 +7,7 @@ import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
 import StorageIcon from '@mui/icons-material/Storage';
 import { BORDER_RADIUS } from '../../utils/constants';
+import logger from '../../utils/logger';
 import PasteUploadDialog from '../common/PasteUploadDialog';
 import CreateFolderDialog from '../common/CreateFolderDialog';
 import ChannelDialog from '../common/ChannelDialog';
@@ -58,10 +59,10 @@ export default function CreateActionButton() {
     try {
       const result = await upload(file);
       if (!result.success) {
-        console.error('上传失败:', result.error);
+        logger.error('上传失败:', result.error);
       }
     } catch (err) {
-      console.error('上传失败:', err);
+      logger.error('上传失败:', err);
     }
   };
 
@@ -69,11 +70,11 @@ export default function CreateActionButton() {
     try {
       const result = await createDirectory(folderPath, { parentId: null });
       if (!result.success) {
-        console.error('创建文件夹失败:', result.error);
+        logger.error('创建文件夹失败:', result.error);
       }
       triggerRefresh();
     } catch (err) {
-      console.error('创建文件夹失败:', err);
+      logger.error('创建文件夹失败:', err);
     }
   };
 

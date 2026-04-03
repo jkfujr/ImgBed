@@ -4,6 +4,7 @@ import {
   LinearProgress, MenuItem, Select, Typography, Box
 } from '@mui/material';
 import { FileDocs, StorageDocs } from '../../api';
+import logger from '../../utils/logger';
 
 export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess }) {
   const [targetChannel, setTargetChannel] = useState('');
@@ -21,7 +22,7 @@ export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess 
         setAvailableChannels(writable);
       }
     } catch (err) {
-      console.error('获取可写入渠道失败', err);
+      logger.error('获取可写入渠道失败', err);
     }
   }, []);
 
@@ -51,7 +52,7 @@ export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess 
         setMigrationResult({ success: 0, failed: ids.length, skipped: 0, errors: [{ reason: res.message }] });
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       setMigrationResult({ success: 0, failed: ids.length, skipped: 0, errors: [{ reason: '网络错误' }] });
     } finally {
       setMigrating(false);

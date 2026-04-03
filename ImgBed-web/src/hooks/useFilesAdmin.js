@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { FileDocs, DirectoryDocs } from '../api';
 import { useRefresh } from '../contexts/RefreshContext';
 import { DEFAULT_PAGE_SIZE } from '../utils/constants';
+import logger from '../utils/logger';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
@@ -82,7 +83,7 @@ export function useFilesAdmin() {
 
       setListData(newList);
     } catch (err) {
-      console.error('加载失败', err);
+      logger.error('加载失败', err);
       setError('加载失败');
     } finally {
       if (showLoading) setLoading(false);
@@ -131,7 +132,7 @@ export function useFilesAdmin() {
       setDeleteDialog(EMPTY_DELETE);
       refreshAfterMutation();
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setDeleteDialog((prev) => ({ ...prev, saving: false }));
     }

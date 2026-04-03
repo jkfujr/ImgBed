@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, CircularProgress, Alert, Divider,
   FormControl, InputLabel, Select, MenuItem, Grid, Radio, RadioGroup,
@@ -15,7 +16,8 @@ export default function LoadBalancePanel() {
   const { loading, saving, result, config, setConfig, availableChannels, clearResult, handleSave, toggleType } = useLoadBalance();
   const update = useField(config, setConfig);
 
-  const uniqueTypes = [...new Set(availableChannels.map(s => s.type))];
+  const uniqueTypes = useMemo(() => [...new Set(availableChannels.map(s => s.type))], [availableChannels]);
+  const uploadableChannels = useMemo(() => availableChannels.filter(s => s.enabled && s.allowUpload), [availableChannels]);
 
   if (loading) {
     return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
@@ -133,7 +135,7 @@ export default function LoadBalancePanel() {
 
             {config.lbStrategy === 'weighted' && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-                {availableChannels.filter(s => s.enabled && s.allowUpload).map(s => (
+                {uploadableChannels.map(s => (
                   <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2" noWrap>{s.name}:</Typography>
                     <TextField
@@ -147,7 +149,7 @@ export default function LoadBalancePanel() {
                     />
                   </Box>
                 ))}
-                {availableChannels.filter(s => s.enabled && s.allowUpload).length === 0 && (
+                {uploadableChannels.length === 0 && (
                   <Typography variant="body2" color="text.secondary">暂无可上传渠道</Typography>
                 )}
               </Box>
