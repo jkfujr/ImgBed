@@ -1,25 +1,12 @@
 const { Hono } = require('hono');
 const { db } = require('../database');
 const { adminAuth } = require('../middleware/auth');
+const { resolveParentPath, checkPathConflict, buildPath, renameDirectory } = require('../services/directories/directory-operations');
 
 const dirsApp = new Hono();
 
 // 全部应用管控
 dirsApp.use('*', adminAuth);
-
-/**
- * 拼装安全物理路径辅助函数
- * @param {string|null} parentPath 父层路径
- * @param {string} rawName 基础名称
- */
-const buildPath = (parentPath, rawName) => {
-    // 防止不可见字符/非法路径穿越符合
-    const safeName = rawName.replace(/[\/\\]/g, '').trim();
-    if (!parentPath || parentPath === '/') {
-        return `/${safeName}`;
-    }
-    return `${parentPath}/${safeName}`;
-};
 
 /**
  * 递归组装树结构辅助函数
@@ -66,25 +53,10 @@ dirsApp.post('/', async (c) => {
             return c.json({ code: 400, message: '目录名称不能为空', error: {} }, 400);
         }
 
-        let parentPath = '/';
-        let parentIdToSave = null;
-
-        if (parent_id) {
-            const parent = await db.selectFrom('directories').selectAll().where('id', '=', parent_id).executeTakeFirst();
-            if (!parent) {
-                return c.json({ code: 404, message: '指定的父级目录不存在', error: {} }, 404);
-            }
-            parentPath = parent.path;
-            parentIdToSave = parent.id;
-        }
-
+        const { parentPath, parentIdToSave } = await resolveParentPath(parent_id, db);
         const newPath = buildPath(parentPath, name);
 
-        // 检查路径碰撞
-        const exists = await db.selectFrom('directories').selectAll().where('path', '=', newPath).executeTakeFirst();
-        if (exists) {
-            return c.json({ code: 409, message: '该层级下同名目录已存在', error: {} }, 409);
-        }
+        await checkPathConflict(newPath, db);
 
         const inserted = await db.insertInto('directories')
             .values({
@@ -97,6 +69,9 @@ dirsApp.post('/', async (c) => {
 
         return c.json({ code: 0, message: '创建成功', data: inserted });
     } catch (err) {
+        if (err.status) {
+            return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+        }
         return c.json({ code: 500, message: '创建目录失败', error: err.message }, 500);
     }
 });
@@ -111,60 +86,18 @@ dirsApp.put('/:id', async (c) => {
         if (isNaN(id)) return c.json({ code: 400, message: '无效的 ID 格式', error: {} }, 400);
 
         const body = await c.req.json().catch(() => ({}));
-        const { name } = body; // 当前暂时只支持同级改名。由于改 path 牵一发动全身（树下所有文件、子文件统统需要更新），建议拆分实现
+        const { name } = body;
 
         if (!name || name.trim() === '') {
              return c.json({ code: 400, message: '未提供有效的新名称', error: {} }, 400);
         }
 
-        // 1. 获取目标原态
-        const targetDir = await db.selectFrom('directories').selectAll().where('id', '=', id).executeTakeFirst();
-        if (!targetDir) {
-            return c.json({ code: 404, message: '修改对象不存在', error: {} }, 404);
-        }
-
-        const oldPath = targetDir.path;
-        
-        let parentPath = '/';
-        if (targetDir.parent_id) {
-             const parent = await db.selectFrom('directories').selectAll().where('id', '=', targetDir.parent_id).executeTakeFirst();
-             if (parent) parentPath = parent.path;
-        }
-
-        const newPath = buildPath(parentPath, name);
-
-        // 2. 检查碰撞
-        if (oldPath !== newPath) {
-             const exist = await db.selectFrom('directories').select('id').where('path', '=', newPath).executeTakeFirst();
-             if (exist) return c.json({ code: 409, message: '该级别已存在此同名目录', error: {} }, 409);
-        }
-
-        // 3. 执行 Kysely 层面的数据变更
-        // 难点在于所有 files 内挂接在此处的图片，都需要做 `directory = ?` 修正；以及以其为 parent 的级联 path 修正。
-        // 这里提供简单版的 name 更新实现，和 `files` 表单层平级更新！
-        await db.updateTable('directories')
-            .set({ name: name.trim(), path: newPath })
-            .where('id', '=', id)
-            .execute();
-
-        if (oldPath !== newPath) {
-             // 简单处理直接关联它的 files 修正
-             await db.updateTable('files')
-                .set({ directory: newPath })
-                .where('directory', '=', oldPath)
-                .execute();
-             
-             // 如果要处理子目录... SQLite 对于 update replace 较弱，可以通过 Node 取出所有子目录循环更新
-             const children = await db.selectFrom('directories').selectAll().where('path', 'like', `${oldPath}/%`).execute();
-             for (const child of children) {
-                 const updatedChildPath = child.path.replace(oldPath, newPath);
-                 await db.updateTable('directories').set({ path: updatedChildPath }).where('id', '=', child.id).execute();
-                 await db.updateTable('files').set({ directory: updatedChildPath }).where('directory', '=', child.path).execute();
-             }
-        }
-
-        return c.json({ code: 0, message: '变更已应用', data: { id, name: name.trim(), path: newPath } });
+        const result = await renameDirectory(id, name, db);
+        return c.json({ code: 0, message: '变更已应用', data: result });
     } catch (err) {
+        if (err.status) {
+            return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+        }
         console.error('[Directories] PUT error:', err);
         return c.json({ code: 500, message: '变动发生运行时奔溃', error: err.message }, 500);
     }

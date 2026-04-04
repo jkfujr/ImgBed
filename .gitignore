@@ -24,5 +24,8 @@ dist-ssr
 *.sw?
 
 # 1
+.docs/
+.claude/
 data/
-ImgBed-web/test/reports/
+
+ImgBed-test/reports/

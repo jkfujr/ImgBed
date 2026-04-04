@@ -10,6 +10,7 @@ const {
 } = require('../utils/apiToken');
 const { adminAuth } = require('../middleware/auth');
 const { db } = require('../database');
+const { validateTokenInput, createTokenRecord } = require('../services/api-tokens/create-token');
 
 const apiTokensApp = new Hono();
 
@@ -51,45 +52,16 @@ apiTokensApp.get('/', async (c) => {
 apiTokensApp.post('/', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const name = String(body.name || '').trim();
-    const permissions = normalizePermissions(body.permissions || []);
-    const expiresMode = body.expiresMode === 'custom' ? 'custom' : 'never';
-    const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
-
-    if (!name) {
-      return c.json({ code: 400, message: 'Token 名称不能为空', error: {} }, 400);
-    }
-
-    if (permissions.length === 0) {
-      return c.json({ code: 400, message: '至少选择一项权限', error: {} }, 400);
-    }
-
-    if (!permissions.includes(API_TOKEN_PERMISSIONS.UPLOAD_IMAGE) && !permissions.includes(API_TOKEN_PERMISSIONS.FILES_READ)) {
-      return c.json({ code: 400, message: '权限配置无效', error: {} }, 400);
-    }
-
-    let normalizedExpiresAt = null;
-    if (expiresMode === 'custom') {
-      if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
-        return c.json({ code: 400, message: '过期时间格式无效', error: {} }, 400);
-      }
-      if (expiresAt.getTime() <= Date.now()) {
-        return c.json({ code: 400, message: '过期时间必须晚于当前时间', error: {} }, 400);
-      }
-      normalizedExpiresAt = expiresAt.toISOString();
-    }
+    const validated = validateTokenInput(body);
 
     const { plainToken, tokenPrefix } = generatePlainApiToken();
-    const tokenRow = {
-      id: generateTokenId(),
-      name,
-      token_prefix: tokenPrefix,
-      token_hash: hashApiToken(plainToken),
-      permissions: JSON.stringify(permissions),
-      status: 'active',
-      expires_at: normalizedExpiresAt,
-      created_by: 'admin'
-    };
+    const tokenRow = createTokenRecord(
+      validated,
+      plainToken,
+      tokenPrefix,
+      hashApiToken(plainToken),
+      generateTokenId
+    );
 
     await db.insertInto('api_tokens').values(tokenRow).execute();
 
@@ -107,6 +79,9 @@ apiTokensApp.post('/', async (c) => {
       }
     });
   } catch (err) {
+    if (err.status) {
+      return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+    }
     console.error('[API Token] 创建失败:', err);
     return c.json({ code: 500, message: '创建 API Token 失败', error: err.message }, 500);
   }
