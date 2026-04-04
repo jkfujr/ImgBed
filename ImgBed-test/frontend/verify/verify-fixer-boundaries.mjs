@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = process.cwd();
-const frontendRoot = path.join(repoRoot, 'ImgBed-web');
-const testRoot = path.join(repoRoot, 'ImgBed-test');
-const fixerPath = path.join(testRoot, 'shared', 'lib', 'fixer.mjs');
-const runPath = path.join(testRoot, 'run.mjs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const fixerPath = path.join(testPlatformRoot, 'shared', 'lib', 'fixer.mjs');
+const runPath = path.join(testPlatformRoot, 'run.mjs');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

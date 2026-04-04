@@ -4,8 +4,9 @@
 import path from 'node:path';
 import { readText, expectPresent } from '../../shared/lib/assert.mjs';
 import { runBackendRuleVerifications } from './verify-rule-upgrades.mjs';
+import { PATHS, ENV_KEYS } from '../../shared/config/paths.mjs';
 
-const backendRoot = process.env.IMGBED_SRC_ROOT || path.join(process.cwd(), 'ImgBed');
+const backendRoot = process.env[ENV_KEYS.IMGBED_SRC_ROOT] || PATHS.backend.root;
 const p = (...parts) => path.join(backendRoot, ...parts);
 
 const checks = [

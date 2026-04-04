@@ -2,8 +2,16 @@
  * B 类规则: Bug — 潜在缺陷检测
  * B01-B09
  */
-import { matchAllWithLines } from '../../shared/lib/assert.mjs';
-import { API_CALL_WHITELIST, isWhitelistedByFileName } from '../config/api-config.mjs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const { matchAllWithLines } = await import(pathToFileURL(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs')).href);
+const { API_CALL_WHITELIST, isWhitelistedByFileName } = await import('../config/api-config.mjs');
 
 // B01: 冗余 localStorage 操作（与 useUserPreference 双写）
 const B01 = {

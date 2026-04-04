@@ -67,6 +67,13 @@ async function testHandleRegularStreamThrowsWhenStreamFails() {
     },
   };
 
+  // 临时捕获 console.error 输出，避免测试输出中出现错误日志
+  const originalConsoleError = console.error;
+  const errorLogs = [];
+  console.error = (...args) => {
+    errorLogs.push(args);
+  };
+
   try {
     await handleRegularStream(fileRecord, storage, 'test-key', {
       start: 0,
@@ -77,6 +84,11 @@ async function testHandleRegularStreamThrowsWhenStreamFails() {
   } catch (err) {
     assert.equal(err.status, 502);
     assert.ok(err.message.includes('向原点提取文件内容失败'));
+    // 验证错误日志被正确记录
+    assert.ok(errorLogs.length > 0);
+    assert.ok(errorLogs[0].some(arg => typeof arg === 'string' && arg.includes('[View API]')));
+  } finally {
+    console.error = originalConsoleError;
   }
 }
 

@@ -305,19 +305,40 @@ const A03 = {
       { pattern: "systemApp.use('*', adminAuth);", message: 'system.js 应通过 adminAuth 保护全部路由' },
       { pattern: 'const SENSITIVE_KEYS =', message: 'system.js 应维护敏感字段列表' },
       { pattern: 'function maskStorage(s)', message: 'system.js 应保留 maskStorage 脱敏逻辑' },
-      { pattern: 'fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), \'utf8\');', message: 'system.js 应显式写回 config.json 配置文件' },
+      // 支持直接调用或服务层函数调用
+      {
+        pattern: ['fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), \'utf8\');', 'writeSystemConfig(configPath, cfg)'],
+        message: 'system.js 应显式写回 config.json 配置文件',
+        checkAny: true
+      },
     ];
 
     for (const assertion of assertions) {
-      if (!file.content.includes(assertion.pattern)) {
-        reporter.add({
-          file: file.relativePath,
-          line: 1,
-          col: 0,
-          rule: 'A03',
-          severity: 'error',
-          message: assertion.message,
-        });
+      if (assertion.checkAny) {
+        // 检查多个模式中的任意一个
+        const hasAnyPattern = assertion.pattern.some(p => file.content.includes(p));
+        if (!hasAnyPattern) {
+          reporter.add({
+            file: file.relativePath,
+            line: 1,
+            col: 0,
+            rule: 'A03',
+            severity: 'error',
+            message: assertion.message,
+          });
+        }
+      } else {
+        // 检查单个模式
+        if (!file.content.includes(assertion.pattern)) {
+          reporter.add({
+            file: file.relativePath,
+            line: 1,
+            col: 0,
+            rule: 'A03',
+            severity: 'error',
+            message: assertion.message,
+          });
+        }
       }
     }
   },

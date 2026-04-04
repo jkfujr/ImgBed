@@ -3,10 +3,10 @@
  */
 import path from 'node:path';
 import { readText, expectPresent, expectAbsent } from '../../shared/lib/assert.mjs';
+import { PATHS } from '../../shared/config/paths.mjs';
 
-const testRoot = process.cwd();
-const rulesRoot = path.join(testRoot, 'ImgBed-test', 'backend', 'rules');
-const runPath = path.join(testRoot, 'ImgBed-test', 'run.mjs');
+const rulesRoot = PATHS.test.backendRules;
+const runPath = path.join(PATHS.testRoot, 'run.mjs');
 
 const checks = [
   {

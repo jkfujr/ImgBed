@@ -3,6 +3,7 @@ const config = require('../config');
 const { signToken } = require('../utils/jwt');
 const { adminAuth } = require('../middleware/auth');
 const { db } = require('../database');
+const { verifyAdminCredentials } = require('../services/auth/verify-credentials');
 
 const authApp = new Hono();
 
@@ -24,18 +25,9 @@ authApp.post('/login', async (c) => {
     }, 400);
   }
 
-  // 优先从 system_settings 读取覆盖密码（通过 PUT /api/auth/password 修改后存入）
-  let effectivePassword = adminConfig.password;
-  try {
-    const row = await db.selectFrom('system_settings')
-      .select('value')
-      .where('key', '=', 'admin_password')
-      .executeTakeFirst();
-    if (row) effectivePassword = row.value;
-  } catch (_) { /* 数据库未就绪时降级为 config 密码 */ }
+  const isValid = await verifyAdminCredentials(username, password, adminConfig, db);
 
-  // 对比系统配置中的 admin 账号 (支持单用户模式)
-  if (username === adminConfig.username && password === effectivePassword) {
+  if (isValid) {
     // 生成包含角色为 admin 的 JWT 载荷
     const payload = {
       role: 'admin',

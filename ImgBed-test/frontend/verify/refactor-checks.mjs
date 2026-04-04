@@ -7,10 +7,17 @@
  * 因此 MainLayout 相关断言以后者为准。
  */
 import path from 'node:path';
-import { readText, expectPresent, expectAbsent, countLines, expectLineCountBelow } from '../../shared/lib/assert.mjs';
-import { resolveProjectRoot } from '../../shared/lib/scanner.mjs';
+import { fileURLToPath } from 'node:url';
 
-const rootDir = resolveProjectRoot();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const webRoot = path.resolve(__dirname, '..', '..', '..', 'ImgBed-web');
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+// 动态导入共享库
+const { readText, expectPresent, expectAbsent, countLines, expectLineCountBelow } = await import(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs'));
+
+const rootDir = path.join(webRoot, 'src');
 const p = (...parts) => path.join(rootDir, ...parts);
 
 /**

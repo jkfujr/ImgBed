@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = process.cwd();
-const testRoot = path.join(repoRoot, 'ImgBed-test');
-const analyzerPath = path.join(testRoot, 'frontend', 'analyze-lighthouse-report.mjs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '..', '..', '..');
+const analyzerPath = path.join(__dirname, '..', 'analyze-lighthouse-report.mjs');
 const reportJsonPath = path.resolve(repoRoot, '.docs', 'localhost_5173-20260404T053631.json');
-const latestReportPath = path.join(testRoot, 'frontend', 'reports', 'lighthouse-analysis-latest.md');
+const latestReportPath = path.join(__dirname, '..', 'reports', 'lighthouse-analysis-latest.md');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

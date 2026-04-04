@@ -3,9 +3,16 @@
  * A01-A04
  */
 import path from 'node:path';
-import { matchAllWithLines } from '../../shared/lib/assert.mjs';
-import { API_IMPORT_WHITELIST, isWhitelistedByFileName } from '../config/api-config.mjs';
-import { HOOK_DIR_MARKERS } from '../config/style-config.mjs';
+import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const { matchAllWithLines } = await import(pathToFileURL(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs')).href);
+const { API_IMPORT_WHITELIST, isWhitelistedByFileName } = await import('../config/api-config.mjs');
+const { HOOK_DIR_MARKERS } = await import('../config/style-config.mjs');
 
 // A01: API 调用规范（导入级）
 const A01 = {

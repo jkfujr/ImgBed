@@ -2,12 +2,20 @@
  * U 类规则: Unused — 未使用/冗余代码检测
  * U01-U02
  */
-import { matchAllWithLines } from '../../shared/lib/assert.mjs';
-import {
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const { matchAllWithLines } = await import(pathToFileURL(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs')).href);
+const {
   ALLOW_CONSOLE_INFO_METHODS,
   DEBUG_CONSOLE_METHODS,
   UNUSED_IMPORT_IGNORE_DEFAULTS,
-} from '../config/unused-config.mjs';
+} = await import('../config/unused-config.mjs');
 
 // U01: 可能未使用的导入
 const U01 = {

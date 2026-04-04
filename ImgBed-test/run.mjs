@@ -5,15 +5,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { clearCache, scanFiles } from './shared/lib/scanner.mjs';
 import { Reporter } from './shared/lib/reporter.mjs';
 import { RuleRegistry } from './shared/lib/rule-registry.mjs';
 import { Fixer } from './shared/lib/fixer.mjs';
 import { runAllExternalChecks } from './shared/lib/external-checks.mjs';
-
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const workspaceRoot = path.resolve(scriptDir, '..');
+import { PATHS, EXTENSIONS, EXCLUDE_DIRS } from './shared/config/paths.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -133,16 +131,28 @@ async function runBackendVerify() {
   return runAllVerifications();
 }
 
+async function runBackendUnitTests() {
+  const backendTestPath = path.resolve(PATHS.backend.root, 'test', 'unit-test-runner.mjs');
+  const { runBackendUnitTests } = await import(pathToFileURL(backendTestPath).href);
+  return runBackendUnitTests();
+}
+
+async function printBackendUnitTests(result, color) {
+  const backendTestPath = path.resolve(PATHS.backend.root, 'test', 'unit-test-runner.mjs');
+  const { printUnitTestResults } = await import(pathToFileURL(backendTestPath).href);
+  printUnitTestResults(result, color);
+}
+
 const TARGET_CONFIGS = {
   frontend: {
     name: 'frontend',
     suiteName: 'ImgBed frontend 代码检测报告',
     footerName: 'ImgBed frontend 代码检测工具',
-    projectRoot: path.join(workspaceRoot, 'ImgBed-web'),
-    scanRoot: path.join(workspaceRoot, 'ImgBed-web', 'src'),
-    extensions: ['.js', '.jsx'],
-    exclude: ['node_modules', 'dist', '.git'],
-    reportDir: path.join(scriptDir, 'reports', 'frontend'),
+    projectRoot: PATHS.frontend.root,
+    scanRoot: PATHS.frontend.src,
+    extensions: EXTENSIONS.frontend,
+    exclude: EXCLUDE_DIRS.frontend,
+    reportDir: PATHS.test.reportsFrontend,
     supportsFix: true,
     loadRules: loadFrontendRules,
     runVerify: runFrontendVerify,
@@ -151,14 +161,15 @@ const TARGET_CONFIGS = {
     name: 'backend',
     suiteName: 'ImgBed backend 代码检测报告',
     footerName: 'ImgBed backend 代码检测工具',
-    projectRoot: path.join(workspaceRoot, 'ImgBed'),
-    scanRoot: path.join(workspaceRoot, 'ImgBed'),
-    extensions: ['.js'],
-    exclude: ['node_modules', 'dist', '.git', 'data'],
-    reportDir: path.join(scriptDir, 'reports', 'backend'),
+    projectRoot: PATHS.backend.root,
+    scanRoot: PATHS.backend.root,
+    extensions: EXTENSIONS.backend,
+    exclude: EXCLUDE_DIRS.backend,
+    reportDir: PATHS.test.reportsBackend,
     supportsFix: false,
     loadRules: loadBackendRules,
     runVerify: runBackendVerify,
+    runUnitTests: runBackendUnitTests,
   },
 };
 
@@ -180,7 +191,7 @@ function writeTargetReport(reportDir, reporter, totalFiles, ruleList, externalCh
 }
 
 function writeCombinedReport(results) {
-  const reportDir = path.join(scriptDir, 'reports', 'all');
+  const reportDir = PATHS.test.reportsAll;
   ensureDir(reportDir);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const reportPath = path.join(reportDir, `report-${timestamp}.md`);
@@ -190,6 +201,7 @@ function writeCombinedReport(results) {
   const hasErrors = results.some((item) => item.reporter.hasErrors());
   const externalFailed = results.some((item) => !item.externalResult.allPassed);
   const verifyFailed = results.some((item) => item.verifyResult && item.verifyResult.failed > 0);
+  const unitTestFailed = results.some((item) => item.unitTestResult && !item.unitTestResult.allPassed);
 
   const lines = [
     '# ImgBed 测试总报告',
@@ -203,18 +215,22 @@ function writeCombinedReport(results) {
     `- 是否存在规则错误: ${hasErrors ? '是' : '否'}`,
     `- 是否存在外部检查失败: ${externalFailed ? '是' : '否'}`,
     `- 是否存在验证失败: ${verifyFailed ? '是' : '否'}`,
+    `- 是否存在单元测试失败: ${unitTestFailed ? '是' : '否'}`,
     '',
     '## 目标摘要',
     '',
-    '| 目标 | 扫描文件 | 问题数 | 外部检查 | 结构验证 | 最新报告 |',
-    '|------|----------|--------|----------|----------|----------|',
+    '| 目标 | 扫描文件 | 问题数 | 外部检查 | 结构验证 | 单元测试 | 最新报告 |',
+    '|------|----------|--------|----------|----------|----------|----------|',
   ];
 
   for (const result of results) {
     const verifyLabel = result.verifyResult
       ? `${result.verifyResult.passed} 通过 / ${result.verifyResult.failed} 失败`
       : '未执行';
-    lines.push(`| ${result.target} | ${result.files.length} | ${result.reporter.diagnostics.length} | ${result.externalResult.allPassed ? '通过' : '失败/跳过'} | ${verifyLabel} | \`${path.relative(scriptDir, result.reportPaths.latestPath).replace(/\\/g, '/')}\` |`);
+    const unitTestLabel = result.unitTestResult
+      ? `${result.unitTestResult.passed}/${result.unitTestResult.total} (${result.unitTestResult.passRate}%)`
+      : '未执行';
+    lines.push(`| ${result.target} | ${result.files.length} | ${result.reporter.diagnostics.length} | ${result.externalResult.allPassed ? '通过' : '失败/跳过'} | ${verifyLabel} | ${unitTestLabel} | \`${path.relative(PATHS.testRoot, result.reportPaths.latestPath).replace(/\\/g, '/')}\` |`);
   }
 
   lines.push('');
@@ -340,6 +356,14 @@ async function executeTarget(targetName, args) {
     }
   }
 
+  let unitTestResult = null;
+  if (config.runUnitTests) {
+    unitTestResult = await config.runUnitTests();
+    if (args.format === 'text') {
+      await printBackendUnitTests(unitTestResult, args.color);
+    }
+  }
+
   if (args.format === 'text') {
     console.log(`\n${targetName} 报告已保存: ${path.relative(process.cwd(), reportPaths.reportPath)}`);
     console.log(`${targetName} 最新报告: ${path.relative(process.cwd(), reportPaths.latestPath)}`);
@@ -351,6 +375,7 @@ async function executeTarget(targetName, args) {
     reporter: currentReporter,
     externalResult,
     verifyResult,
+    unitTestResult,
     reportPaths,
     rules: registry.listRules(),
   };
@@ -414,6 +439,7 @@ async function main() {
       summary: item.reporter.toJSON(item.files.length).summary,
       externalChecks: item.externalResult,
       verify: item.verifyResult,
+      unitTests: item.unitTestResult,
       reports: {
         reportPath: item.reportPaths.reportPath,
         latestPath: item.reportPaths.latestPath,
@@ -423,7 +449,8 @@ async function main() {
 
   const failed = results.some((item) => {
     const verifyFailed = item.verifyResult ? item.verifyResult.failed > 0 : false;
-    return item.reporter.hasErrors() || !item.externalResult.allPassed || verifyFailed;
+    const unitTestFailed = item.unitTestResult ? !item.unitTestResult.allPassed : false;
+    return item.reporter.hasErrors() || !item.externalResult.allPassed || verifyFailed || unitTestFailed;
   });
 
   if (args.exitOnError && failed) {

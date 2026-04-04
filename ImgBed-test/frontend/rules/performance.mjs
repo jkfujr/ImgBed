@@ -2,13 +2,21 @@
  * P 类规则: Performance — 性能优化建议
  * P01-P03
  */
-import { matchAllWithLines } from '../../shared/lib/assert.mjs';
-import {
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const { matchAllWithLines } = await import(pathToFileURL(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs')).href);
+const {
   INFINITE_SCROLL_HINT_KEYWORDS,
   INLINE_HANDLER_WARNING_THRESHOLD,
   MEMO_LOOKBACK_LINES,
   PERFORMANCE_COMPONENT_EXTENSIONS,
-} from '../config/performance-config.mjs';
+} = await import('../config/performance-config.mjs');
 
 // P01: JSX 内联箭头函数（汇总统计）
 const P01 = {

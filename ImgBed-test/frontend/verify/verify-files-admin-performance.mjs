@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.join(process.cwd(), 'ImgBed-web');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '..', '..', '..', 'ImgBed-web');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');

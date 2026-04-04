@@ -2,8 +2,16 @@
  * S 类规则: Style — 代码风格一致性
  * S01-S08
  */
-import { matchAllWithLines } from '../../shared/lib/assert.mjs';
-import {
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const testPlatformRoot = path.resolve(__dirname, '..', '..');
+
+const { matchAllWithLines } = await import(pathToFileURL(path.join(testPlatformRoot, 'shared', 'lib', 'assert.mjs')).href);
+const {
   COMPONENT_DIR_MARKERS,
   COMPONENT_FILE_EXTENSIONS,
   HOOK_DIR_MARKERS,
@@ -11,7 +19,7 @@ import {
   HOOK_NAME_PREFIX,
   MAX_IMPORT_LENGTH,
   REACT_DEFAULT_IMPORT_NAME,
-} from '../config/style-config.mjs';
+} = await import('../config/style-config.mjs');
 
 // S01: hooks 导出方式不一致
 const S01 = {

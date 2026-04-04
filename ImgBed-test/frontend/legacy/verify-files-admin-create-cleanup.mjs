@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
-const rootDir = path.resolve(process.cwd(), 'ImgBed', 'ImgBed-web', 'src');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..', '..', '..', 'ImgBed-web', 'src');
 const filesAdminPath = path.join(rootDir, 'pages', 'admin', 'FilesAdmin.jsx');
 const filesAdminToolbarPath = path.join(rootDir, 'components', 'admin', 'FilesAdminToolbar.jsx');
 const mainLayoutPath = path.join(rootDir, 'layout', 'MainLayout.jsx');

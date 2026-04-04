@@ -9,6 +9,8 @@ const { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannel
 const { applyStorageConfigChange } = require('../services/system/apply-storage-config');
 const { updateUploadConfig, applyStorageFieldUpdates } = require('../services/system/update-config-fields');
 const { calculateQuotaStatsFromDB } = require('../services/system/calculate-quota-stats');
+const { updateLoadBalanceConfig } = require('../services/system/update-load-balance');
+const { buildNewStorageChannel, validateStorageChannelInput } = require('../services/system/create-storage-channel');
 
 const systemApp = new Hono();
 const configPath = path.resolve(__dirname, '../../config.json');
@@ -213,33 +215,11 @@ systemApp.get('/load-balance', async (c) => {
 systemApp.put('/load-balance', async (c) => {
   try {
     const body = await c.req.json();
-    const { strategy, scope, enabledTypes, weights, failoverEnabled } = body;
-
     const cfg = readSystemConfig(configPath);
 
-    if (!cfg.storage) cfg.storage = {};
-
-    if (strategy !== undefined) {
-      const validStrategies = ['default', 'round-robin', 'random', 'least-used', 'weighted'];
-      if (!validStrategies.includes(strategy)) {
-        return c.json({ code: 400, message: `无效的策略: ${strategy}` }, 400);
-      }
-      cfg.storage.loadBalanceStrategy = strategy;
-    }
-
-    if (scope !== undefined) {
-      cfg.storage.loadBalanceScope = scope;
-    }
-    if (enabledTypes !== undefined) {
-      cfg.storage.loadBalanceEnabledTypes = enabledTypes;
-    }
-
-    if (weights !== undefined) {
-      cfg.storage.loadBalanceWeights = weights;
-    }
-
-    if (failoverEnabled !== undefined) {
-      cfg.storage.failoverEnabled = Boolean(failoverEnabled);
+    const validationError = updateLoadBalanceConfig(cfg, body);
+    if (validationError) {
+      return c.json(validationError, validationError.code);
     }
 
     writeSystemConfig(configPath, cfg);
@@ -258,47 +238,18 @@ systemApp.put('/load-balance', async (c) => {
 systemApp.post('/storages', async (c) => {
   try {
     const body = await c.req.json();
-    const {
-      id, type, name, enabled = true, allowUpload = false,
-      weight = 1,
-      enableQuota,
-      quotaLimitGB,
-      disableThresholdPercent,
-      config: storConfig = {}
-    } = body;
 
-    if (!id || !/^[a-zA-Z0-9-]+$/.test(id))
-      return c.json({ code: 400, message: 'id 不合法，仅允许字母、数字、连字符' }, 400);
-    if (!VALID_TYPES.includes(type))
-      return c.json({ code: 400, message: `type 不合法，支持：${VALID_TYPES.join(', ')}` }, 400);
-    if (!name || !name.trim())
-      return c.json({ code: 400, message: 'name 不能为空' }, 400);
+    const validationError = validateStorageChannelInput(body, VALID_TYPES);
+    if (validationError) {
+      return c.json(validationError, validationError.code);
+    }
 
     const cfg = readSystemConfig(configPath);
 
-    if ((cfg.storage.storages || []).some((s) => s.id === id))
-      return c.json({ code: 400, message: `渠道 ID "${id}" 已存在` }, 400);
+    if ((cfg.storage.storages || []).some((s) => s.id === body.id))
+      return c.json({ code: 400, message: `渠道 ID "${body.id}" 已存在` }, 400);
 
-    const newStorage = {
-      id, type, name,
-      enabled: Boolean(enabled),
-      allowUpload: Boolean(allowUpload),
-      weight: body.weight ?? 1,
-      // 配额处理 - enableQuota=false 时存 null 表示不限制
-      quotaLimitGB: enableQuota ? Number(quotaLimitGB) || 10 : null,
-      disableThresholdPercent: enableQuota ? (Math.max(1, Math.min(100, Number(disableThresholdPercent) || 95))) : 95,
-      // 大小限制
-      enableSizeLimit: Boolean(body.enableSizeLimit),
-      sizeLimitMB: Number(body.sizeLimitMB) || 10,
-      // 分片上传
-      enableChunking: Boolean(body.enableChunking),
-      chunkSizeMB: Number(body.chunkSizeMB) || 5,
-      maxChunks: Number(body.maxChunks) || 0,
-      // 最大限制
-      enableMaxLimit: Boolean(body.enableMaxLimit),
-      maxLimitMB: Number(body.maxLimitMB) || 100,
-      config: storConfig
-    };
+    const newStorage = buildNewStorageChannel(body);
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
 
     await insertStorageChannelMeta(newStorage, db);
