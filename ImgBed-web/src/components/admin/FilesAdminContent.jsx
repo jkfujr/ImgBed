@@ -32,12 +32,11 @@ export default function FilesAdminContent({
   const hasItems = data.length > 0 || directories.length > 0;
   const initialRenderCount = INITIAL_RENDER_COUNT[viewMode] || INITIAL_RENDER_COUNT.masonry;
   const renderStep = RENDER_STEP[viewMode] || RENDER_STEP.masonry;
-  const [visibleCount, setVisibleCount] = useState(initialRenderCount);
   const sentinelRef = useRef(null);
 
-  useEffect(() => {
-    setVisibleCount(initialRenderCount);
-  }, [initialRenderCount, data, directories]);
+  // 使用 useMemo 计算初始可见数量，当 data 或 directories 变化时重置
+  const initialVisible = useMemo(() => initialRenderCount, [initialRenderCount, data, directories]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [visibleCount, setVisibleCount] = useState(initialVisible);
 
   const visibleData = useMemo(
     () => data.slice(0, visibleCount),

@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUpload } from './useUpload';
 import { ALLOWED_IMAGE_EXTENSIONS } from '../utils/constants';
 
-/** 单个文件条目 */
 const createFileEntry = (file) => ({
   id: Math.random().toString(36).slice(2),
   file,
@@ -94,7 +93,7 @@ export function useHomeUpload() {
     showToast('已复制到剪贴板', 'success');
   }, [showToast]);
 
-  const uploadOne = async (entry) => {
+  const uploadOne = useCallback(async (entry) => {
     patchEntry(entry.id, { status: 'uploading' });
     try {
       const result = await upload(entry.file);
@@ -110,7 +109,7 @@ export function useHomeUpload() {
         errorMsg: err.response?.data?.message || err.message || '网络错误',
       });
     }
-  };
+  }, [upload]);
 
   const handleUploadAll = useCallback(async () => {
     const pending = entries.filter((e) => e.status === 'idle' || e.status === 'error');
@@ -121,7 +120,7 @@ export function useHomeUpload() {
     }
     setUploading(false);
     showToast('全部上传完成', 'success');
-  }, [entries, showToast]);
+  }, [entries, showToast, uploadOne]);
 
   const pendingCount = entries.filter((e) => e.status === 'idle' || e.status === 'error').length;
   const doneCount = entries.filter((e) => e.status === 'done').length;

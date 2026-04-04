@@ -58,7 +58,7 @@ export default function MainLayout() {
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', width: '100%' }}>
       <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar>
-          {/* Logo 区域（在管理后台时占据侧边栏宽度） */}
+          {/* Logo 区域*/}
           <Box sx={{
             display: 'flex',
             alignItems: 'center',
@@ -73,7 +73,7 @@ export default function MainLayout() {
             </Typography>
           </Box>
 
-          {/* 新建按钮（仅管理后台显示） */}
+          {/* 新建按钮*/}
           {showCreateButton && <CreateActionButton />}
 
           {/* 搜索框 */}

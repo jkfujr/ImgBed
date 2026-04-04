@@ -24,6 +24,7 @@ import { resolveProjectRoot, scanFiles } from './lib/scanner.mjs';
 import { Reporter } from './lib/reporter.mjs';
 import { RuleRegistry } from './lib/rule-registry.mjs';
 import { Fixer } from './lib/fixer.mjs';
+import { runAllExternalChecks } from './lib/external-checks.mjs';
 
 // 导入所有规则模块
 import bugRules from './rules/bug.mjs';
@@ -164,6 +165,9 @@ async function main() {
   const rootDir = resolveProjectRoot();
   const files = scanFiles(rootDir);
 
+  // 项目根目录（用于外部检查）
+  const projectRoot = path.resolve(rootDir, '..');
+
   // 创建报告器（info 级别全部输出）
   const reporter = new Reporter({
     color: args.color,
@@ -219,8 +223,33 @@ async function main() {
     }
   }
 
+  // 外部静态检查
+  console.log('');
+  console.log('外部静态检查');
+  console.log('='.repeat(60));
+  const externalResult = runAllExternalChecks(projectRoot);
+  for (const check of externalResult.checks) {
+    if (check.skipped) {
+      console.log(`  ${args.color ? '\x1b[90m⊘\x1b[0m' : '⊘'} ${check.name}: ${args.color ? '\x1b[90m已跳过\x1b[0m' : '已跳过'} (${check.skipReason})`);
+    } else if (check.passed) {
+      console.log(`  ${args.color ? '\x1b[32m✓\x1b[0m' : '✓'} ${check.name}: ${args.color ? '\x1b[32m通过\x1b[0m' : '通过'}`);
+    } else {
+      console.log(`  ${args.color ? '\x1b[31m✗\x1b[0m' : '✗'} ${check.name}: ${args.color ? '\x1b[31m失败\x1b[0m' : '失败'} (退出码: ${check.exitCode})`);
+      if (check.output) {
+        const lines = check.output.split('\n').slice(0, 10);
+        for (const line of lines) {
+          console.log(`    ${args.color ? '\x1b[90m' : ''}${line}${args.color ? '\x1b[0m' : ''}`);
+        }
+        if (check.output.split('\n').length > 10) {
+          console.log(`    ${args.color ? '\x1b[90m...(输出已截断)\x1b[0m' : '...(输出已截断)'}`);
+        }
+      }
+    }
+  }
+  console.log('='.repeat(60));
+
   // 生成 Markdown 报告文件
-  const mdContent = currentReporter.toMarkdown(currentFiles.length, ruleList);
+  const mdContent = currentReporter.toMarkdown(currentFiles.length, ruleList, externalResult);
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const reportDir = path.join(scriptDir, 'reports');
   if (!fs.existsSync(reportDir)) fs.mkdirSync(reportDir, { recursive: true });
@@ -242,7 +271,7 @@ async function main() {
   }
 
   // CI 退出码
-  if (args.exitOnError && currentReporter.hasErrors()) {
+  if (args.exitOnError && (currentReporter.hasErrors() || !externalResult.allPassed)) {
     process.exit(1);
   }
 }

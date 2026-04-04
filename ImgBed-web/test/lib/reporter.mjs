@@ -1,5 +1,5 @@
 /**
- * Ruff 风格输出格式化模块
+ * 输出格式化模块
  * 按文件分组展示诊断信息，支持 ANSI 着色、分类汇总和 JSON 输出
  */
 
@@ -235,9 +235,10 @@ export class Reporter {
    * 生成 Markdown 格式报告
    * @param {number} totalFiles 扫描文件总数
    * @param {object[]} ruleList 规则列表
+   * @param {object} externalChecks 外部静态检查结果
    * @returns {string} Markdown 文本
    */
-  toMarkdown(totalFiles, ruleList) {
+  toMarkdown(totalFiles, ruleList, externalChecks = null) {
     const now = new Date().toLocaleString('zh-CN');
     const lines = [];
 
@@ -272,6 +273,41 @@ export class Reporter {
 
     if (this.diagnostics.length === 0) {
       lines.push('**检测完成：未发现任何问题。**');
+      lines.push('');
+
+      if (externalChecks && externalChecks.checks && externalChecks.checks.length > 0) {
+        lines.push('---');
+        lines.push('');
+        lines.push('## 外部静态检查');
+        lines.push('');
+        lines.push('| 检查项 | 状态 | 说明 |');
+        lines.push('|--------|------|------|');
+        for (const check of externalChecks.checks) {
+          if (check.skipped) {
+            lines.push(`| ${check.name} | ⊘ 已跳过 | ${check.skipReason} |`);
+          } else if (check.passed) {
+            lines.push(`| ${check.name} | ✓ 通过 | - |`);
+          } else {
+            lines.push(`| ${check.name} | ✗ 失败 | 退出码: ${check.exitCode} |`);
+          }
+        }
+        lines.push('');
+
+        // 输出失败检查的详细错误信息
+        for (const check of externalChecks.checks) {
+          if (!check.skipped && !check.passed && check.output) {
+            lines.push(`### ${check.name} 详细输出`);
+            lines.push('');
+            lines.push('```');
+            lines.push(check.output);
+            lines.push('```');
+            lines.push('');
+          }
+        }
+      }
+
+      lines.push('---');
+      lines.push(`*由 ImgBed-web 代码检测工具自动生成*`);
       return lines.join('\n');
     }
 
@@ -369,6 +405,40 @@ export class Reporter {
     }
     lines.push('');
     lines.push('---');
+
+    // ── 外部静态检查 ──
+    if (externalChecks && externalChecks.checks && externalChecks.checks.length > 0) {
+      lines.push('');
+      lines.push('## 外部静态检查');
+      lines.push('');
+      lines.push('| 检查项 | 状态 | 说明 |');
+      lines.push('|--------|------|------|');
+      for (const check of externalChecks.checks) {
+        if (check.skipped) {
+          lines.push(`| ${check.name} | ⊘ 已跳过 | ${check.skipReason} |`);
+        } else if (check.passed) {
+          lines.push(`| ${check.name} | ✓ 通过 | - |`);
+        } else {
+          lines.push(`| ${check.name} | ✗ 失败 | 退出码: ${check.exitCode} |`);
+        }
+      }
+      lines.push('');
+
+      // 输出失败检查的详细错误信息
+      for (const check of externalChecks.checks) {
+        if (!check.skipped && !check.passed && check.output) {
+          lines.push(`### ${check.name} 详细输出`);
+          lines.push('');
+          lines.push('```');
+          lines.push(check.output);
+          lines.push('```');
+          lines.push('');
+        }
+      }
+
+      lines.push('---');
+    }
+
     lines.push(`*由 ImgBed-web 代码检测工具自动生成*`);
 
     return lines.join('\n');

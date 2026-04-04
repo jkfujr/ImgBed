@@ -52,15 +52,19 @@ function testFilesAdminToolbarOwnsPathEditingState() {
 
 function testUseFilesAdminCachesDirectoryData() {
   const hook = read('src/hooks/useFilesAdmin.js');
+  const shared = read('src/admin/filesAdminShared.js');
 
+  assert(hook.includes("} from '../admin/filesAdminShared';"), 'useFilesAdmin 未下沉共享辅助逻辑');
   assert(hook.includes('const cacheRef = useRef(new Map());'), 'useFilesAdmin 缺少目录缓存');
-  assert(hook.includes("const getCacheKey = useCallback((dir) => dir || '/', []);"), 'useFilesAdmin 缺少目录缓存键生成逻辑');
-  assert(hook.includes('const buildDirectoryChildren = useCallback((allDirs, dir) => {'), 'useFilesAdmin 缺少目录子级构建逻辑');
-  assert(hook.includes('forceReload = false'), 'useFilesAdmin 缺少 forceReload 控制');
-  assert(hook.includes('keepDirectories = false'), 'useFilesAdmin 缺少 keepDirectories 控制');
   assert(hook.includes('if (!forceReload && cached) {'), 'useFilesAdmin 未复用缓存目录数据');
-  assert(hook.includes('cacheRef.current.set(cacheKey, newList);'), 'useFilesAdmin 未写入目录缓存');
+  assert(hook.includes('cacheRef.current.set(cacheKey, nextList);'), 'useFilesAdmin 未写入目录缓存');
   assert(hook.includes('loadDirectoryData({ showLoading: true, forceReload: true, keepDirectories: true });'), 'useFilesAdmin 变更后刷新未复用目录数据');
+
+  assert(shared.includes('export function getCacheKey(dir) {'), 'filesAdminShared 缺少目录缓存键生成逻辑');
+  assert(shared.includes('export function buildDirectoryChildren(allDirs, dir) {'), 'filesAdminShared 缺少目录子级构建逻辑');
+  assert(shared.includes('export async function fetchDirectories(currentDir) {'), 'filesAdminShared 缺少目录请求逻辑');
+  assert(shared.includes('export async function fetchListPage(dir) {'), 'filesAdminShared 缺少文件列表请求逻辑');
+  assert(shared.includes('export function updateCachedDirectories(cache, allDirs) {'), 'filesAdminShared 缺少缓存目录回填逻辑');
   return { name: 'useFilesAdmin 具备缓存与细粒度刷新边界', ok: true };
 }
 

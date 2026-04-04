@@ -1,4 +1,5 @@
-import React, { Suspense, lazy } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { StrictMode, Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
@@ -45,7 +46,7 @@ const theme = createTheme({
 });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
+  <StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
@@ -77,5 +78,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </RefreshProvider>
       </AuthProvider>
     </ThemeProvider>
-  </React.StrictMode>
+  </StrictMode>
 );

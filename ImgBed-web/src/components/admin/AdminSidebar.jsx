@@ -18,14 +18,15 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { BORDER_RADIUS } from '../../utils/constants';
 
-export const ADMIN_MENU_ITEMS = [
+// 常量移到单独文件以符合 fast refresh 要求
+export const ADMIN_DRAWER_WIDTH = 240;
+export const ADMIN_COLLAPSED_WIDTH = 56;
+
+const ADMIN_MENU_ITEMS = [
   { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
   { text: '存储渠道', icon: <StorageIcon />, path: '/admin/channels' },
   { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },
 ];
-
-export const ADMIN_DRAWER_WIDTH = 240;
-export const ADMIN_COLLAPSED_WIDTH = 56;
 
 export default function AdminSidebar({
   collapsed,

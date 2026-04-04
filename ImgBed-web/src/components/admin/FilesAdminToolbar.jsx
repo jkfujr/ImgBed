@@ -18,22 +18,19 @@ export default function FilesAdminToolbar({
   onNavigateToDir,
 }) {
   const [pathEditing, setPathEditing] = useState(false);
-  const [pathInput, setPathInput] = useState('');
   const pathInputRef = useRef(null);
 
   useEffect(() => {
-    if (!pathEditing) return;
-    setPathInput(currentDir || '/');
-  }, [currentDir, pathEditing]);
-
-  useEffect(() => {
     if (!pathEditing) return undefined;
+    if (pathInputRef.current) {
+      pathInputRef.current.value = currentDir || '/';
+    }
     const timer = setTimeout(() => pathInputRef.current?.focus(), 0);
     return () => clearTimeout(timer);
-  }, [pathEditing]);
+  }, [pathEditing, currentDir]);
 
   const commitPathEdit = () => {
-    const raw = pathInput.trim();
+    const raw = (pathInputRef.current?.value || '').trim();
     let normalized = null;
 
     if (raw !== '/' && raw !== '') {
@@ -46,7 +43,6 @@ export default function FilesAdminToolbar({
 
   const cancelPathEdit = () => {
     setPathEditing(false);
-    setPathInput(currentDir || '/');
   };
 
   return (
@@ -56,8 +52,7 @@ export default function FilesAdminToolbar({
           <TextField
             inputRef={pathInputRef}
             size="small"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
+            defaultValue={currentDir || '/'}
             onBlur={commitPathEdit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitPathEdit();
