@@ -5,6 +5,7 @@ import { parsePermissions, normalizePermissions, hashApiToken } from '../src/uti
 import { buildPath } from '../src/services/directories/directory-operations.js';
 import { validateTokenInput, createTokenRecord } from '../src/services/api-tokens/create-token.js';
 import { createFilesError } from '../src/services/files/migrate-file.js';
+import { normalizeProxyUrl, fetchWithProxy, __setDepsForTest, __resetDepsForTest } from '../src/network/proxy.js';
 
 test('normalizePermissions 仅保留合法权限并去重', () => {
   const permissions = normalizePermissions(['upload:image', 'files:read', 'files:read', 'invalid']);
@@ -65,4 +66,42 @@ test('createFilesError 生成带 status 的异常对象', () => {
 
 test('后端测试入口已加载', () => {
   assert.ok(true);
+});
+
+test('normalizeProxyUrl 正确解析代理地址', () => {
+  const normalized = normalizeProxyUrl('http://user:pass@127.0.0.1:7890');
+  assert.equal(normalized.protocol, 'http:');
+  assert.equal(normalized.hostname, '127.0.0.1');
+  assert.equal(normalized.port, '7890');
+  assert.equal(normalized.username, 'user');
+  assert.equal(normalized.password, 'pass');
+});
+
+test('fetchWithProxy 通过 dispatcher 透传代理对象', async () => {
+  let capturedUrl = null;
+  let capturedOptions = null;
+
+  class MockProxyAgent {
+    constructor(url) {
+      this.url = url;
+    }
+  }
+
+  __setDepsForTest({
+    fetch: async (url, options) => {
+      capturedUrl = url;
+      capturedOptions = options;
+      return { ok: true, status: 200 };
+    },
+    ProxyAgent: MockProxyAgent,
+  });
+
+  await fetchWithProxy('https://example.com', { method: 'GET' }, 'http://127.0.0.1:7890');
+
+  assert.equal(capturedUrl, 'https://example.com');
+  assert.equal(capturedOptions.method, 'GET');
+  assert.ok(capturedOptions.dispatcher instanceof MockProxyAgent);
+  assert.equal(capturedOptions.dispatcher.url, 'http://127.0.0.1:7890/');
+
+  __resetDepsForTest();
 });

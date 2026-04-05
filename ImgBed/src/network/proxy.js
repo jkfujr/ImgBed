@@ -1,8 +1,9 @@
-import fetch from 'node-fetch';
 import { ProxyAgent } from 'proxy-agent';
 
 const agentCache = new Map();
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'socks:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:']);
+let fetchImpl = globalThis.fetch;
+let ProxyAgentImpl = ProxyAgent;
 
 function normalizeProxyUrl(proxyUrl) {
   if (!proxyUrl) {
@@ -46,7 +47,7 @@ async function getProxyAgent(proxyUrl) {
   }
 
   if (!agentCache.has(normalized.url)) {
-    agentCache.set(normalized.url, new ProxyAgent(normalized.url));
+    agentCache.set(normalized.url, new ProxyAgentImpl(normalized.url));
   }
 
   return agentCache.get(normalized.url);
@@ -56,19 +57,22 @@ async function fetchWithProxy(url, options = {}, proxyUrl = '') {
   const requestOptions = { ...options };
   const agent = await getProxyAgent(proxyUrl);
   if (agent) {
-    requestOptions.agent = agent;
+    requestOptions.dispatcher = agent;
   }
 
-  return fetch(url, requestOptions);
+  return fetchImpl(url, requestOptions);
 }
 
 function __setDepsForTest({ fetch: mockFetch, ProxyAgent: mockProxyAgent } = {}) {
-  // 测试钩子保持不变
   agentCache.clear();
+  if (mockFetch) fetchImpl = mockFetch;
+  if (mockProxyAgent) ProxyAgentImpl = mockProxyAgent;
 }
 
 function __resetDepsForTest() {
   agentCache.clear();
+  fetchImpl = globalThis.fetch;
+  ProxyAgentImpl = ProxyAgent;
 }
 
 export {
