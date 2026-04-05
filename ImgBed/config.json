@@ -17,7 +17,8 @@
   "storage": {
     "default": "local-1",
     "allowedUploadChannels": [
-      "local-1"
+      "local-1",
+      "s3"
     ],
     "storages": [
       {
@@ -32,6 +33,31 @@
         "weight": 1,
         "quotaLimitGB": 10,
         "disableThresholdPercent": 95
+      },
+      {
+        "id": "s3",
+        "type": "s3",
+        "name": "s3",
+        "enabled": true,
+        "allowUpload": true,
+        "weight": 1,
+        "quotaLimitGB": null,
+        "disableThresholdPercent": 95,
+        "enableSizeLimit": false,
+        "sizeLimitMB": 10,
+        "enableChunking": false,
+        "chunkSizeMB": 5,
+        "maxChunks": 0,
+        "enableMaxLimit": false,
+        "maxLimitMB": 100,
+        "config": {
+          "bucket": "test",
+          "region": "openlist",
+          "accessKeyId": "TTWps5Uz/OWzAH3tZapa",
+          "secretAccessKey": "LaCvu9diQjHboU8Gfl7pZiz4JoZ9Z5EVIo4TcUa+",
+          "endpoint": "http://100.100.201.91:5246",
+          "pathStyle": true
+        }
       }
     ]
   },

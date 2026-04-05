@@ -31,13 +31,15 @@ class S3Storage extends StorageProvider {
         }
         this.bucket = config.bucket;
         this.pathPrefix = config.pathPrefix || '';
-        
+        const pathStyle = config.pathStyle === true || config.pathStyle === 'true';
+
         let clientConfig = {
             region: config.region || 'auto',
             credentials: {
                 accessKeyId: config.accessKeyId,
                 secretAccessKey: config.secretAccessKey,
-            }
+            },
+            forcePathStyle: pathStyle,
         };
 
         if (config.endpoint) {
@@ -192,5 +194,10 @@ class S3Storage extends StorageProvider {
         await this.s3.send(cmd);
     }
 }
+
+S3Storage.__getS3ClientForTest = () => S3Client;
+S3Storage.__setS3ClientForTest = (client) => {
+    S3Client = client;
+};
 
 module.exports = S3Storage;

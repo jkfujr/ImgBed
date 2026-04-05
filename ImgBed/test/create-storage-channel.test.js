@@ -77,7 +77,7 @@ function testBuildNewStorageChannelWithQuota() {
     maxChunks: 100,
     enableMaxLimit: true,
     maxLimitMB: 200,
-    config: { bucket: 'test-bucket' },
+    config: { bucket: 'test-bucket', pathStyle: 'true' },
   };
 
   const result = buildNewStorageChannel(body);
@@ -97,7 +97,7 @@ function testBuildNewStorageChannelWithQuota() {
   assert.equal(result.maxChunks, 100);
   assert.equal(result.enableMaxLimit, true);
   assert.equal(result.maxLimitMB, 200);
-  assert.deepEqual(result.config, { bucket: 'test-bucket' });
+  assert.deepEqual(result.config, { bucket: 'test-bucket', pathStyle: true });
 }
 
 function testBuildNewStorageChannelWithoutQuota() {

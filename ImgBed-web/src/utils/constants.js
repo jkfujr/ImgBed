@@ -25,6 +25,7 @@ export const CHANNEL_SCHEMAS = {
     { key: 'endpoint',        label: 'Endpoint（自定义）' },
     { key: 'pathPrefix',      label: '路径前缀' },
     { key: 'publicUrl',       label: '公共访问 URL' },
+    { key: 'pathStyle',       label: '路径风格', type: 'boolean' },
   ],
   telegram: [
     { key: 'botToken', label: 'Bot Token', required: true, sensitive: true },

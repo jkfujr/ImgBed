@@ -281,6 +281,10 @@ systemApp.put('/storages/:id', async (c) => {
       for (const [k, v] of Object.entries(body.config)) {
         // 敏感字段值为 null 时跳过覆盖（前端留空表示不修改）
         if (SENSITIVE_KEYS.includes(k) && v === null) continue;
+        if (existing.type === 's3' && k === 'pathStyle') {
+          existing.config[k] = v === true || v === 'true';
+          continue;
+        }
         existing.config[k] = v;
       }
     }

@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const testConfigPath = path.join(__dirname, 'test-config.json');
+const managerModulePath = require.resolve('../src/storage/manager');
+const s3ModulePath = require.resolve('../src/storage/s3');
 
 function createTestConfig() {
   return {
@@ -159,6 +161,59 @@ async function testApplyStorageConfigChange() {
   fs.unlinkSync(testConfigPath);
 }
 
+async function testStorageManagerTestConnectionAwaitsInstanceCreation() {
+  const manager = require(managerModulePath);
+  const originalCreateInstance = manager._createInstance;
+
+  try {
+    let testConnectionCalled = false;
+    manager._createInstance = async () => ({
+      async testConnection() {
+        testConnectionCalled = true;
+        return { ok: true, message: 'ok' };
+      },
+    });
+
+    const result = await manager.testConnection('s3', {});
+
+    assert.deepEqual(result, { ok: true, message: 'ok' });
+    assert.equal(testConnectionCalled, true);
+  } finally {
+    manager._createInstance = originalCreateInstance;
+  }
+}
+
+async function testS3PathStyleMapsToForcePathStyle() {
+  const s3Module = require(s3ModulePath);
+  const originalS3Client = s3Module.__getS3ClientForTest?.();
+
+  if (!originalS3Client) {
+    return;
+  }
+
+  let capturedConfig = null;
+  function FakeS3Client(config) {
+    capturedConfig = config;
+    return {};
+  }
+  s3Module.__setS3ClientForTest(FakeS3Client);
+
+  try {
+    new s3Module({
+      bucket: 'test-bucket',
+      region: 'test-region',
+      accessKeyId: 'ak',
+      secretAccessKey: 'sk',
+      endpoint: 'http://127.0.0.1:9000',
+      pathStyle: 'true',
+    });
+
+    assert.equal(capturedConfig.forcePathStyle, true);
+  } finally {
+    s3Module.__setS3ClientForTest(originalS3Client);
+  }
+}
+
 async function main() {
   await testReadWriteSystemConfig();
   await testSyncAllowedUploadChannels();
@@ -166,6 +221,8 @@ async function main() {
   await testUpdateStorageChannelMeta();
   await testDeleteStorageChannelMeta();
   await testApplyStorageConfigChange();
+  await testStorageManagerTestConnectionAwaitsInstanceCreation();
+  await testS3PathStyleMapsToForcePathStyle();
   console.log('system services tests passed');
 }
 

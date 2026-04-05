@@ -275,7 +275,7 @@ class StorageManager {
      */
     async testConnection(type, config) {
         try {
-            const instance = this._createInstance(type, config || {});
+            const instance = await this._createInstance(type, config || {});
             const result = await instance.testConnection();
             return result;
         } catch (err) {

@@ -17,6 +17,11 @@ function buildNewStorageChannel(body) {
     config: storConfig = {}
   } = body;
 
+  const normalizedConfig = { ...storConfig };
+  if (type === 's3' && Object.prototype.hasOwnProperty.call(normalizedConfig, 'pathStyle')) {
+    normalizedConfig.pathStyle = normalizedConfig.pathStyle === true || normalizedConfig.pathStyle === 'true';
+  }
+
   return {
     id,
     type,
@@ -37,7 +42,7 @@ function buildNewStorageChannel(body) {
     // 最大限制
     enableMaxLimit: Boolean(body.enableMaxLimit),
     maxLimitMB: Number(body.maxLimitMB) || 100,
-    config: storConfig
+    config: normalizedConfig
   };
 }
 
