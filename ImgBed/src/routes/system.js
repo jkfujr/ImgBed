@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import express from 'express';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -14,7 +14,7 @@ import { calculateQuotaStatsFromDB } from '../services/system/calculate-quota-st
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
 import { buildNewStorageChannel, validateStorageChannelInput } from '../services/system/create-storage-channel.js';
 
-const systemApp = new Hono();
+const systemApp = express.Router();
 const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
 
 // 敏感字段列表
@@ -35,20 +35,20 @@ function maskStorage(s) {
 }
 
 // 需要管理员权限
-systemApp.use('*', adminAuth);
+systemApp.use(adminAuth);
 
 /**
  * 读取系统配置（脱敏：隐藏 jwt.secret）
  * GET /api/system/config
  */
-systemApp.get('/config', async (c) => {
+systemApp.get('/config', async (_req, res) => {
   try {
     const cfg = readSystemConfig(configPath);
     // 隐藏敏感字段
     if (cfg.jwt) cfg.jwt.secret = '******';
-    return c.json({ code: 0, message: 'success', data: cfg });
+    return res.json({ code: 0, message: 'success', data: cfg });
   } catch (err) {
-    return c.json({ code: 500, message: '读取配置文件失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '读取配置文件失败: ' + err.message });
   }
 });
 
@@ -57,9 +57,9 @@ systemApp.get('/config', async (c) => {
  * PUT /api/system/config
  * 支持字段: server.port / security.corsOrigin / security.maxFileSize / storage.default
  */
-systemApp.put('/config', async (c) => {
+systemApp.put('/config', async (req, res) => {
   try {
-    const body = await c.req.json();
+    const body = req.body || {};
     const cfg = readSystemConfig(configPath);
 
     // 仅允许修改指定的安全子集
@@ -77,9 +77,9 @@ systemApp.put('/config', async (c) => {
     updateUploadConfig(cfg, body.upload);
 
     writeSystemConfig(configPath, cfg);
-    return c.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
+    return res.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
   } catch (err) {
-    return c.json({ code: 500, message: '保存配置失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '保存配置失败: ' + err.message });
   }
 });
 
@@ -87,7 +87,7 @@ systemApp.put('/config', async (c) => {
  * 获取存储渠道列表（含完整 config，敏感字段脱敏）
  * GET /api/system/storages
  */
-systemApp.get('/storages', async (c) => {
+systemApp.get('/storages', async (_req, res) => {
   try {
     const cfg = readSystemConfig(configPath);
     const fileStorages = cfg.storage?.storages || [];
@@ -112,9 +112,9 @@ systemApp.get('/storages', async (c) => {
       return maskStorage(merged);
     });
 
-    return c.json({ code: 0, message: 'success', data: { list, default: cfg.storage?.default } });
+    return res.json({ code: 0, message: 'success', data: { list, default: cfg.storage?.default } });
   } catch (err) {
-    return c.json({ code: 500, message: '读取存储渠道失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '读取存储渠道失败: ' + err.message });
   }
 });
 
@@ -122,7 +122,7 @@ systemApp.get('/storages', async (c) => {
  * 获取存储渠道统计信息
  * GET /api/system/storages/stats
  */
-systemApp.get('/storages/stats', async (c) => {
+systemApp.get('/storages/stats', async (_req, res) => {
   try {
     const cfg = readSystemConfig(configPath);
     const fileStorages = cfg.storage?.storages || [];
@@ -146,7 +146,7 @@ systemApp.get('/storages/stats', async (c) => {
       byType[s.type] = (byType[s.type] || 0) + 1;
     });
 
-    return c.json({
+    return res.json({
       code: 0,
       message: 'success',
       data: {
@@ -157,7 +157,7 @@ systemApp.get('/storages/stats', async (c) => {
       }
     });
   } catch (err) {
-    return c.json({ code: 500, message: '读取统计信息失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '读取统计信息失败: ' + err.message });
   }
 });
 
@@ -166,23 +166,23 @@ systemApp.get('/storages/stats', async (c) => {
  * POST /api/system/storages/test
  * Body: { type: string, config: object }
  */
-systemApp.post('/storages/test', async (c) => {
+systemApp.post('/storages/test', async (req, res) => {
   try {
-    const { type, config: storageConfig } = await c.req.json();
+    const { type, config: storageConfig } = req.body || {};
 
     if (!type || !VALID_TYPES.includes(type)) {
-      return c.json({ code: 400, message: `不支持的存储类型: ${type}` }, 400);
+      return res.status(400).json({ code: 400, message: `不支持的存储类型: ${type}` });
     }
 
     // 调用管理器测试连接
     const result = await storageManager.testConnection(type, storageConfig || {});
     if (result.ok) {
-      return c.json({ code: 0, message: '连接成功', data: result });
+      return res.json({ code: 0, message: '连接成功', data: result });
     } else {
-      return c.json({ code: 400, message: result.message }, 400);
+      return res.status(400).json({ code: 400, message: result.message });
     }
   } catch (err) {
-    return c.json({ code: 500, message: '测试连接失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '测试连接失败: ' + err.message });
   }
 });
 
@@ -190,10 +190,10 @@ systemApp.post('/storages/test', async (c) => {
  * 获取负载均衡配置
  * GET /api/system/load-balance
  */
-systemApp.get('/load-balance', async (c) => {
+systemApp.get('/load-balance', async (_req, res) => {
   try {
     const cfg = readSystemConfig(configPath);
-    return c.json({
+    return res.json({
       code: 0,
       message: 'success',
       data: {
@@ -206,7 +206,7 @@ systemApp.get('/load-balance', async (c) => {
       }
     });
   } catch (err) {
-    return c.json({ code: 500, message: '读取负载均衡配置失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '读取负载均衡配置失败: ' + err.message });
   }
 });
 
@@ -214,22 +214,22 @@ systemApp.get('/load-balance', async (c) => {
  * 更新负载均衡配置
  * PUT /api/system/load-balance
  */
-systemApp.put('/load-balance', async (c) => {
+systemApp.put('/load-balance', async (req, res) => {
   try {
-    const body = await c.req.json();
+    const body = req.body || {};
     const cfg = readSystemConfig(configPath);
 
     const validationError = updateLoadBalanceConfig(cfg, body);
     if (validationError) {
-      return c.json(validationError, validationError.code);
+      return res.status(validationError.code).json(validationError);
     }
 
     writeSystemConfig(configPath, cfg);
     await storageManager.reload();
 
-    return c.json({ code: 0, message: '负载均衡配置已更新' });
+    return res.json({ code: 0, message: '负载均衡配置已更新' });
   } catch (err) {
-    return c.json({ code: 500, message: '更新负载均衡配置失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '更新负载均衡配置失败: ' + err.message });
   }
 });
 
@@ -237,19 +237,19 @@ systemApp.put('/load-balance', async (c) => {
  * 新增存储渠道
  * POST /api/system/storages
  */
-systemApp.post('/storages', async (c) => {
+systemApp.post('/storages', async (req, res) => {
   try {
-    const body = await c.req.json();
+    const body = req.body || {};
 
     const validationError = validateStorageChannelInput(body, VALID_TYPES);
     if (validationError) {
-      return c.json(validationError, validationError.code);
+      return res.status(validationError.code).json(validationError);
     }
 
     const cfg = readSystemConfig(configPath);
 
     if ((cfg.storage.storages || []).some((s) => s.id === body.id))
-      return c.json({ code: 400, message: `渠道 ID "${body.id}" 已存在` }, 400);
+      return res.status(400).json({ code: 400, message: `渠道 ID "${body.id}" 已存在` });
 
     const newStorage = buildNewStorageChannel(body);
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
@@ -257,9 +257,9 @@ systemApp.post('/storages', async (c) => {
     await insertStorageChannelMeta(newStorage, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
-    return c.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
+    return res.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
   } catch (err) {
-    return c.json({ code: 500, message: '新增渠道失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '新增渠道失败: ' + err.message });
   }
 });
 
@@ -267,13 +267,13 @@ systemApp.post('/storages', async (c) => {
  * 编辑存储渠道
  * PUT /api/system/storages/:id
  */
-systemApp.put('/storages/:id', async (c) => {
+systemApp.put('/storages/:id', async (req, res) => {
   try {
-    const id = c.req.param('id');
-    const body = await c.req.json();
+    const id = req.params.id;
+    const body = req.body || {};
     const cfg = readSystemConfig(configPath);
     const idx = (cfg.storage.storages || []).findIndex((s) => s.id === id);
-    if (idx === -1) return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+    if (idx === -1) return res.status(404).json({ code: 404, message: `渠道 "${id}" 不存在` });
 
     const existing = cfg.storage.storages[idx];
     applyStorageFieldUpdates(existing, body);
@@ -294,9 +294,9 @@ systemApp.put('/storages/:id', async (c) => {
     await updateStorageChannelMeta(id, existing, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
-    return c.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
+    return res.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
   } catch (err) {
-    return c.json({ code: 500, message: '更新渠道失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '更新渠道失败: ' + err.message });
   }
 });
 
@@ -304,23 +304,23 @@ systemApp.put('/storages/:id', async (c) => {
  * 删除存储渠道（不允许删除默认渠道）
  * DELETE /api/system/storages/:id
  */
-systemApp.delete('/storages/:id', async (c) => {
+systemApp.delete('/storages/:id', async (req, res) => {
   try {
-    const id = c.req.param('id');
+    const id = req.params.id;
     const cfg = readSystemConfig(configPath);
     if (cfg.storage.default === id)
-      return c.json({ code: 400, message: '不能删除当前默认渠道，请先切换默认渠道' }, 400);
+      return res.status(400).json({ code: 400, message: '不能删除当前默认渠道，请先切换默认渠道' });
     const before = (cfg.storage.storages || []).length;
     cfg.storage.storages = (cfg.storage.storages || []).filter((s) => s.id !== id);
     if (cfg.storage.storages.length === before)
-      return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+      return res.status(404).json({ code: 404, message: `渠道 "${id}" 不存在` });
 
     await deleteStorageChannelMeta(id, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
-    return c.json({ code: 0, message: '存储渠道已删除' });
+    return res.json({ code: 0, message: '存储渠道已删除' });
   } catch (err) {
-    return c.json({ code: 500, message: '删除渠道失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '删除渠道失败: ' + err.message });
   }
 });
 
@@ -328,18 +328,18 @@ systemApp.delete('/storages/:id', async (c) => {
  * 设为默认存储渠道
  * PUT /api/system/storages/:id/default
  */
-systemApp.put('/storages/:id/default', async (c) => {
+systemApp.put('/storages/:id/default', async (req, res) => {
   try {
-    const id = c.req.param('id');
+    const id = req.params.id;
     const cfg = readSystemConfig(configPath);
     if (!(cfg.storage.storages || []).some((s) => s.id === id))
-      return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+      return res.status(404).json({ code: 404, message: `渠道 "${id}" 不存在` });
     cfg.storage.default = id;
     writeSystemConfig(configPath, cfg);
     await storageManager.reload();
-    return c.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
+    return res.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
   } catch (err) {
-    return c.json({ code: 500, message: '设置默认渠道失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '设置默认渠道失败: ' + err.message });
   }
 });
 
@@ -347,25 +347,25 @@ systemApp.put('/storages/:id/default', async (c) => {
  * 启用/禁用存储渠道
  * PUT /api/system/storages/:id/toggle
  */
-systemApp.put('/storages/:id/toggle', async (c) => {
+systemApp.put('/storages/:id/toggle', async (req, res) => {
   try {
-    const id = c.req.param('id');
+    const id = req.params.id;
     const cfg = readSystemConfig(configPath);
     const storage = (cfg.storage.storages || []).find((s) => s.id === id);
-    if (!storage) return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
+    if (!storage) return res.status(404).json({ code: 404, message: `渠道 "${id}" 不存在` });
 
     storage.enabled = !storage.enabled;
 
     await updateStorageChannelMeta(id, storage, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
-    return c.json({
+    return res.json({
       code: 0,
       message: `渠道 "${id}" 已${storage.enabled ? '启用' : '禁用'}`,
       data: { enabled: storage.enabled }
     });
   } catch (err) {
-    return c.json({ code: 500, message: '切换渠道状态失败: ' + err.message }, 500);
+    return res.status(500).json({ code: 500, message: '切换渠道状态失败: ' + err.message });
   }
 });
 
@@ -374,7 +374,7 @@ systemApp.put('/storages/:id/toggle', async (c) => {
  * GET /api/system/quota-stats
  * 按渠道 ID 统计已用字节总数
  */
-systemApp.get('/quota-stats', async (c) => {
+systemApp.get('/quota-stats', async (_req, res) => {
   try {
     // 如果是 always 模式，强制从数据库全量统计
     const mode = config.upload?.quotaCheckMode || 'auto';
@@ -387,7 +387,7 @@ systemApp.get('/quota-stats', async (c) => {
       stats = storageManager.getAllQuotaStats();
     }
 
-    return c.json({
+    return res.json({
       code: 0,
       message: 'success',
       data: {
@@ -395,10 +395,10 @@ systemApp.get('/quota-stats', async (c) => {
       }
     });
   } catch (err) {
-    return c.json({
+    return res.status(500).json({
       code: 500,
       message: '获取容量统计失败: ' + err.message
-    }, 500);
+    });
   }
 });
 

@@ -9,7 +9,7 @@ class RateLimiter {
     this.max = options.max || 100; // 最大请求数
     this.message = options.message || '请求过于频繁，请稍后再试';
     this.statusCode = options.statusCode || 429;
-    this.keyGenerator = options.keyGenerator || ((c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown');
+    this.keyGenerator = options.keyGenerator || ((req) => req.get('x-forwarded-for') || req.get('x-real-ip') || req.ip || 'unknown');
     this.skip = options.skip || (() => false);
 
     // 存储：key -> [timestamp1, timestamp2, ...]
@@ -35,13 +35,13 @@ class RateLimiter {
   }
 
   middleware() {
-    return async (c, next) => {
+    return async (req, res, next) => {
       // 跳过检查
-      if (this.skip(c)) {
+      if (this.skip(req)) {
         return next();
       }
 
-      const key = this.keyGenerator(c);
+      const key = this.keyGenerator(req);
       const now = Date.now();
 
       // 获取该 key 的请求记录
@@ -56,7 +56,7 @@ class RateLimiter {
         const resetTime = oldestTimestamp + this.windowMs;
         const retryAfter = Math.ceil((resetTime - now) / 1000);
 
-        return c.json({
+        return res.status(this.statusCode).json({
           code: this.statusCode,
           message: this.message,
           data: {
@@ -65,7 +65,7 @@ class RateLimiter {
             reset: new Date(resetTime).toISOString(),
             retryAfter,
           },
-        }, this.statusCode);
+        });
       }
 
       // 记录本次请求
@@ -73,9 +73,9 @@ class RateLimiter {
       this.requests.set(key, timestamps);
 
       // 设置响应头
-      c.header('X-RateLimit-Limit', String(this.max));
-      c.header('X-RateLimit-Remaining', String(this.max - timestamps.length));
-      c.header('X-RateLimit-Reset', String(Math.ceil((now + this.windowMs) / 1000)));
+      res.setHeader('X-RateLimit-Limit', String(this.max));
+      res.setHeader('X-RateLimit-Remaining', String(this.max - timestamps.length));
+      res.setHeader('X-RateLimit-Reset', String(Math.ceil((now + this.windowMs) / 1000)));
 
       return next();
     };
@@ -106,10 +106,10 @@ const createAuthLimiter = () => new RateLimiter({
   windowMs: 15 * 60 * 1000, // 15 分钟
   max: 5, // 最多 5 次登录尝试
   message: '登录尝试过于频繁，请 15 分钟后再试',
-  keyGenerator: (c) => {
+  keyGenerator: (req) => {
     // 对于登录接口，使用用户名作为 key
-    const body = c.req.body || {};
-    return body.username || c.req.header('x-forwarded-for') || 'unknown';
+    const body = req.body || {};
+    return body.username || req.get('x-forwarded-for') || req.ip || 'unknown';
   },
 });
 

@@ -2,10 +2,18 @@ import { Readable } from 'stream';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { buildStreamHeaders } from './resolve-file-storage.js';
 
+const applyHeaders = (res, headers) => {
+  Object.entries(headers).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      res.setHeader(key, value);
+    }
+  });
+};
+
 /**
  * 处理分块文件流
  */
-async function handleChunkedStream(fileRecord, { start, end, isPartial, storageManager }) {
+async function handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager }) {
   const chunks = await ChunkManager.getChunks(fileRecord.id);
   if (!chunks || chunks.length === 0) {
     const error = new Error('分块记录缺失，无法重组文件');
@@ -28,16 +36,16 @@ async function handleChunkedStream(fileRecord, { start, end, isPartial, storageM
     totalSize: fileRecord.size
   });
 
-  return new Response(mergedStream, {
-    status: isPartial ? 206 : 200,
-    headers
-  });
+  applyHeaders(res, headers);
+  res.status(isPartial ? 206 : 200);
+  mergedStream.pipe(res);
+  return res;
 }
 
 /**
  * 处理普通文件流
  */
-async function handleRegularStream(fileRecord, storage, storageKey, { start, end, isPartial }) {
+async function handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial }) {
   const options = isPartial ? { start, end } : {};
 
   const fileStream = await storage.getStream(storageKey, options).catch(e => {
@@ -59,15 +67,16 @@ async function handleRegularStream(fileRecord, storage, storageKey, { start, end
     totalSize: fileRecord.size
   });
 
-  let responseStream = fileStream;
+  applyHeaders(res, headers);
+  res.status(isPartial ? 206 : 200);
+
   if (fileStream instanceof Readable) {
-    responseStream = Readable.toWeb(fileStream);
+    fileStream.pipe(res);
+    return res;
   }
 
-  return new Response(responseStream, {
-    status: isPartial ? 206 : 200,
-    headers
-  });
+  Readable.fromWeb(fileStream).pipe(res);
+  return res;
 }
 
 export { handleChunkedStream,

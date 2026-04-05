@@ -1,5 +1,6 @@
-import { Hono } from 'hono';
+import express from 'express';
 import crypto from 'crypto';
+import multer from 'multer';
 import storageManager from '../storage/manager.js';
 import sharp from 'sharp';
 import { sqlite } from '../database/index.js';
@@ -10,7 +11,8 @@ import { resolveUploadChannel } from '../services/upload/resolve-upload.js';
 import { checkUploadQuota } from '../services/upload/check-upload-quota.js';
 import { executeUploadWithFailover } from '../services/upload/execute-upload.js';
 
-const uploadApp = new Hono();
+const uploadApp = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
 
 function createResponseError(status, message) {
@@ -31,7 +33,7 @@ function validateUploadFile(file) {
 }
 
 async function extractFileMetadata(file) {
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const buffer = file.buffer;
   const originalName = file.name || 'blob';
   const rawExt = path.extname(originalName).toLowerCase();
   const mimeExt = file.type ? `.${file.type.split('/')[1]}`.replace('.jpeg', '.jpg') : '';
@@ -149,17 +151,22 @@ function buildUploadResponse({ fileId, newFileName, originalName, fileSize, widt
  * POST /api/upload
  * （可选择是否需要 adminAuth。根据需求目前加上管理员拦截。若作为公共图床，后续可配置为宽松模式）
  */
-uploadApp.post('/', requirePermission('upload:image'), async (c) => {
+uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), async (req, res) => {
   try {
-    const body = await c.req.parseBody();
-    const file = body['file'];
+    const body = req.body || {};
+    const file = req.file
+      ? {
+          ...req.file,
+          name: req.file.originalname,
+        }
+      : null;
 
     validateUploadFile(file);
 
     const { channelId } = resolveUploadChannel(body, storageManager, config);
     const quotaAllowed = await checkUploadQuota({ channelId, storageManager, db: sqlite, config });
     if (!quotaAllowed) {
-      return c.json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} }, 403);
+      return res.status(403).json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} });
     }
 
     const fileMeta = await extractFileMetadata(file);
@@ -192,8 +199,8 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
       width: fileMeta.width,
       height: fileMeta.height,
       exif: fileMeta.exif,
-      auth: c.get('auth'),
-      clientIp: c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || 'unknown',
+      auth: req.auth,
+      clientIp: req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown',
     });
 
     try {
@@ -219,7 +226,7 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     storageManager.recordUpload(uploadResult.finalChannelId);
     console.log(`[Upload] 文件上传成功 - ID: ${fileMeta.fileId}, Channel: ${uploadResult.finalChannelId}`);
 
-    return c.json(buildUploadResponse({
+    return res.json(buildUploadResponse({
       fileId: fileMeta.fileId,
       newFileName: fileMeta.newFileName,
       originalName: fileMeta.originalName,
@@ -231,15 +238,15 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     }));
   } catch (err) {
     if (err.status) {
-      return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+      return res.status(err.status).json({ code: err.status, message: err.message, error: {} });
     }
 
     console.error('[Upload] 上传过程中端点发生崩溃: ', err);
-    return c.json({
+    return res.status(500).json({
       code: 500,
       message: '处理文件上传异常',
       error: err.message,
-    }, 500);
+    });
   }
 });
 

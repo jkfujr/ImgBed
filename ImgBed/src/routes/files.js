@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import express from 'express';
 import { sqlite } from '../database/index.js';
 import { adminAuth, requirePermission } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
@@ -7,18 +7,18 @@ import { deleteFileRecord } from '../services/files/delete-file.js';
 import { executeFilesBatchAction } from '../services/files/batch-action.js';
 import { rebuildMetadataTask } from '../services/files/rebuild-metadata.js';
 
-const filesApp = new Hono();
+const filesApp = express.Router();
 
 /**
  * 文件列表接口 (带分页与简单过滤)
  * GET /api/files
  */
-filesApp.get('/', requirePermission('files:read'), async (c) => {
+filesApp.get('/', requirePermission('files:read'), async (req, res) => {
     try {
-        const page = parseInt(c.req.query('page') || '1');
-        const pageSize = parseInt(c.req.query('pageSize') || '20');
-        const directory = c.req.query('directory'); // 目录筛选目录
-        const search = c.req.query('search'); // 文件名搜索关键词
+        const page = parseInt(req.query.page || '1');
+        const pageSize = parseInt(req.query.pageSize || '20');
+        const directory = req.query.directory; // 目录筛选目录
+        const search = req.query.search; // 文件名搜索关键词
 
         // 列表接口排除 exif 字段以减小体积，仅返回宽高
         // SQL 拼装
@@ -60,7 +60,7 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
         const total = Number(countResult.total || 0);
         const totalPages = Math.ceil(total / pageSize);
 
-        return c.json({
+        return res.json({
             code: 0,
             message: 'success',
             data: {
@@ -75,7 +75,7 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
         });
     } catch (err) {
         console.error('[Files API] 查询文件列表失败:', err);
-        return c.json({ code: 500, message: '网络请求或数据库错误: 无法获取列表', error: err.message }, 500);
+        return res.status(500).json({ code: 500, message: '网络请求或数据库错误: 无法获取列表', error: err.message });
     }
 });
 
@@ -83,19 +83,19 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
  * 获取文件详细信息
  * GET /api/files/:id
  */
-filesApp.get('/:id', requirePermission('files:read'), async (c) => {
+filesApp.get('/:id', requirePermission('files:read'), async (req, res) => {
     try {
-        const id = c.req.param('id');
+        const id = req.params.id;
         const file = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
         
         if (!file) {
-            return c.json({ code: 404, message: '抱歉，指定的文件未找到', error: {} }, 404);
+            return res.status(404).json({ code: 404, message: '抱歉，指定的文件未找到', error: {} });
         }
 
-        return c.json({ code: 0, message: 'success', data: file });
+        return res.json({ code: 0, message: 'success', data: file });
     } catch (err) {
         console.error('[Files API] 获取单文件数据崩溃:', err);
-        return c.json({ code: 500, message: '无法获取其详情概览', error: err.message }, 500);
+        return res.status(500).json({ code: 500, message: '无法获取其详情概览', error: err.message });
     }
 });
 
@@ -103,10 +103,10 @@ filesApp.get('/:id', requirePermission('files:read'), async (c) => {
  * 修改文件属性名称或改变所处逻辑目录
  * PUT /api/files/:id
  */
-filesApp.put('/:id', adminAuth, async (c) => {
+filesApp.put('/:id', adminAuth, async (req, res) => {
     try {
-        const id = c.req.param('id');
-        const body = await c.req.json().catch(() => ({}));
+        const id = req.params.id;
+        const body = req.body || {};
         
         const updateData = {};
         if (body.file_name) updateData.file_name = body.file_name;
@@ -114,7 +114,7 @@ filesApp.put('/:id', adminAuth, async (c) => {
         if (body.is_public !== undefined) updateData.is_public = body.is_public ? 1 : 0;
 
         if (Object.keys(updateData).length === 0) {
-            return c.json({ code: 400, message: '未侦测到任何需要变更的可更新字段', error: {} }, 400);
+            return res.status(400).json({ code: 400, message: '未侦测到任何需要变更的可更新字段', error: {} });
         }
 
         const setClauses = Object.keys(updateData).map((k) => `${k} = ?`).join(', ');
@@ -124,13 +124,13 @@ filesApp.put('/:id', adminAuth, async (c) => {
         ).run(...setParams, id);
 
         if (!changes) {
-            return c.json({ code: 404, message: '指定文件不存在或者其值未发生任何变动', error: {} }, 404);
+            return res.status(404).json({ code: 404, message: '指定文件不存在或者其值未发生任何变动', error: {} });
         }
 
-        return c.json({ code: 0, message: '文件部分信息更新已完成', data: { id, ...updateData } });
+        return res.json({ code: 0, message: '文件部分信息更新已完成', data: { id, ...updateData } });
     } catch (err) {
         console.error('[Files API] 更新其部分属性意外结束:', err);
-        return c.json({ code: 500, message: '修改信息失手，请联系服务维护者查找问题', error: err.message }, 500);
+        return res.status(500).json({ code: 500, message: '修改信息失手，请联系服务维护者查找问题', error: err.message });
     }
 });
 
@@ -138,22 +138,22 @@ filesApp.put('/:id', adminAuth, async (c) => {
  * 执行硬删除销毁操作
  * DELETE /api/files/:id
  */
-filesApp.delete('/:id', adminAuth, async (c) => {
+filesApp.delete('/:id', adminAuth, async (req, res) => {
     try {
-        const id = c.req.param('id');
+        const id = req.params.id;
         const fileRecord = sqlite.prepare(
           'SELECT id, size, storage_key, storage_config, is_chunked FROM files WHERE id = ?'
         ).get(id);
         if (!fileRecord) {
-             return c.json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} }, 200);
+             return res.status(200).json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} });
         }
 
         await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager });
 
-        return c.json({ code: 0, message: '执行单体删除扫尾动作结束', data: { id } });
+        return res.json({ code: 0, message: '执行单体删除扫尾动作结束', data: { id } });
     } catch (err) {
         console.error('[Files API] 意外中断的 DELETE /:id', err);
-        return c.json({ code: 500, message: '数据库执行软连接摧毁或者代理节点断联', error: err.message }, 500);
+        return res.status(500).json({ code: 500, message: '数据库执行软连接摧毁或者代理节点断联', error: err.message });
     }
 });
 
@@ -161,9 +161,9 @@ filesApp.delete('/:id', adminAuth, async (c) => {
 并发管理端点 (目前支持数组批处理删除及分类移动)
  * POST /api/files/batch
  */
-filesApp.post('/batch', adminAuth, async (c) => {
+filesApp.post('/batch', adminAuth, async (req, res) => {
     try {
-        const body = await c.req.json().catch(() => ({}));
+        const body = req.body || {};
         const response = await executeFilesBatchAction({
             action: body.action,
             ids: body.ids,
@@ -173,13 +173,13 @@ filesApp.post('/batch', adminAuth, async (c) => {
             storageManager,
             ChunkManager,
         });
-        return c.json(response);
+        return res.json(response);
     } catch (err) {
         if (err.status) {
-            return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+            return res.status(err.status).json({ code: err.status, message: err.message, error: {} });
         }
         console.error('[Files API] 处理批处理流水线时崩溃:', err);
-        return c.json({ code: 500, message: '并发堆栈遭遇滑铁卢：' + err.message, error: err.message }, 500);
+        return res.status(500).json({ code: 500, message: '并发堆栈遭遇滑铁卢：' + err.message, error: err.message });
     }
 });
 
@@ -187,14 +187,14 @@ filesApp.post('/batch', adminAuth, async (c) => {
  * 重建元数据
  * POST /api/files/maintenance/rebuild-metadata
  */
-filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async (c) => {
-    const force = c.req.query('force') === 'true';
+filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async (req, res) => {
+    const force = req.query.force === 'true';
 
     (async () => {
         try {
             await rebuildMetadataTask({
                 force,
-                db,
+                db: sqlite,
                 storageManager,
             });
         } catch (err) {
@@ -202,7 +202,7 @@ filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async
         }
     })();
 
-    return c.json({
+    return res.json({
         code: 0,
         message: '元数据重建任务已在后台启动',
         data: { status: 'processing' }

@@ -1,4 +1,3 @@
-import { serve } from '@hono/node-server';
 import app from './src/app.js';
 import config from './src/config/index.js';
 import { initDb } from './src/database/index.js';
@@ -28,12 +27,9 @@ try {
 
 console.log(`[服务端] 正在启动服务，地址: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
 
-const server = serve({
-  fetch: app.fetch,
-  port: Number(port),
-  hostname: host
-}, (info) => {
-  console.log(`[服务端] 监听中，地址: http://${info.address}:${info.port}`);
+const server = app.listen(Number(port), host, () => {
+  const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+  console.log(`[服务端] 监听中，地址: http://${displayHost}:${port}`);
 });
 
 server.on('error', handleServerError);

@@ -14,17 +14,15 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
-    "@hono/node-server": "^1.19.12",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "file-uri-to-path": "^2.0.0",
-    "hono": "^4.12.9",
     "jose": "^6.2.2",
     "kysely": "^0.28.15",
+    "multer": "^2.0.2",
     "p-limit": "^7.3.0",
     "proxy-agent": "^6.5.0",
-    "server": "^1.0.0",
     "sharp": "^0.34.5"
   }
 }

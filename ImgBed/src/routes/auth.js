@@ -1,28 +1,28 @@
-import { Hono } from 'hono';
+import express from 'express';
 import config from '../config/index.js';
 import { signToken } from '../utils/jwt.js';
 import { adminAuth } from '../middleware/auth.js';
 import { sqlite } from '../database/index.js';
 import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
 
-const authApp = new Hono();
+const authApp = express.Router();
 
 /**
  * 登录接口
  * POST /api/auth/login
  */
-authApp.post('/login', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+authApp.post('/login', async (req, res) => {
+  const body = req.body || {};
   const { username, password } = body;
 
   const adminConfig = config.admin || {};
 
   if (!username || !password) {
-    return c.json({
+    return res.status(400).json({
       code: 400,
       message: '用户名或密码不可为空',
       error: {}
-    }, 400);
+    });
   }
 
   const isValid = await verifyAdminCredentials(username, password, adminConfig, sqlite);
@@ -36,7 +36,7 @@ authApp.post('/login', async (c) => {
     };
     const token = await signToken(payload);
 
-    return c.json({
+    return res.json({
       code: 0,
       message: '登录成功',
       data: {
@@ -46,11 +46,11 @@ authApp.post('/login', async (c) => {
       }
     });
   } else {
-    return c.json({
+    return res.status(401).json({
       code: 401,
       message: '用户名或密码不正确',
       error: {}
-    }, 401); // 这里标准一点返回 401 状态码更符合规范
+    });
   }
 });
 
@@ -58,11 +58,11 @@ authApp.post('/login', async (c) => {
  * 获取当前登录用户信息接口
  * GET /api/auth/me
  */
-authApp.get('/me', adminAuth, async (c) => {
+authApp.get('/me', adminAuth, async (req, res) => {
   // 经 adminAuth 拦截中间件后，从上下文中读取用户数据载荷
-  const user = c.get('user');
+  const user = req.user;
   
-  return c.json({
+  return res.json({
     code: 0,
     message: '获取成功',
     data: {
@@ -77,8 +77,8 @@ authApp.get('/me', adminAuth, async (c) => {
  * POST /api/auth/logout
  * 注: JWT本身是无状态的，实际效果由前端自行清除 localstorage token 控制
  */
-authApp.post('/logout', adminAuth, async (c) => {
-  return c.json({
+authApp.post('/logout', adminAuth, async (_req, res) => {
+  return res.json({
     code: 0,
     message: '登出成功',
     data: {}
@@ -89,12 +89,12 @@ authApp.post('/logout', adminAuth, async (c) => {
  * 修改管理员密码
  * PUT /api/auth/password
  */
-authApp.put('/password', adminAuth, async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+authApp.put('/password', adminAuth, async (req, res) => {
+  const body = req.body || {};
   const { newPassword } = body;
 
   if (!newPassword || newPassword.length < 6) {
-    return c.json({ code: 400, message: '新密码不能为空且长度不能少于6位', error: {} }, 400);
+    return res.status(400).json({ code: 400, message: '新密码不能为空且长度不能少于6位', error: {} });
   }
 
   try {
@@ -109,10 +109,10 @@ authApp.put('/password', adminAuth, async (c) => {
       ).run('admin_password', newPassword, 'auth', '管理员密码（覆盖 config.json）');
     }
 
-    return c.json({ code: 0, message: '密码修改成功', data: {} });
+    return res.json({ code: 0, message: '密码修改成功', data: {} });
   } catch (err) {
     console.error('[Auth API] 修改密码失败:', err);
-    return c.json({ code: 500, message: '密码修改失败：' + err.message, error: err.message }, 500);
+    return res.status(500).json({ code: 500, message: '密码修改失败：' + err.message, error: err.message });
   }
 });
 

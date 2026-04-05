@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import express from 'express';
 import { API_TOKEN_PERMISSIONS,
   generateTokenId,
   generatePlainApiToken,
@@ -10,9 +10,9 @@ import { adminAuth } from '../middleware/auth.js';
 import { sqlite } from '../database/index.js';
 import { validateTokenInput, createTokenRecord } from '../services/api-tokens/create-token.js';
 
-const apiTokensApp = new Hono();
+const apiTokensApp = express.Router();
 
-apiTokensApp.use('*', adminAuth);
+apiTokensApp.use(adminAuth);
 
 const toSafeToken = (tokenRow) => ({
   id: tokenRow.id,
@@ -29,26 +29,26 @@ const toSafeToken = (tokenRow) => ({
   is_expired: isExpired(tokenRow.expires_at)
 });
 
-apiTokensApp.get('/', async (c) => {
+apiTokensApp.get('/', async (_req, res) => {
   try {
     const list = sqlite.prepare(
       'SELECT * FROM api_tokens ORDER BY created_at DESC'
     ).all();
 
-    return c.json({
+    return res.json({
       code: 0,
       message: 'success',
       data: list.map(toSafeToken)
     });
   } catch (err) {
     console.error('[API Token] 获取列表失败:', err);
-    return c.json({ code: 500, message: '获取 API Token 列表失败', error: err.message }, 500);
+    return res.status(500).json({ code: 500, message: '获取 API Token 列表失败', error: err.message });
   }
 });
 
-apiTokensApp.post('/', async (c) => {
+apiTokensApp.post('/', async (req, res) => {
   try {
-    const body = await c.req.json().catch(() => ({}));
+    const body = req.body || {};
     const validated = validateTokenInput(body);
 
     const { plainToken, tokenPrefix } = generatePlainApiToken();
@@ -84,7 +84,7 @@ apiTokensApp.post('/', async (c) => {
       'SELECT * FROM api_tokens WHERE id = ? LIMIT 1'
     ).get(tokenRow.id);
 
-    return c.json({
+    return res.json({
       code: 0,
       message: 'API Token 创建成功',
       data: {
@@ -94,27 +94,27 @@ apiTokensApp.post('/', async (c) => {
     });
   } catch (err) {
     if (err.status) {
-      return c.json({ code: err.status, message: err.message, error: {} }, err.status);
+      return res.status(err.status).json({ code: err.status, message: err.message, error: {} });
     }
     console.error('[API Token] 创建失败:', err);
-    return c.json({ code: 500, message: '创建 API Token 失败', error: err.message }, 500);
+    return res.status(500).json({ code: 500, message: '创建 API Token 失败', error: err.message });
   }
 });
 
-apiTokensApp.delete('/:id', async (c) => {
+apiTokensApp.delete('/:id', async (req, res) => {
   try {
-    const id = c.req.param('id');
+    const id = req.params.id;
     const token = sqlite.prepare('SELECT id FROM api_tokens WHERE id = ? LIMIT 1').get(id);
 
     if (!token) {
-      return c.json({ code: 404, message: 'API Token 不存在', error: {} }, 404);
+      return res.status(404).json({ code: 404, message: 'API Token 不存在', error: {} });
     }
 
     sqlite.prepare('DELETE FROM api_tokens WHERE id = ?').run(id);
-    return c.json({ code: 0, message: 'API Token 已删除', data: { id } });
+    return res.json({ code: 0, message: 'API Token 已删除', data: { id } });
   } catch (err) {
     console.error('[API Token] 删除失败:', err);
-    return c.json({ code: 500, message: '删除 API Token 失败', error: err.message }, 500);
+    return res.status(500).json({ code: 500, message: '删除 API Token 失败', error: err.message });
   }
 });
 
