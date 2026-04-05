@@ -12,10 +12,13 @@ async function moveFilesBatch(ids, targetDirectory, db) {
     throw createFilesError(400, '执行移动批处理时，必须连通带有目标目录 (target_directory) 指针');
   }
 
-  await db.updateTable('files')
-    .set({ directory: targetDirectory })
-    .where('id', 'in', ids)
-    .execute();
+  // 使用事务确保批量更新的原子性
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable('files')
+      .set({ directory: targetDirectory })
+      .where('id', 'in', ids)
+      .execute();
+  });
 
   return {
     code: 0,

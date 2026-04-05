@@ -13,6 +13,13 @@ if (!fs.existsSync(dbDir)) {
 
 const sqlite = new Database(dbPath);
 
+// 启用 WAL 模式以提升并发读写性能
+sqlite.pragma('journal_mode = WAL');       // 写操作不阻塞读操作
+sqlite.pragma('synchronous = NORMAL');     // 平衡性能与安全性
+sqlite.pragma('cache_size = -64000');      // 64MB 缓存
+sqlite.pragma('temp_store = MEMORY');      // 临时表存内存
+sqlite.pragma('mmap_size = 268435456');    // 256MB 内存映射 I/O
+
 const db = new Kysely({
   dialect: new SqliteDialect({
     database: sqlite,
@@ -135,6 +142,12 @@ const initDb = () => {
             CREATE INDEX IF NOT EXISTS idx_files_storage_channel ON files(storage_channel);
             CREATE INDEX IF NOT EXISTS idx_files_mime_type ON files(mime_type);
             CREATE INDEX IF NOT EXISTS idx_files_is_chunked ON files(is_chunked);
+
+            -- 复合索引优化查询性能
+            CREATE INDEX IF NOT EXISTS idx_files_dir_time ON files(directory, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_channel_time ON files(storage_channel, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_uploader ON files(uploader_type, uploader_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_name_search ON files(file_name COLLATE NOCASE);
 
             -- directories 目录表
             CREATE TABLE IF NOT EXISTS directories (

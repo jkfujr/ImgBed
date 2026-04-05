@@ -75,27 +75,32 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     mimeType: fileRecord.mime_type,
   });
 
-  await db.updateTable('files')
-    .set({
-      storage_channel: targetEntry.type,
-      storage_key: uploadResult.id || fileRecord.storage_key,
-      storage_config: JSON.stringify({
-        instance_id: targetChannel,
-        extra_result: uploadResult,
-      }),
-    })
-    .where('id', '=', fileRecord.id)
-    .execute();
+  // 使用事务确保数据库更新和配额更新的原子性
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable('files')
+      .set({
+        storage_channel: targetEntry.type,
+        storage_key: uploadResult.id || fileRecord.storage_key,
+        storage_config: JSON.stringify({
+          instance_id: targetChannel,
+          extra_result: uploadResult,
+        }),
+      })
+      .where('id', '=', fileRecord.id)
+      .execute();
 
-  try {
-    const fileSize = Number(fileRecord.size) || 0;
-    if (sourceInstanceId) {
-      storageManager.updateQuotaCache(sourceInstanceId, -fileSize);
+    // 在事务内更新配额缓存
+    try {
+      const fileSize = Number(fileRecord.size) || 0;
+      if (sourceInstanceId) {
+        storageManager.updateQuotaCache(sourceInstanceId, -fileSize);
+      }
+      storageManager.updateQuotaCache(targetChannel, fileSize);
+    } catch (err) {
+      console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
+      throw err; // 抛出错误以回滚事务
     }
-    storageManager.updateQuotaCache(targetChannel, fileSize);
-  } catch (err) {
-    console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
-  }
+  });
 
   return { status: 'success' };
 }
