@@ -1,4 +1,8 @@
-const { parseStorageConfig } = require('../files/delete-file');
+import { parseStorageConfig } from '../files/delete-file.js';
+import TelegramStorage from '../../storage/telegram.js';
+import DiscordStorage from '../../storage/discord.js';
+import S3Storage from '../../storage/s3.js';
+import ExternalStorage from '../../storage/external.js';
 
 function resolveFileStorage(fileRecord, { storageManager, config }) {
   const configObj = parseStorageConfig(fileRecord.storage_config);
@@ -37,7 +41,6 @@ function resolveLegacyStorage(fileRecord, configObj, config) {
   const channel = fileRecord.storage_channel;
 
   if (channel === 'telegram' && fileRecord.telegram_bot_token) {
-    const TelegramStorage = require('../../storage/telegram');
     return new TelegramStorage({
       botToken: fileRecord.telegram_bot_token,
       proxyUrl: resolveTelegramLegacyProxy(configObj, config),
@@ -46,17 +49,14 @@ function resolveLegacyStorage(fileRecord, configObj, config) {
 
   if (channel === 'discord') {
     const dToken = configObj.original_meta?.DiscordBotToken || config.storage?.discordLegacyToken || '';
-    const DiscordStorage = require('../../storage/discord');
     return new DiscordStorage({ botToken: dToken });
   }
 
   if (channel === 's3' && configObj.legacy_s3) {
-    const S3Storage = require('../../storage/s3');
     return new S3Storage(configObj.legacy_s3);
   }
 
   if (channel === 'external' || channel === 'huggingface') {
-    const ExternalStorage = require('../../storage/external');
     const storage = new ExternalStorage({ baseUrl: '' });
     const originalUrl = configObj.original_meta?.Url || fileRecord.storage_key;
     return { ...storage, _overrideKey: originalUrl };
@@ -102,9 +102,7 @@ function buildStreamHeaders({ fileRecord, start, end, isPartial, totalSize }) {
   return headers;
 }
 
-module.exports = {
-  resolveFileStorage,
+export { resolveFileStorage,
   resolveLegacyStorage,
   parseRangeHeader,
-  buildStreamHeaders,
-};
+  buildStreamHeaders, };

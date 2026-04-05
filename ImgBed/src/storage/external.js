@@ -1,4 +1,4 @@
-const StorageProvider = require('./base');
+import StorageProvider from './base.js';
 
 /**
  * 外部代理 (External) 存储渠道实现
@@ -77,4 +77,4 @@ class ExternalStorage extends StorageProvider {
     }
 }
 
-module.exports = ExternalStorage;
+export default ExternalStorage;

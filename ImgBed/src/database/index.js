@@ -1,40 +1,40 @@
+import path from 'path';
+import fs from 'fs';
+import config from '../config/index.js';
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+
+// better-sqlite3 以 CommonJS 形式发布，需要 createRequire 在 ESM 中加载
+const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
-const { Kysely, SqliteDialect } = require('kysely');
-const path = require('path');
-const fs = require('fs');
-const config = require('../config');
 
 // 确保数据目录存在
-const dbPath = path.resolve(__dirname, '../../', config.database.path);
+const dbPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../', config.database.path);
 const dbDir = path.dirname(dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
+// better-sqlite3 默认开启 WAL 支持；这里仍按原配置显式设置
 const sqlite = new Database(dbPath);
 
 // 启用 WAL 模式以提升并发读写性能
-sqlite.pragma('journal_mode = WAL');       // 写操作不阻塞读操作
-sqlite.pragma('synchronous = NORMAL');     // 平衡性能与安全性
-sqlite.pragma('cache_size = -64000');      // 64MB 缓存
-sqlite.pragma('temp_store = MEMORY');      // 临时表存内存
-sqlite.pragma('mmap_size = 268435456');    // 256MB 内存映射 I/O
-
-const db = new Kysely({
-  dialect: new SqliteDialect({
-    database: sqlite,
-  }),
-});
+sqlite.exec('PRAGMA journal_mode = WAL');       // 写操作不阻塞读操作
+sqlite.exec('PRAGMA synchronous = NORMAL');     // 平衡性能与安全性
+sqlite.exec('PRAGMA cache_size = -64000');      // 64MB 缓存
+sqlite.exec('PRAGMA temp_store = MEMORY');      // 临时表存内存
+sqlite.exec('PRAGMA mmap_size = 268435456');    // 256MB 内存映射 I/O
 
 // ========== 数据库版本迁移机制 ==========
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 /**
  * 安全添加列（仅在迁移函数内部使用）
  */
 const _addColumnIfNotExists = (tableName, columnName, columnSql) => {
-  const columns = sqlite.prepare(`PRAGMA table_info(${tableName})`).all();
+  const stmt = sqlite.prepare(`PRAGMA table_info(${tableName})`);
+  const columns = stmt.all();
   const exists = columns.some((column) => column.name === columnName);
   if (!exists) {
     sqlite.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
@@ -54,6 +54,35 @@ const migrations = [
     _addColumnIfNotExists('files', 'uploader_type', 'uploader_type TEXT');
     _addColumnIfNotExists('files', 'uploader_id', 'uploader_id TEXT');
     _addColumnIfNotExists('chunks', 'size', 'size INTEGER DEFAULT 0');
+  },
+  // v2 → v3: files 表新增 storage_instance_id 冗余字段，优化容量统计查询
+  () => {
+    _addColumnIfNotExists('files', 'storage_instance_id', 'storage_instance_id TEXT');
+
+    // 创建索引
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_files_storage_instance ON files(storage_instance_id);`);
+    console.log('[数据库迁移] 创建索引: idx_files_storage_instance');
+
+    // 数据回填：从 storage_config JSON 提取 instance_id
+    console.log('[数据库迁移] 开始回填 storage_instance_id 字段...');
+    const selectStmt = sqlite.prepare('SELECT id, storage_config FROM files WHERE storage_instance_id IS NULL');
+    const files = selectStmt.all();
+    const updateStmt = sqlite.prepare('UPDATE files SET storage_instance_id = ? WHERE id = ?');
+
+    let updatedCount = 0;
+    for (const file of files) {
+      try {
+        const config = JSON.parse(file.storage_config || '{}');
+        if (config.instance_id) {
+          updateStmt.run(config.instance_id, file.id);
+          updatedCount++;
+        }
+      } catch (err) {
+        console.warn(`[数据库迁移] 文件 ${file.id} 的 storage_config 解析失败，跳过`);
+      }
+    }
+
+    console.log(`[数据库迁移] storage_instance_id 回填完成，共更新 ${updatedCount} 条记录`);
   }
 ];
 
@@ -62,7 +91,9 @@ const migrations = [
  * 检测当前版本，备份旧库，逐版本升级
  */
 const runMigrations = () => {
-  const currentVersion = sqlite.pragma('user_version', { simple: true });
+  const stmt = sqlite.prepare('PRAGMA user_version');
+  const result = stmt.get();
+  const currentVersion = result.user_version;
 
   if (currentVersion >= CURRENT_SCHEMA_VERSION) return;
 
@@ -83,7 +114,7 @@ const runMigrations = () => {
     }
   }
 
-  sqlite.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+  sqlite.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
   console.log(`[数据库迁移] 版本升级完成: v${currentVersion} → v${CURRENT_SCHEMA_VERSION}`);
 };
 
@@ -278,8 +309,10 @@ const initDb = () => {
     }
 };
 
-module.exports = {
-  db,
-  sqlite,
-  initDb
-};
+// 便捷封装：保持与常见调用一致性
+const run = (sql, params = []) => sqlite.prepare(sql).run(params);
+const get = (sql, params = []) => sqlite.prepare(sql).get(params);
+const all = (sql, params = []) => sqlite.prepare(sql).all(params);
+const transaction = (fn) => sqlite.transaction(fn);
+
+export { sqlite, initDb, run, get, all, transaction };

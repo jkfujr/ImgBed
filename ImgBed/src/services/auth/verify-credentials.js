@@ -10,10 +10,7 @@
  */
 async function getEffectiveAdminPassword(db, configPassword) {
   try {
-    const row = await db.selectFrom('system_settings')
-      .select('value')
-      .where('key', '=', 'admin_password')
-      .executeTakeFirst();
+    const row = db.prepare('SELECT value FROM system_settings WHERE key = ? LIMIT 1').get('admin_password');
     if (row) return row.value;
   } catch (_) {
     // 数据库未就绪时降级为 config 密码
@@ -38,7 +35,5 @@ async function verifyAdminCredentials(username, password, adminConfig, db) {
   return username === adminConfig.username && password === effectivePassword;
 }
 
-module.exports = {
-  getEffectiveAdminPassword,
-  verifyAdminCredentials,
-};
+export { getEffectiveAdminPassword,
+  verifyAdminCredentials, };

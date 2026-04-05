@@ -1,11 +1,11 @@
-const { Hono } = require('hono');
-const { Readable } = require('stream');
-const { db } = require('../database');
-const config = require('../config');
-const storageManager = require('../storage/manager');
-const ChunkManager = require('../storage/chunk-manager');
-const { resolveFileStorage, parseRangeHeader, buildStreamHeaders } = require('../services/view/resolve-file-storage');
-const { handleChunkedStream, handleRegularStream } = require('../services/view/handle-stream');
+import { Hono } from 'hono';
+import { Readable } from 'stream';
+import { sqlite } from '../database/index.js';
+import config from '../config/index.js';
+import storageManager from '../storage/manager.js';
+import ChunkManager from '../storage/chunk-manager.js';
+import { resolveFileStorage, parseRangeHeader, buildStreamHeaders } from '../services/view/resolve-file-storage.js';
+import { handleChunkedStream, handleRegularStream } from '../services/view/handle-stream.js';
 
 const viewApp = new Hono();
 
@@ -59,7 +59,7 @@ viewApp.get('/:id', async (c) => {
         }
 
         // 2. 查库获取元数据
-        const fileRecord = await db.selectFrom('files').selectAll().where('id', '=', id).executeTakeFirst();
+        const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
 
         if (!fileRecord) {
              return c.json({
@@ -91,4 +91,4 @@ viewApp.get('/:id', async (c) => {
     }
 });
 
-module.exports = viewApp;
+export default viewApp;

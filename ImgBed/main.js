@@ -1,7 +1,7 @@
-const { serve } = require('@hono/node-server');
-const app = require('./src/app');
-const config = require('./src/config');
-const { initDb } = require('./src/database');
+import { serve } from '@hono/node-server';
+import app from './src/app.js';
+import config from './src/config/index.js';
+import { initDb } from './src/database/index.js';
 
 const port = config.server?.port || 13000;
 const host = config.server?.host || '0.0.0.0';

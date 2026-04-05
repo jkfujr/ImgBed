@@ -1,12 +1,16 @@
-const config = require('../config');
+import config from '../config/index.js';
+import { sqlite } from '../database/index.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // 先前各渠道实现的类
-const LocalStorage = require('./local');
-const S3Storage = require('./s3');
-const TelegramStorage = require('./telegram');
-const DiscordStorage = require('./discord');
-const HuggingFaceStorage = require('./huggingface');
-const ExternalStorage = require('./external');
+import LocalStorage from './local.js';
+import S3Storage from './s3.js';
+import TelegramStorage from './telegram.js';
+import DiscordStorage from './discord.js';
+import HuggingFaceStorage from './huggingface.js';
+import ExternalStorage from './external.js';
 
 /**
  * 存储渠道管理器
@@ -53,19 +57,16 @@ class StorageManager {
      */
     async _loadQuotaFromHistory() {
         try {
-            const { db } = require('../database');
             // 为每个渠道取最新的记录
-            const latestRecords = await db
-                .selectFrom('storage_quota_history')
-                .select(['storage_id', 'used_bytes'])
-                .where(({ eb, selectFrom }) =>
-                    eb('id', 'in',
-                        selectFrom('storage_quota_history')
-                            .select(eb => eb.fn.max('id').as('max_id'))
-                            .groupBy('storage_id')
-                    )
-                )
-                .execute();
+            const latestRecords = sqlite.prepare(`
+                SELECT h.storage_id, h.used_bytes
+                FROM storage_quota_history h
+                INNER JOIN (
+                    SELECT storage_id, MAX(id) AS max_id
+                    FROM storage_quota_history
+                    GROUP BY storage_id
+                ) latest ON latest.max_id = h.id
+            `).all();
 
             for (const record of latestRecords) {
                 this.quotaCache.set(record.storage_id, Number(record.used_bytes) || 0);
@@ -85,12 +86,9 @@ class StorageManager {
      */
     async getQuotaHistory(storageId, limit = 100) {
         try {
-            const { db } = require('../database');
-            return await db.selectFrom('storage_quota_history')
-                .where('storage_id', '=', storageId)
-                .orderBy('recorded_at', 'desc')
-                .limit(limit)
-                .execute();
+            return sqlite.prepare(
+                'SELECT * FROM storage_quota_history WHERE storage_id = ? ORDER BY recorded_at DESC LIMIT ?'
+            ).all(storageId, limit);
         } catch (err) {
             console.error('[StorageManager] 获取容量历史失败:', err.message);
             return [];
@@ -205,17 +203,13 @@ class StorageManager {
      * 在通过 API 修改存储渠道配置后调用，使变更立即生效
      */
     async reload() {
-        const fs = require('fs');
-        const path = require('path');
-        const { db } = require('../database');
-
         try {
-            const cfgPath = path.resolve(__dirname, '../../config.json');
+            const cfgPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
             const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
             const storagesInFile = fileCfg.storage?.storages || [];
 
             // 从数据库读取元数据
-            const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+            const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
             const dbMap = new Map(dbChannels.map(c => [c.id, c]));
 
             this.instances.clear();
@@ -287,12 +281,8 @@ class StorageManager {
      * 初始化使用统计（从数据库加载各渠道文件数）
      */
     async _initUsageStats() {
-        const { db } = require('../database');
         try {
-            const files = await db
-                .selectFrom('files')
-                .select('storage_config')
-                .execute();
+            const files = sqlite.prepare('SELECT storage_config FROM files').all();
 
             this.usageStats.clear();
             for (const file of files) {
@@ -460,20 +450,14 @@ class StorageManager {
      * 全量重建容量缓存（从数据库统计）
      */
     async _rebuildAllQuotaStats() {
-        const { db } = require('../database');
         try {
-            const result = await db
-                .selectFrom('files')
-                .select(['size', 'storage_config'])
-                .execute();
+            const result = sqlite.prepare('SELECT size, storage_instance_id FROM files').all();
 
             // 临时统计对象
             const newStats = new Map();
 
             for (const row of result) {
-                let cfg;
-                try { cfg = JSON.parse(row.storage_config || '{}'); } catch (e) { continue; }
-                const instanceId = cfg.instance_id;
+                const instanceId = row.storage_instance_id;
                 const fileSize = Number(row.size) || 0;
                 if (instanceId) {
                     newStats.set(instanceId, (newStats.get(instanceId) || 0) + fileSize);
@@ -494,9 +478,13 @@ class StorageManager {
 
             // 批量插入历史记录
             if (historyRecords.length > 0) {
-                await db.insertInto('storage_quota_history')
-                    .values(historyRecords)
-                    .execute();
+                const insertHistoryStmt = sqlite.prepare(
+                    'INSERT INTO storage_quota_history (storage_id, used_bytes) VALUES (@storage_id, @used_bytes)'
+                );
+                const insertHistoryBatch = sqlite.transaction((records) => {
+                    for (const record of records) insertHistoryStmt.run(record);
+                });
+                insertHistoryBatch(historyRecords);
             }
 
             console.log(`[StorageManager] 容量缓存全量校正完成，已持久化 ${historyRecords.length} 条记录`);
@@ -618,4 +606,4 @@ class StorageManager {
 
 // 导出单例实例，以确保只解析和持有一次配置
 const storageManager = new StorageManager();
-module.exports = storageManager;
+export default storageManager;

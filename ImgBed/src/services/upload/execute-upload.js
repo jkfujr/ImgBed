@@ -1,5 +1,5 @@
-const ChunkManager = require('../../storage/chunk-manager');
-const { createUploadError } = require('./resolve-upload');
+import ChunkManager from '../../storage/chunk-manager.js';
+import { createUploadError } from './resolve-upload.js';
 
 function isRetryableError(error) {
   const networkCodes = ['ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN'];
@@ -173,7 +173,5 @@ async function executeUploadWithFailover({
   throw createUploadError(500, '上传失败');
 }
 
-module.exports = {
-  executeUploadWithFailover,
-  isRetryableError,
-};
+export { executeUploadWithFailover,
+  isRetryableError, };

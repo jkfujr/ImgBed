@@ -1,4 +1,4 @@
-const StorageProvider = require('./base');
+import StorageProvider from './base.js';
 
 /**
  * Discord API 封装类
@@ -253,4 +253,4 @@ class DiscordStorage extends StorageProvider {
     }
 }
 
-module.exports = DiscordStorage;
+export default DiscordStorage;

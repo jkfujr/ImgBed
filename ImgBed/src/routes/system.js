@@ -1,19 +1,21 @@
-const { Hono } = require('hono');
-const path = require('path');
-const { adminAuth } = require('../middleware/auth');
-const storageManager = require('../storage/manager');
-const { db } = require('../database');
-const config = require('../config');
-const { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels } = require('../services/system/config-io');
-const { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannelMeta } = require('../services/system/storage-channel-sync');
-const { applyStorageConfigChange } = require('../services/system/apply-storage-config');
-const { updateUploadConfig, applyStorageFieldUpdates } = require('../services/system/update-config-fields');
-const { calculateQuotaStatsFromDB } = require('../services/system/calculate-quota-stats');
-const { updateLoadBalanceConfig } = require('../services/system/update-load-balance');
-const { buildNewStorageChannel, validateStorageChannelInput } = require('../services/system/create-storage-channel');
+import { Hono } from 'hono';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+import { adminAuth } from '../middleware/auth.js';
+import storageManager from '../storage/manager.js';
+import { sqlite } from '../database/index.js';
+import config from '../config/index.js';
+import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels } from '../services/system/config-io.js';
+import { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannelMeta } from '../services/system/storage-channel-sync.js';
+import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
+import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
+import { calculateQuotaStatsFromDB } from '../services/system/calculate-quota-stats.js';
+import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
+import { buildNewStorageChannel, validateStorageChannelInput } from '../services/system/create-storage-channel.js';
 
 const systemApp = new Hono();
-const configPath = path.resolve(__dirname, '../../config.json');
+const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
 
 // 敏感字段列表
 const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
@@ -92,7 +94,7 @@ systemApp.get('/storages', async (c) => {
     const quotaStats = storageManager.getAllQuotaStats();
 
     // 从数据库读取元数据
-    const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+    const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
     const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
 
     // 合并数据
@@ -126,7 +128,7 @@ systemApp.get('/storages/stats', async (c) => {
     const fileStorages = cfg.storage?.storages || [];
 
     // 从数据库读取元数据
-    const dbChannels = await db.selectFrom('storage_channels').selectAll().execute();
+    const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
     const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
 
     // 统计数据
@@ -252,7 +254,7 @@ systemApp.post('/storages', async (c) => {
     const newStorage = buildNewStorageChannel(body);
     cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
 
-    await insertStorageChannelMeta(newStorage, db);
+    await insertStorageChannelMeta(newStorage, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
     return c.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
@@ -289,7 +291,7 @@ systemApp.put('/storages/:id', async (c) => {
       }
     }
 
-    await updateStorageChannelMeta(id, existing, db);
+    await updateStorageChannelMeta(id, existing, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
     return c.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
@@ -313,7 +315,7 @@ systemApp.delete('/storages/:id', async (c) => {
     if (cfg.storage.storages.length === before)
       return c.json({ code: 404, message: `渠道 "${id}" 不存在` }, 404);
 
-    await deleteStorageChannelMeta(id, db);
+    await deleteStorageChannelMeta(id, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
     return c.json({ code: 0, message: '存储渠道已删除' });
@@ -354,7 +356,7 @@ systemApp.put('/storages/:id/toggle', async (c) => {
 
     storage.enabled = !storage.enabled;
 
-    await updateStorageChannelMeta(id, storage, db);
+    await updateStorageChannelMeta(id, storage, sqlite);
     await applyStorageConfigChange({ cfg, configPath, storageManager });
 
     return c.json({
@@ -379,7 +381,7 @@ systemApp.get('/quota-stats', async (c) => {
     let stats;
 
     if (mode === 'always') {
-      stats = await calculateQuotaStatsFromDB(db, configPath);
+      stats = await calculateQuotaStatsFromDB(sqlite, configPath);
     } else {
       // 自动模式：从缓存读取
       stats = storageManager.getAllQuotaStats();
@@ -400,4 +402,4 @@ systemApp.get('/quota-stats', async (c) => {
   }
 });
 
-module.exports = systemApp;
+export default systemApp;

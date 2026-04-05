@@ -72,7 +72,5 @@ function applyStorageFieldUpdates(existing, body) {
   if (body.maxLimitMB !== undefined) existing.maxLimitMB = Number(body.maxLimitMB) || 100;
 }
 
-module.exports = {
-  updateUploadConfig,
-  applyStorageFieldUpdates,
-};
+export { updateUploadConfig,
+  applyStorageFieldUpdates, };

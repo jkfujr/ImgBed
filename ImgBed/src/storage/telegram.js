@@ -1,5 +1,5 @@
-const StorageProvider = require('./base');
-const { fetchWithProxy } = require('../network/proxy');
+import StorageProvider from './base.js';
+import { fetchWithProxy } from '../network/proxy.js';
 
 /**
  * Telegram API 封装类
@@ -236,4 +236,4 @@ class TelegramStorage extends StorageProvider {
     }
 }
 
-module.exports = TelegramStorage;
+export default TelegramStorage;

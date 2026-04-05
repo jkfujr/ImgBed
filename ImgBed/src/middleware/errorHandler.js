@@ -17,6 +17,4 @@ const registerErrorHandlers = (app) => {
   });
 };
 
-module.exports = {
-  registerErrorHandlers
-};
+export { registerErrorHandlers };

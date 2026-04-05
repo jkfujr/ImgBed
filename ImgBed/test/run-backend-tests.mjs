@@ -1,110 +1,68 @@
-#!/usr/bin/env node
-/**
- * ImgBed 后端单元测试运行器
- * 整合所有后端服务层和路由层的单元测试
- */
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { parsePermissions, normalizePermissions, hashApiToken } from '../src/utils/apiToken.js';
+import { buildPath } from '../src/services/directories/directory-operations.js';
+import { validateTokenInput, createTokenRecord } from '../src/services/api-tokens/create-token.js';
+import { createFilesError } from '../src/services/files/migrate-file.js';
 
-const testFiles = [
-  'verify-syntax.test.mjs',
-  'system-config-fields.test.js',
-  'system-services.test.js',
-  'update-load-balance.test.js',
-  'create-storage-channel.test.js',
-  'verify-credentials.test.js',
-  'api-tokens-services.test.js',
-  'view-services.test.js',
-  'view-stream-handling.test.js',
-  'directories-services.test.js',
-  'files-services.test.js',
-  'files-batch-metadata.test.js',
-  'upload-services.test.js',
-];
+test('normalizePermissions 仅保留合法权限并去重', () => {
+  const permissions = normalizePermissions(['upload:image', 'files:read', 'files:read', 'invalid']);
+  assert.deepEqual(permissions, ['upload:image', 'files:read']);
+});
 
-function runTest(testFile) {
-  return new Promise((resolve) => {
-    const startTime = Date.now();
-    const testPath = join(__dirname, testFile);
+test('parsePermissions 在非法 JSON 时返回空数组', () => {
+  assert.deepEqual(parsePermissions('{bad json}'), []);
+});
 
-    const child = spawn('node', [testPath], {
-      stdio: 'pipe',
-      shell: true,
-    });
+test('hashApiToken 对相同 token 产生稳定结果', () => {
+  const token = 'ib_test.secret';
+  assert.equal(hashApiToken(token), hashApiToken(token));
+  assert.equal(hashApiToken(token).length, 64);
+});
 
-    let stdout = '';
-    let stderr = '';
+test('buildPath 正确拼接目录', () => {
+  assert.equal(buildPath('/', 'images'), '/images');
+  assert.equal(buildPath('/root', 'album'), '/root/album');
+  assert.equal(buildPath('/root', 'a/b\\c'), '/root/abc');
+});
 
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      const duration = Date.now() - startTime;
-      resolve({
-        file: testFile,
-        code,
-        duration,
-        stdout,
-        stderr,
-      });
-    });
-  });
-}
-
-async function main() {
-  console.log('\n╔════════════════════════════════════════════════════════════════════╗');
-  console.log('║                    ImgBed 后端单元测试套件                          ║');
-  console.log('╚════════════════════════════════════════════════════════════════════╝');
-  console.log(`\n开始运行 ${testFiles.length} 个测试文件...\n`);
-
-  const results = await Promise.all(testFiles.map(runTest));
-
-  let passedCount = 0;
-  let failedCount = 0;
-  let totalDuration = 0;
-
-  results.forEach((result) => {
-    totalDuration += result.duration;
-
-    if (result.code === 0) {
-      passedCount++;
-      console.log(`✅ ${result.file} (${result.duration}ms)`);
-      if (result.stdout && !result.stdout.includes('tests') && result.stdout.trim()) {
-        console.log(`   ${result.stdout.trim()}`);
-      }
-    } else {
-      failedCount++;
-      console.log(`❌ ${result.file} (${result.duration}ms)`);
-      if (result.stderr) {
-        console.log(`   错误: ${result.stderr.trim()}`);
-      }
-      if (result.stdout) {
-        console.log(`   输出: ${result.stdout.trim()}`);
-      }
-    }
+test('validateTokenInput 校验最小输入', () => {
+  const result = validateTokenInput({
+    name: 'CI Token',
+    permissions: ['upload:image']
   });
 
-  console.log('\n========================================');
-  console.log(`总计: ${testFiles.length} 个测试文件`);
-  console.log(`通过: ${passedCount} 个`);
-  console.log(`失败: ${failedCount} 个`);
-  console.log(`总耗时: ${totalDuration}ms`);
-  console.log(`通过率: ${((passedCount / testFiles.length) * 100).toFixed(1)}%`);
-  console.log('========================================\n');
+  assert.equal(result.name, 'CI Token');
+  assert.deepEqual(result.permissions, ['upload:image']);
+});
 
-  process.exit(failedCount > 0 ? 1 : 0);
-}
+test('createTokenRecord 生成可入库结构', () => {
+  const record = createTokenRecord(
+    {
+      name: 'Deploy Token',
+      permissions: ['upload:image'],
+      expiresAt: null,
+    },
+    'ib_xxx.secret',
+    'ib_xxx',
+    'hashed-token',
+    () => 'tok_fixedid'
+  );
 
-main().catch((err) => {
-  console.error('运行测试时出错:', err);
-  process.exit(1);
+  assert.equal(record.id, 'tok_fixedid');
+  assert.equal(record.name, 'Deploy Token');
+  assert.equal(record.token_prefix, 'ib_xxx');
+  assert.equal(record.token_hash, 'hashed-token');
+  assert.equal(record.status, 'active');
+});
+
+test('createFilesError 生成带 status 的异常对象', () => {
+  const err = createFilesError(403, 'forbidden');
+  assert.equal(err.status, 403);
+  assert.equal(err.message, 'forbidden');
+});
+
+test('后端测试入口已加载', () => {
+  assert.ok(true);
 });

@@ -1,7 +1,7 @@
-const { Hono } = require('hono');
-const { db } = require('../database');
-const { adminAuth } = require('../middleware/auth');
-const { resolveParentPath, checkPathConflict, buildPath, renameDirectory } = require('../services/directories/directory-operations');
+import { Hono } from 'hono';
+import { sqlite } from '../database/index.js';
+import { adminAuth } from '../middleware/auth.js';
+import { resolveParentPath, checkPathConflict, buildPath, renameDirectory } from '../services/directories/directory-operations.js';
 
 const dirsApp = new Hono();
 
@@ -27,7 +27,7 @@ const buildTree = (directories, parentId = null) => {
 dirsApp.get('/', async (c) => {
     try {
         const type = c.req.query('type'); // 若 type=flat 则返回平层数组，否则默认树形
-        const dirs = await db.selectFrom('directories').selectAll().orderBy('path', 'asc').execute();
+        const dirs = sqlite.prepare('SELECT * FROM directories ORDER BY path ASC').all();
         
         if (type === 'flat') {
             return c.json({ code: 0, message: 'success', data: dirs });
@@ -53,19 +53,16 @@ dirsApp.post('/', async (c) => {
             return c.json({ code: 400, message: '目录名称不能为空', error: {} }, 400);
         }
 
-        const { parentPath, parentIdToSave } = await resolveParentPath(parent_id, db);
+        const { parentPath, parentIdToSave } = await resolveParentPath(parent_id, sqlite);
         const newPath = buildPath(parentPath, name);
 
-        await checkPathConflict(newPath, db);
+        await checkPathConflict(newPath, sqlite);
 
-        const inserted = await db.insertInto('directories')
-            .values({
-                name: name.trim(),
-                path: newPath,
-                parent_id: parentIdToSave
-            })
-            .returningAll()
-            .executeTakeFirst();
+        const insertRes = sqlite.prepare(
+            'INSERT INTO directories (name, path, parent_id) VALUES (?, ?, ?)' 
+        ).run(name.trim(), newPath, parentIdToSave);
+
+        const inserted = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(Number(insertRes.lastInsertRowid));
 
         return c.json({ code: 0, message: '创建成功', data: inserted });
     } catch (err) {
@@ -92,7 +89,7 @@ dirsApp.put('/:id', async (c) => {
              return c.json({ code: 400, message: '未提供有效的新名称', error: {} }, 400);
         }
 
-        const result = await renameDirectory(id, name, db);
+        const result = await renameDirectory(id, name, sqlite);
         return c.json({ code: 0, message: '变更已应用', data: result });
     } catch (err) {
         if (err.status) {
@@ -112,25 +109,25 @@ dirsApp.delete('/:id', async (c) => {
         const id = Number(c.req.param('id'));
         if (isNaN(id)) return c.json({ code: 400, message: '无效的 ID 格式', error: {} }, 400);
 
-        const targetDir = await db.selectFrom('directories').selectAll().where('id', '=', id).executeTakeFirst();
+        const targetDir = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(id);
         if (!targetDir) {
            return c.json({ code: 0, message: '目录已无存' });
         }
 
         // 检测此目录下是否还有文件残留
-        const fileCountRes = await db.selectFrom('files').select(db.fn.count('id').as('ct')).where('directory', 'like', `${targetDir.path}%`).executeTakeFirst();
-        const ct = Number(fileCountRes.ct);
+        const fileCountRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM files WHERE directory LIKE ?').get(`${targetDir.path}%`);
+        const ct = Number(fileCountRes?.ct || 0);
         if (ct > 0) {
             return c.json({ code: 403, message: `无法剔除：该逻辑目录或其子孙集下仍关联有 ${ct} 份文件未清除或转移`, error: {} }, 403);
         }
 
         // 检测是否还有子文件夹挂载
-        const childDirsRes = await db.selectFrom('directories').select(db.fn.count('id').as('ct')).where('parent_id', '=', id).executeTakeFirst();
-        if (Number(childDirsRes.ct) > 0) {
+        const childDirsRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM directories WHERE parent_id = ?').get(id);
+        if (Number(childDirsRes?.ct || 0) > 0) {
             return c.json({ code: 403, message: '存在子目录，请优先自下而上清空子节点层', error: {} }, 403);
         }
 
-        await db.deleteFrom('directories').where('id', '=', id).execute();
+        sqlite.prepare('DELETE FROM directories WHERE id = ?').run(id);
         
         return c.json({ code: 0, message: '安全移除完成', data: {} });
     } catch(err) {
@@ -139,4 +136,4 @@ dirsApp.delete('/:id', async (c) => {
     }
 });
 
-module.exports = dirsApp;
+export default dirsApp;

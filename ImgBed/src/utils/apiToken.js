@@ -1,5 +1,5 @@
-const crypto = require('crypto');
-const { db } = require('../database');
+import crypto from 'crypto';
+import { sqlite } from '../database/index.js';
 
 const API_TOKEN_PERMISSIONS = {
   UPLOAD_IMAGE: 'upload:image',
@@ -63,28 +63,23 @@ const buildApiTokenAuth = (tokenRow) => {
 
 const verifyApiToken = async (plainToken, requestIp) => {
   const tokenHash = hashApiToken(plainToken);
-  const tokenRow = await db.selectFrom('api_tokens')
-    .selectAll()
-    .where('token_hash', '=', tokenHash)
-    .executeTakeFirst();
+
+  const tokenRow = sqlite.prepare(
+    'SELECT * FROM api_tokens WHERE token_hash = ? LIMIT 1'
+  ).get(tokenHash);
 
   if (!tokenRow) return null;
   if (tokenRow.status !== 'active') return null;
   if (isExpired(tokenRow.expires_at)) return null;
 
-  await db.updateTable('api_tokens')
-    .set({
-      last_used_at: new Date().toISOString(),
-      last_used_ip: requestIp || 'unknown'
-    })
-    .where('id', '=', tokenRow.id)
-    .execute();
+  sqlite.prepare(
+    'UPDATE api_tokens SET last_used_at = ?, last_used_ip = ? WHERE id = ?'
+  ).run(new Date().toISOString(), requestIp || 'unknown', tokenRow.id);
 
   return buildApiTokenAuth(tokenRow);
 };
 
-module.exports = {
-  API_TOKEN_PERMISSIONS,
+export { API_TOKEN_PERMISSIONS,
   ALLOWED_API_TOKEN_PERMISSIONS,
   generateTokenId,
   generatePlainApiToken,
@@ -93,5 +88,4 @@ module.exports = {
   parsePermissions,
   isExpired,
   buildApiTokenAuth,
-  verifyApiToken
-};
+  verifyApiToken };

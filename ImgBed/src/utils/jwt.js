@@ -1,5 +1,5 @@
-const { SignJWT, jwtVerify } = require('jose');
-const config = require('../config');
+import { SignJWT, jwtVerify } from 'jose';
+import config from '../config/index.js';
 
 // 将配置中的密钥转换为 Uint8Array
 const secretKey = new TextEncoder().encode(config.jwt?.secret || 'fallback-secret-key-12345678');
@@ -33,7 +33,5 @@ async function verifyToken(token) {
   }
 }
 
-module.exports = {
-  signToken,
-  verifyToken
-};
+export { signToken,
+  verifyToken };

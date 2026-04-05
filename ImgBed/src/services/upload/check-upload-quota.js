@@ -6,19 +6,20 @@ async function checkUploadQuota({ channelId, storageManager, db, config }) {
   }
 
   try {
-    const result = await db
-      .selectFrom('files')
-      .select(['size', 'storage_config'])
-      .execute();
+    const result = db.prepare('SELECT size, storage_instance_id, storage_config FROM files').all();
 
     let totalBytes = 0;
     for (const row of result) {
-      let storageConfig = {};
-      try {
-        storageConfig = JSON.parse(row.storage_config || '{}');
-      } catch {}
+      let instanceId = row.storage_instance_id;
+      if (!instanceId) {
+        let storageConfig = {};
+        try {
+          storageConfig = JSON.parse(row.storage_config || '{}');
+        } catch {}
+        instanceId = storageConfig.instance_id;
+      }
 
-      if (storageConfig.instance_id === channelId) {
+      if (instanceId === channelId) {
         totalBytes += Number(row.size) || 0;
       }
     }
@@ -30,6 +31,4 @@ async function checkUploadQuota({ channelId, storageManager, db, config }) {
   }
 }
 
-module.exports = {
-  checkUploadQuota,
-};
+export { checkUploadQuota, };

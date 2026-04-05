@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const { db } = require('../database');
+import fs from 'fs';
+import path from 'path';
+import { sqlite } from '../database/index.js';
 
 /**
  * 格式化 ISO 日期
@@ -71,20 +71,19 @@ async function runMigration() {
 
     for (const dirPath of dirArray) {
         // 判断它在库里存在吗
-        let existing = await db.selectFrom('directories').selectAll().where('path', '=', dirPath).executeTakeFirst();
+        let existing = sqlite.prepare('SELECT id FROM directories WHERE path = ?').get(dirPath);
         if (!existing) {
             const parts = dirPath.split('/');
             const name = parts[parts.length - 1];
-            
-            // 找出父极
+
+            // 找出父级
             const parentPath = parts.slice(0, -1).join('/') || '/';
             const parentId = dirIdMap[parentPath] || null;
 
-            existing = await db.insertInto('directories').values({
-                name,
-                path: dirPath,
-                parent_id: parentId
-            }).returning('id').executeTakeFirst();
+            const res = sqlite.prepare(
+                'INSERT INTO directories (name, path, parent_id) VALUES (?, ?, ?)'
+            ).run(name, dirPath, parentId);
+            existing = { id: Number(res.lastInsertRowid) };
         }
         dirIdMap[dirPath] = existing.id;
     }
@@ -184,9 +183,29 @@ async function runMigration() {
     // ============================================
     console.log(`[Migrate] 开始并发表批插文件，共计 ${recordsToInsert.length} 份数据...`);
     const BATCH_SIZE = 100;
+    const insertStmt = sqlite.prepare(`INSERT INTO files (
+        id, file_name, original_name, mime_type, size,
+        storage_channel, storage_key, storage_config,
+        upload_ip, created_at, updated_at,
+        directory, tags, is_public,
+        telegram_file_id, telegram_chat_id, telegram_bot_token,
+        discord_message_id, discord_channel_id
+    ) VALUES (
+        @id, @file_name, @original_name, @mime_type, @size,
+        @storage_channel, @storage_key, @storage_config,
+        @upload_ip, @created_at, @updated_at,
+        @directory, @tags, @is_public,
+        @telegram_file_id, @telegram_chat_id, @telegram_bot_token,
+        @discord_message_id, @discord_channel_id
+    )`);
+
+    const insertBatch = sqlite.transaction((batch) => {
+        for (const rec of batch) insertStmt.run(rec);
+    });
+
     for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
         const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
-        await db.insertInto('files').values(batch).execute();
+        insertBatch(batch);
         console.log(`[Migrate] 已推入 ${i + batch.length} 条...`);
     }
 

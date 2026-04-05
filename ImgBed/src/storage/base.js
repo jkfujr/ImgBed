@@ -99,4 +99,4 @@ class StorageProvider {
   }
 }
 
-module.exports = StorageProvider;
+export default StorageProvider;

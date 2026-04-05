@@ -1,14 +1,14 @@
-const { Hono } = require('hono');
-const crypto = require('crypto');
-const storageManager = require('../storage/manager');
-const sharp = require('sharp');
-const { db } = require('../database');
-const { requirePermission } = require('../middleware/auth');
-const config = require('../config');
-const path = require('path');
-const { resolveUploadChannel } = require('../services/upload/resolve-upload');
-const { checkUploadQuota } = require('../services/upload/check-upload-quota');
-const { executeUploadWithFailover } = require('../services/upload/execute-upload');
+import { Hono } from 'hono';
+import crypto from 'crypto';
+import storageManager from '../storage/manager.js';
+import sharp from 'sharp';
+import { sqlite } from '../database/index.js';
+import { requirePermission } from '../middleware/auth.js';
+import config from '../config/index.js';
+import path from 'path';
+import { resolveUploadChannel } from '../services/upload/resolve-upload.js';
+import { checkUploadQuota } from '../services/upload/check-upload-quota.js';
+import { executeUploadWithFailover } from '../services/upload/execute-upload.js';
 
 const uploadApp = new Hono();
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
@@ -100,6 +100,7 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
       instance_id: finalChannelId,
       extra_result: storageResult,
     }),
+    storage_instance_id: String(finalChannelId),
     upload_ip: String(clientIp),
     upload_address: '{}',
     uploader_type: String(auth?.type || 'admin_jwt'),
@@ -156,7 +157,7 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     validateUploadFile(file);
 
     const { channelId } = resolveUploadChannel(body, storageManager, config);
-    const quotaAllowed = await checkUploadQuota({ channelId, storageManager, db, config });
+    const quotaAllowed = await checkUploadQuota({ channelId, storageManager, db: sqlite, config });
     if (!quotaAllowed) {
       return c.json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} }, 403);
     }
@@ -196,7 +197,19 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
     });
 
     try {
-      await db.insertInto('files').values(dbRecord).execute();
+      sqlite.prepare(`INSERT INTO files (
+        id, file_name, original_name, mime_type, size,
+        storage_channel, storage_key, storage_config, storage_instance_id,
+        upload_ip, upload_address, uploader_type, uploader_id,
+        directory, tags, is_public, is_chunked, chunk_count,
+        width, height, exif
+      ) VALUES (
+        @id, @file_name, @original_name, @mime_type, @size,
+        @storage_channel, @storage_key, @storage_config, @storage_instance_id,
+        @upload_ip, @upload_address, @uploader_type, @uploader_id,
+        @directory, @tags, @is_public, @is_chunked, @chunk_count,
+        @width, @height, @exif
+      )`).run(dbRecord);
     } catch (insertErr) {
       console.error('[Upload] 数据库写入失败! 导致 SQLite 报错的数据快照:', JSON.stringify(dbRecord, null, 2));
       throw insertErr;
@@ -230,4 +243,4 @@ uploadApp.post('/', requirePermission('upload:image'), async (c) => {
   }
 });
 
-module.exports = uploadApp;
+export default uploadApp;

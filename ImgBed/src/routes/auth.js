@@ -1,9 +1,9 @@
-const { Hono } = require('hono');
-const config = require('../config');
-const { signToken } = require('../utils/jwt');
-const { adminAuth } = require('../middleware/auth');
-const { db } = require('../database');
-const { verifyAdminCredentials } = require('../services/auth/verify-credentials');
+import { Hono } from 'hono';
+import config from '../config/index.js';
+import { signToken } from '../utils/jwt.js';
+import { adminAuth } from '../middleware/auth.js';
+import { sqlite } from '../database/index.js';
+import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
 
 const authApp = new Hono();
 
@@ -25,7 +25,7 @@ authApp.post('/login', async (c) => {
     }, 400);
   }
 
-  const isValid = await verifyAdminCredentials(username, password, adminConfig, db);
+  const isValid = await verifyAdminCredentials(username, password, adminConfig, sqlite);
 
   if (isValid) {
     // 生成包含角色为 admin 的 JWT 载荷
@@ -99,20 +99,14 @@ authApp.put('/password', adminAuth, async (c) => {
 
   try {
     // 写入或更新 system_settings 中的 admin_password
-    const existing = await db.selectFrom('system_settings')
-      .select('key')
-      .where('key', '=', 'admin_password')
-      .executeTakeFirst();
+    const existing = sqlite.prepare('SELECT key FROM system_settings WHERE key = ? LIMIT 1').get('admin_password');
 
     if (existing) {
-      await db.updateTable('system_settings')
-        .set({ value: newPassword })
-        .where('key', '=', 'admin_password')
-        .execute();
+      sqlite.prepare('UPDATE system_settings SET value = ? WHERE key = ?').run(newPassword, 'admin_password');
     } else {
-      await db.insertInto('system_settings')
-        .values({ key: 'admin_password', value: newPassword, category: 'auth', description: '管理员密码（覆盖 config.json）' })
-        .execute();
+      sqlite.prepare(
+        'INSERT INTO system_settings (key, value, category, description) VALUES (?, ?, ?, ?)'
+      ).run('admin_password', newPassword, 'auth', '管理员密码（覆盖 config.json）');
     }
 
     return c.json({ code: 0, message: '密码修改成功', data: {} });
@@ -122,4 +116,4 @@ authApp.put('/password', adminAuth, async (c) => {
   }
 });
 
-module.exports = authApp;
+export default authApp;

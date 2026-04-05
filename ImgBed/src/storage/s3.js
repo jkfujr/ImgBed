@@ -1,23 +1,30 @@
-const StorageProvider = require('./base');
+import StorageProvider from './base.js';
 
-// 注意: 需要运行 npm install @aws-sdk/client-s3 后使用，此时作为示例代码
-// 因为目前还未 npm 安装 s3 sdk，这里使用动态 require 并做错误提示
 let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
 let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
-try {
-    const s3 = require('@aws-sdk/client-s3');
-    S3Client = s3.S3Client;
-    PutObjectCommand = s3.PutObjectCommand;
-    GetObjectCommand = s3.GetObjectCommand;
-    DeleteObjectCommand = s3.DeleteObjectCommand;
-    HeadObjectCommand = s3.HeadObjectCommand;
-    HeadBucketCommand = s3.HeadBucketCommand;
-    CreateMultipartUploadCommand = s3.CreateMultipartUploadCommand;
-    UploadPartCommand = s3.UploadPartCommand;
-    CompleteMultipartUploadCommand = s3.CompleteMultipartUploadCommand;
-    AbortMultipartUploadCommand = s3.AbortMultipartUploadCommand;
-} catch (e) {
-    // defer throw to usage
+let s3ModuleLoaded = false;
+
+/**
+ * 延迟加载 AWS SDK（仅在实例化时按需导入）
+ */
+async function loadS3Module() {
+    if (s3ModuleLoaded) return;
+    try {
+        const s3 = await import('@aws-sdk/client-s3');
+        S3Client = s3.S3Client;
+        PutObjectCommand = s3.PutObjectCommand;
+        GetObjectCommand = s3.GetObjectCommand;
+        DeleteObjectCommand = s3.DeleteObjectCommand;
+        HeadObjectCommand = s3.HeadObjectCommand;
+        HeadBucketCommand = s3.HeadBucketCommand;
+        CreateMultipartUploadCommand = s3.CreateMultipartUploadCommand;
+        UploadPartCommand = s3.UploadPartCommand;
+        CompleteMultipartUploadCommand = s3.CompleteMultipartUploadCommand;
+        AbortMultipartUploadCommand = s3.AbortMultipartUploadCommand;
+        s3ModuleLoaded = true;
+    } catch (e) {
+        throw new Error('[S3Storage] 请先执行 npm install @aws-sdk/client-s3 安装 AWS SDK');
+    }
 }
 
 /**
@@ -26,27 +33,38 @@ try {
 class S3Storage extends StorageProvider {
     constructor(config) {
         super();
-        if (!S3Client) {
-            throw new Error('[S3Storage] 请先执行 npm install @aws-sdk/client-s3 安裝 AWS SDK 以使用 S3 关联存储');
-        }
+        this.config = config;
         this.bucket = config.bucket;
         this.pathPrefix = config.pathPrefix || '';
-        const pathStyle = config.pathStyle === true || config.pathStyle === 'true';
+        this.s3 = null;
+        this._initPromise = null;
+    }
 
-        let clientConfig = {
-            region: config.region || 'auto',
-            credentials: {
-                accessKeyId: config.accessKeyId,
-                secretAccessKey: config.secretAccessKey,
-            },
-            forcePathStyle: pathStyle,
-        };
+    async _ensureInitialized() {
+        if (this.s3) return;
+        if (this._initPromise) return this._initPromise;
 
-        if (config.endpoint) {
-            clientConfig.endpoint = config.endpoint;
-        }
+        this._initPromise = (async () => {
+            await loadS3Module();
+            const pathStyle = this.config.pathStyle === true || this.config.pathStyle === 'true';
 
-        this.s3 = new S3Client(clientConfig);
+            let clientConfig = {
+                region: this.config.region || 'auto',
+                credentials: {
+                    accessKeyId: this.config.accessKeyId,
+                    secretAccessKey: this.config.secretAccessKey,
+                },
+                forcePathStyle: pathStyle,
+            };
+
+            if (this.config.endpoint) {
+                clientConfig.endpoint = this.config.endpoint;
+            }
+
+            this.s3 = new S3Client(clientConfig);
+        })();
+
+        return this._initPromise;
     }
 
     _getFullPath(fileName) {
@@ -54,6 +72,7 @@ class S3Storage extends StorageProvider {
     }
 
     async put(file, options) {
+        await this._ensureInitialized();
         const { fileName, mimeType } = options;
         if (!fileName) throw new Error('[S3Storage] missing fileName');
 
@@ -81,6 +100,7 @@ class S3Storage extends StorageProvider {
     }
 
     async getStream(fileId, options = {}) {
+        await this._ensureInitialized();
         const params = {
             Bucket: this.bucket,
             Key: this._getFullPath(fileId)
@@ -99,6 +119,7 @@ class S3Storage extends StorageProvider {
     }
 
     async delete(fileId, options) {
+        await this._ensureInitialized();
         const command = new DeleteObjectCommand({
             Bucket: this.bucket,
             Key: this._getFullPath(fileId)
@@ -108,6 +129,7 @@ class S3Storage extends StorageProvider {
     }
 
     async exists(fileId) {
+        await this._ensureInitialized();
         try {
             const command = new HeadObjectCommand({
                 Bucket: this.bucket,
@@ -128,6 +150,7 @@ class S3Storage extends StorageProvider {
      * @returns {Promise<{ok: boolean, message: string}>}
      */
     async testConnection() {
+        await this._ensureInitialized();
         try {
             const command = new HeadBucketCommand({ Bucket: this.bucket });
             await this.s3.send(command);
@@ -150,6 +173,7 @@ class S3Storage extends StorageProvider {
     }
 
     async initMultipartUpload({ fileName, mimeType }) {
+        await this._ensureInitialized();
         const key = this._getFullPath(fileName);
         const cmd = new CreateMultipartUploadCommand({
             Bucket: this.bucket,
@@ -161,6 +185,7 @@ class S3Storage extends StorageProvider {
     }
 
     async uploadPart(chunkBuffer, { uploadId, key, partNumber }) {
+        await this._ensureInitialized();
         const cmd = new UploadPartCommand({
             Bucket: this.bucket,
             Key: key,
@@ -173,6 +198,7 @@ class S3Storage extends StorageProvider {
     }
 
     async completeMultipartUpload({ uploadId, key, parts }) {
+        await this._ensureInitialized();
         const cmd = new CompleteMultipartUploadCommand({
             Bucket: this.bucket,
             Key: key,
@@ -186,6 +212,7 @@ class S3Storage extends StorageProvider {
     }
 
     async abortMultipartUpload({ uploadId, key }) {
+        await this._ensureInitialized();
         const cmd = new AbortMultipartUploadCommand({
             Bucket: this.bucket,
             Key: key,
@@ -200,4 +227,4 @@ S3Storage.__setS3ClientForTest = (client) => {
     S3Client = client;
 };
 
-module.exports = S3Storage;
+export default S3Storage;

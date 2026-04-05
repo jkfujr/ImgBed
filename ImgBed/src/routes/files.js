@@ -1,11 +1,11 @@
-const { Hono } = require('hono');
-const { db } = require('../database');
-const { adminAuth, requirePermission } = require('../middleware/auth');
-const storageManager = require('../storage/manager');
-const ChunkManager = require('../storage/chunk-manager');
-const { deleteFileRecord } = require('../services/files/delete-file');
-const { executeFilesBatchAction } = require('../services/files/batch-action');
-const { rebuildMetadataTask } = require('../services/files/rebuild-metadata');
+import { Hono } from 'hono';
+import { sqlite } from '../database/index.js';
+import { adminAuth, requirePermission } from '../middleware/auth.js';
+import storageManager from '../storage/manager.js';
+import ChunkManager from '../storage/chunk-manager.js';
+import { deleteFileRecord } from '../services/files/delete-file.js';
+import { executeFilesBatchAction } from '../services/files/batch-action.js';
+import { rebuildMetadataTask } from '../services/files/rebuild-metadata.js';
 
 const filesApp = new Hono();
 
@@ -21,35 +21,43 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
         const search = c.req.query('search'); // 文件名搜索关键词
 
         // 列表接口排除 exif 字段以减小体积，仅返回宽高
-        let query = db.selectFrom('files').select([
-            'id', 'file_name', 'original_name', 'mime_type', 'size',
-            'storage_channel', 'storage_key', 'storage_config',
-            'upload_ip', 'upload_address', 'created_at', 'updated_at',
-            'directory', 'tags', 'is_public',
-            'width', 'height', 'uploader_type', 'uploader_id'
-        ]);
-        let countQuery = db.selectFrom('files').select(db.fn.count('id').as('total'));
+        // SQL 拼装
+        const conditions = [];
+        const params = [];
 
-        // 拼接查询属性
         if (directory) {
-            query = query.where('directory', '=', directory);
-            countQuery = countQuery.where('directory', '=', directory);
+            conditions.push('directory = ?');
+            params.push(directory);
         }
 
         if (search) {
-            const keyword = `%${search}%`;
-            query = query.where('file_name', 'like', keyword);
-            countQuery = countQuery.where('file_name', 'like', keyword);
+            conditions.push('file_name LIKE ?');
+            params.push(`%${search}%`);
         }
 
-        // 排序与分页截断
+        const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
         const offset = (page - 1) * pageSize;
-        const [list, countResult] = await Promise.all([
-            query.orderBy('created_at', 'desc').limit(pageSize).offset(offset).execute(),
-            countQuery.executeTakeFirst()
-        ]);
 
-        const total = Number(countResult.total);
+        const listStmt = sqlite.prepare(
+            `SELECT id, file_name, original_name, mime_type, size,
+                    storage_channel, storage_key, storage_config,
+                    upload_ip, upload_address, created_at, updated_at,
+                    directory, tags, is_public,
+                    width, height, uploader_type, uploader_id
+             FROM files
+             ${whereClause}
+             ORDER BY created_at DESC
+             LIMIT ? OFFSET ?`
+        );
+
+        const countStmt = sqlite.prepare(
+            `SELECT COUNT(id) AS total FROM files ${whereClause}`
+        );
+
+        const list = listStmt.all(...params, pageSize, offset);
+        const countResult = countStmt.get(...params) || { total: 0 };
+
+        const total = Number(countResult.total || 0);
         const totalPages = Math.ceil(total / pageSize);
 
         return c.json({
@@ -78,7 +86,7 @@ filesApp.get('/', requirePermission('files:read'), async (c) => {
 filesApp.get('/:id', requirePermission('files:read'), async (c) => {
     try {
         const id = c.req.param('id');
-        const file = await db.selectFrom('files').selectAll().where('id', '=', id).executeTakeFirst();
+        const file = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
         
         if (!file) {
             return c.json({ code: 404, message: '抱歉，指定的文件未找到', error: {} }, 404);
@@ -109,13 +117,13 @@ filesApp.put('/:id', adminAuth, async (c) => {
             return c.json({ code: 400, message: '未侦测到任何需要变更的可更新字段', error: {} }, 400);
         }
 
-        const result = await db.updateTable('files')
-            .set(updateData)
-            .where('id', '=', id)
-            .executeTakeFirst();
+        const setClauses = Object.keys(updateData).map((k) => `${k} = ?`).join(', ');
+        const setParams = Object.values(updateData);
+        const { changes } = sqlite.prepare(
+            `UPDATE files SET ${setClauses} WHERE id = ?`
+        ).run(...setParams, id);
 
-        // 根据 Kysely 的更新结果断言 (numUpdatedRows 依赖不同驱动的行为，但正常均存在)
-        if (result.numUpdatedRows === 0n || result.numUpdatedRows === 0) {
+        if (!changes) {
             return c.json({ code: 404, message: '指定文件不存在或者其值未发生任何变动', error: {} }, 404);
         }
 
@@ -133,12 +141,14 @@ filesApp.put('/:id', adminAuth, async (c) => {
 filesApp.delete('/:id', adminAuth, async (c) => {
     try {
         const id = c.req.param('id');
-        const fileRecord = await db.selectFrom('files').select(['id', 'size', 'storage_key', 'storage_config', 'is_chunked']).where('id', '=', id).executeTakeFirst();
+        const fileRecord = sqlite.prepare(
+          'SELECT id, size, storage_key, storage_config, is_chunked FROM files WHERE id = ?'
+        ).get(id);
         if (!fileRecord) {
              return c.json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} }, 200);
         }
 
-        await deleteFileRecord(fileRecord, { db, storageManager, ChunkManager });
+        await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager });
 
         return c.json({ code: 0, message: '执行单体删除扫尾动作结束', data: { id } });
     } catch (err) {
@@ -148,7 +158,7 @@ filesApp.delete('/:id', adminAuth, async (c) => {
 });
 
 /**
- * 大量并发管理端点 (目前支持数组批处理删除及分类移动)
+并发管理端点 (目前支持数组批处理删除及分类移动)
  * POST /api/files/batch
  */
 filesApp.post('/batch', adminAuth, async (c) => {
@@ -159,7 +169,7 @@ filesApp.post('/batch', adminAuth, async (c) => {
             ids: body.ids,
             targetDirectory: body.target_directory,
             targetChannel: body.target_channel,
-            db,
+            db: sqlite,
             storageManager,
             ChunkManager,
         });
@@ -174,7 +184,7 @@ filesApp.post('/batch', adminAuth, async (c) => {
 });
 
 /**
- * 维护接口：重建图片元数据（宽高、EXIF）
+ * 重建元数据
  * POST /api/files/maintenance/rebuild-metadata
  */
 filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async (c) => {
@@ -199,4 +209,4 @@ filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async
     });
 });
 
-module.exports = filesApp;
+export default filesApp;

@@ -1,5 +1,5 @@
-const sharp = require('sharp');
-const { parseStorageConfig } = require('./delete-file');
+import sharp from 'sharp';
+import { parseStorageConfig } from './delete-file.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,14 +57,9 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
   }
 
   const metadata = await extractMetadata(buffer);
-  await db.updateTable('files')
-    .set({
-      width: metadata.width,
-      height: metadata.height,
-      exif: metadata.exif,
-    })
-    .where('id', '=', file.id)
-    .execute();
+  db.prepare(
+    'UPDATE files SET width = ?, height = ?, exif = ? WHERE id = ?'
+  ).run(metadata.width, metadata.height, metadata.exif, file.id);
 
   await wait(sleepMs);
   return { status: 'updated' };
@@ -73,12 +68,10 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
 async function rebuildMetadataTask({ force, db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = extractImageMetadata }) {
   logger.log(`[Maintenance] 开始${force ? '全量' : '增量'}重建元数据...`);
 
-  let query = db.selectFrom('files').selectAll().where('mime_type', 'like', 'image/%');
-  if (!force) {
-    query = query.where('width', 'is', null);
-  }
-
-  const files = await query.execute();
+  const sql = force
+    ? 'SELECT * FROM files WHERE mime_type LIKE ?'
+    : 'SELECT * FROM files WHERE mime_type LIKE ? AND width IS NULL';
+  const files = db.prepare(sql).all('image/%');
   logger.log(`[Maintenance] 找到 ${files.length} 个待处理文件`);
 
   const stats = { total: files.length, updated: 0, skipped: 0, failed: 0 };
@@ -109,10 +102,8 @@ async function rebuildMetadataTask({ force, db, storageManager, logger = console
   return stats;
 }
 
-module.exports = {
-  extractImageMetadata,
+export { extractImageMetadata,
   readStreamToBuffer,
   rebuildMetadataForFile,
   rebuildMetadataTask,
-  resolveFileStorageId,
-};
+  resolveFileStorageId, };

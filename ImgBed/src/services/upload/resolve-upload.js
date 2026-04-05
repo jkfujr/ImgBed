@@ -29,7 +29,5 @@ function resolveUploadChannel(body, storageManager, config) {
   return { channelId, storage };
 }
 
-module.exports = {
-  resolveUploadChannel,
-  createUploadError,
-};
+export { resolveUploadChannel,
+  createUploadError, };

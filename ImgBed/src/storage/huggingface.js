@@ -1,4 +1,4 @@
-const StorageProvider = require('./base');
+import StorageProvider from './base.js';
 
 /**
  * HuggingFace API 封装类
@@ -231,4 +231,4 @@ class HuggingFaceStorage extends StorageProvider {
     }
 }
 
-module.exports = HuggingFaceStorage;
+export default HuggingFaceStorage;

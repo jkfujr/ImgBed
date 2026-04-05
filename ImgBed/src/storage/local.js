@@ -1,7 +1,8 @@
-const StorageProvider = require('./base');
-const fs = require('fs');
-const path = require('path');
-const { pipeline } = require('stream/promises');
+import StorageProvider from './base.js';
+import fs from 'fs';
+import path from 'path';
+import { pipeline } from 'stream/promises';
+import { fileURLToPath } from 'url';
 
 /**
  * Local 存储渠道实现
@@ -9,7 +10,7 @@ const { pipeline } = require('stream/promises');
 class LocalStorage extends StorageProvider {
     constructor(config) {
         super();
-        this.basePath = path.resolve(__dirname, '../../', config.basePath || './data/storage');
+        this.basePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../', config.basePath || './data/storage');
         // 确保存储根目录存在
         if (!fs.existsSync(this.basePath)) {
             fs.mkdirSync(this.basePath, { recursive: true });
@@ -116,4 +117,4 @@ class LocalStorage extends StorageProvider {
     }
 }
 
-module.exports = LocalStorage;
+export default LocalStorage;

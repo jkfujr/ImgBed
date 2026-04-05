@@ -2,45 +2,45 @@
  * 在数据库中插入新的存储渠道元数据
  */
 async function insertStorageChannelMeta(storage, db) {
-  await db.insertInto('storage_channels')
-    .values({
-      id: storage.id,
-      name: storage.name,
-      type: storage.type,
-      enabled: storage.enabled ? 1 : 0,
-      allow_upload: storage.allowUpload ? 1 : 0,
-      weight: storage.weight,
-      quota_limit_gb: storage.quotaLimitGB
-    })
-    .execute();
+  db.prepare(`INSERT INTO storage_channels (
+    id, name, type, enabled, allow_upload, weight, quota_limit_gb
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(
+      storage.id,
+      storage.name,
+      storage.type,
+      storage.enabled ? 1 : 0,
+      storage.allowUpload ? 1 : 0,
+      storage.weight,
+      storage.quotaLimitGB
+    );
 }
 
 /**
  * 在数据库中更新存储渠道元数据
  */
 async function updateStorageChannelMeta(id, storage, db) {
-  await db.updateTable('storage_channels')
-    .set({
-      name: storage.name,
-      enabled: storage.enabled ? 1 : 0,
-      allow_upload: storage.allowUpload ? 1 : 0,
-      weight: storage.weight,
-      quota_limit_gb: storage.quotaLimitGB
-    })
-    .where('id', '=', id)
-    .execute();
+  db.prepare(`UPDATE storage_channels SET
+    name = ?, enabled = ?, allow_upload = ?, weight = ?, quota_limit_gb = ?
+    WHERE id = ?`)
+    .run(
+      storage.name,
+      storage.enabled ? 1 : 0,
+      storage.allowUpload ? 1 : 0,
+      storage.weight,
+      storage.quotaLimitGB,
+      id
+    );
 }
 
 /**
  * 在数据库中删除存储渠道元数据及其历史记录
  */
 async function deleteStorageChannelMeta(id, db) {
-  await db.deleteFrom('storage_channels').where('id', '=', id).execute();
-  await db.deleteFrom('storage_quota_history').where('storage_id', '=', id).execute();
+  db.prepare('DELETE FROM storage_channels WHERE id = ?').run(id);
+  db.prepare('DELETE FROM storage_quota_history WHERE storage_id = ?').run(id);
 }
 
-module.exports = {
-  insertStorageChannelMeta,
+export { insertStorageChannelMeta,
   updateStorageChannelMeta,
-  deleteStorageChannelMeta,
-};
+  deleteStorageChannelMeta, };

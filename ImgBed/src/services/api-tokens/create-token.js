@@ -2,7 +2,7 @@
  * API Token 创建相关服务函数
  */
 
-const { API_TOKEN_PERMISSIONS } = require('../../utils/apiToken');
+import { API_TOKEN_PERMISSIONS } from '../../utils/apiToken.js';
 
 /**
  * 校验 token 输入参数
@@ -69,7 +69,5 @@ function createTokenRecord(validated, plainToken, tokenPrefix, tokenHash, genera
   };
 }
 
-module.exports = {
-  validateTokenInput,
-  createTokenRecord,
-};
+export { validateTokenInput,
+  createTokenRecord, };

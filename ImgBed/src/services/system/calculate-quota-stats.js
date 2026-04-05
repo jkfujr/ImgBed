@@ -1,4 +1,4 @@
-const { readSystemConfig } = require('./config-io');
+import { readSystemConfig } from './config-io.js';
 
 /**
  * 从数据库全量统计配额使用情况
@@ -52,6 +52,4 @@ async function calculateQuotaStatsFromDB(db, configPath) {
   return stats;
 }
 
-module.exports = {
-  calculateQuotaStatsFromDB,
-};
+export { calculateQuotaStatsFromDB, };

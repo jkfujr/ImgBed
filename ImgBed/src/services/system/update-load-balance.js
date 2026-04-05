@@ -40,7 +40,5 @@ function updateLoadBalanceConfig(cfg, body) {
   return null; // 验证通过
 }
 
-module.exports = {
-  updateLoadBalanceConfig,
-  VALID_STRATEGIES,
-};
+export { updateLoadBalanceConfig,
+  VALID_STRATEGIES, };

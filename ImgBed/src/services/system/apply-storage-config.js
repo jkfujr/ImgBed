@@ -1,4 +1,4 @@
-const { writeSystemConfig, syncAllowedUploadChannels } = require('./config-io');
+import { writeSystemConfig, syncAllowedUploadChannels } from './config-io.js';
 
 /**
  * 应用存储配置变更：同步 allowedUploadChannels、写入文件、重载 storageManager
@@ -9,6 +9,4 @@ async function applyStorageConfigChange({ cfg, configPath, storageManager }) {
   await storageManager.reload();
 }
 
-module.exports = {
-  applyStorageConfigChange,
-};
+export { applyStorageConfigChange, };

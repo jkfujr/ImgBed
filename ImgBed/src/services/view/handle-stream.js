@@ -1,6 +1,6 @@
-const { Readable } = require('stream');
-const ChunkManager = require('../../storage/chunk-manager');
-const { buildStreamHeaders } = require('./resolve-file-storage');
+import { Readable } from 'stream';
+import ChunkManager from '../../storage/chunk-manager.js';
+import { buildStreamHeaders } from './resolve-file-storage.js';
 
 /**
  * 处理分块文件流
@@ -70,7 +70,5 @@ async function handleRegularStream(fileRecord, storage, storageKey, { start, end
   });
 }
 
-module.exports = {
-  handleChunkedStream,
-  handleRegularStream,
-};
+export { handleChunkedStream,
+  handleRegularStream, };

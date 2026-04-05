@@ -1,5 +1,5 @@
-const { deleteFilesBatch } = require('./delete-file');
-const { createFilesError, migrateFilesBatch } = require('./migrate-file');
+import { deleteFilesBatch } from './delete-file.js';
+import { createFilesError, migrateFilesBatch } from './migrate-file.js';
 
 function validateBatchIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -12,17 +12,15 @@ async function moveFilesBatch(ids, targetDirectory, db) {
     throw createFilesError(400, '执行移动批处理时，必须连通带有目标目录 (target_directory) 指针');
   }
 
-  const runMove = async (executor) => {
-    await executor.updateTable('files')
-      .set({ directory: targetDirectory })
-      .where('id', 'in', ids)
-      .execute();
-  };
+  const placeholders = ids.map(() => '?').join(', ');
+  const runMove = () => db.prepare(
+    `UPDATE files SET directory = ? WHERE id IN (${placeholders})`
+  ).run(targetDirectory, ...ids);
 
   if (typeof db.transaction === 'function') {
-    await db.transaction().execute(runMove);
+    db.transaction(runMove)();
   } else {
-    await runMove(db);
+    runMove();
   }
 
   return {
@@ -36,7 +34,8 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   validateBatchIds(ids);
 
   if (action === 'delete') {
-    const files = await db.selectFrom('files').selectAll().where('id', 'in', ids).execute();
+    const placeholders = ids.map(() => '?').join(', ');
+    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
     const deletedCount = await deleteFilesBatch(files, { db, storageManager, ChunkManager });
     return {
       code: 0,
@@ -50,7 +49,8 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   }
 
   if (action === 'migrate') {
-    const files = await db.selectFrom('files').selectAll().where('id', 'in', ids).execute();
+    const placeholders = ids.map(() => '?').join(', ');
+    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
     const results = await migrateFilesBatch(files, {
       targetChannel,
       db,
@@ -67,8 +67,6 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   throw createFilesError(400, '暂不允许执行此处未作解析约定的行为指令(仅支持 delete/move/migrate)');
 }
 
-module.exports = {
-  executeFilesBatchAction,
+export { executeFilesBatchAction,
   moveFilesBatch,
-  validateBatchIds,
-};
+  validateBatchIds, };

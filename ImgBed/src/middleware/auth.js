@@ -1,5 +1,5 @@
-const { verifyToken } = require('../utils/jwt');
-const { verifyApiToken } = require('../utils/apiToken');
+import { verifyToken } from '../utils/jwt.js';
+import { verifyApiToken } from '../utils/apiToken.js';
 
 const extractBearerToken = (c) => {
   const authHeader = c.req.header('Authorization');
@@ -99,10 +99,8 @@ const requirePermission = (permission) => {
   };
 };
 
-module.exports = {
-  adminAuth,
+export { adminAuth,
   extractBearerToken,
   resolveAuth,
   requireAuth,
-  requirePermission
-};
+  requirePermission };

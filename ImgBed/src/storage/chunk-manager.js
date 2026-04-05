@@ -3,6 +3,11 @@
  * 纯静态方法的工具类，无自身状态（所有持久状态在 DB 中）
  * 负责分块判断、切分上传、合并读取、Range 计算
  */
+
+import pLimit from 'p-limit';
+import { Readable } from 'stream';
+import { sqlite } from '../database/index.js';
+
 class ChunkManager {
 
     /**
@@ -48,53 +53,54 @@ class ChunkManager {
      * @returns {Promise<{ chunkCount: number, totalSize: number }>}
      */
     static async uploadChunked(storage, buffer, options) {
-        const { db } = require('../database');
         const config = storage.getChunkConfig();
         const totalChunks = Math.ceil(buffer.length / config.chunkSize);
         const chunkRecords = [];
+        const limit = pLimit(3);
 
         try {
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * config.chunkSize;
-                const end = Math.min(start + config.chunkSize, buffer.length);
-                const chunkBuffer = buffer.subarray(start, end);
+            const tasks = Array.from({ length: totalChunks }, (_, i) =>
+                limit(async () => {
+                    const start = i * config.chunkSize;
+                    const end = Math.min(start + config.chunkSize, buffer.length);
+                    const chunkBuffer = buffer.subarray(start, end);
 
-                // 单块重试（最多 2 次）
-                let result;
-                for (let attempt = 0; attempt <= 2; attempt++) {
-                    try {
-                        result = await storage.putChunk(chunkBuffer, {
-                            fileId: options.fileId,
-                            chunkIndex: i,
-                            totalChunks,
-                            fileName: options.fileName,
-                            mimeType: options.mimeType
-                        });
-                        break;
-                    } catch (err) {
-                        console.warn(`[ChunkManager] 分块 ${i} 第 ${attempt + 1} 次尝试失败: ${err.message}`);
-                        if (attempt >= 2) throw err;
-                        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+                    let result;
+                    for (let attempt = 0; attempt <= 2; attempt++) {
+                        try {
+                            result = await storage.putChunk(chunkBuffer, {
+                                fileId: options.fileId,
+                                chunkIndex: i,
+                                totalChunks,
+                                fileName: options.fileName,
+                                mimeType: options.mimeType
+                            });
+                            break;
+                        } catch (err) {
+                            console.warn(`[ChunkManager] 分块 ${i} 第 ${attempt + 1} 次尝试失败: ${err.message}`);
+                            if (attempt >= 2) throw err;
+                            await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+                        }
                     }
-                }
 
-                chunkRecords.push({
-                    file_id: options.fileId,
-                    chunk_index: i,
-                    storage_type: storage.constructor.name.replace('Storage', '').toLowerCase(),
-                    storage_id: options.storageId,
-                    storage_key: result.storageKey,
-                    storage_config: JSON.stringify({}),
-                    size: result.size
-                });
+                    const record = {
+                        file_id: options.fileId,
+                        chunk_index: i,
+                        storage_type: storage.constructor.name.replace('Storage', '').toLowerCase(),
+                        storage_id: options.storageId,
+                        storage_key: result.storageKey,
+                        storage_config: JSON.stringify({}),
+                        size: result.size
+                    };
+                    chunkRecords.push(record);
+                    return record;
+                })
+            );
 
-                // 每 10 块 sleep 100ms，防止 API 限流
-                if ((i + 1) % 10 === 0 && i < totalChunks - 1) {
-                    await new Promise(r => setTimeout(r, 100));
-                }
-            }
+            const records = await Promise.all(tasks);
+            chunkRecords.length = 0;
+            chunkRecords.push(...records.sort((a, b) => a.chunk_index - b.chunk_index));
         } catch (err) {
-            // 清理已上传的孤儿块，防止存储泄漏
             console.warn(`[ChunkManager] 分块上传中途失败，清理 ${chunkRecords.length} 个已上传块`);
             for (const record of chunkRecords) {
                 try {
@@ -106,10 +112,17 @@ class ChunkManager {
             throw err;
         }
 
-        // 批量写入 chunks 表
-        for (const record of chunkRecords) {
-            await db.insertInto('chunks').values(record).execute();
-        }
+        const insertChunkStmt = sqlite.prepare(`INSERT INTO chunks (
+            file_id, chunk_index, storage_type, storage_id, storage_key, storage_config, size
+        ) VALUES (
+            @file_id, @chunk_index, @storage_type, @storage_id, @storage_key, @storage_config, @size
+        )`);
+
+        const insertChunkBatch = sqlite.transaction((records) => {
+            for (const record of records) insertChunkStmt.run(record);
+        });
+
+        insertChunkBatch(chunkRecords);
 
         return { chunkCount: totalChunks, totalSize: buffer.length };
     }
@@ -236,12 +249,9 @@ class ChunkManager {
      * @returns {Promise<Array>} 按 chunk_index 排序的分块记录
      */
     static async getChunks(fileId) {
-        const { db } = require('../database');
-        return await db.selectFrom('chunks')
-            .selectAll()
-            .where('file_id', '=', fileId)
-            .orderBy('chunk_index', 'asc')
-            .execute();
+        return sqlite.prepare(
+            'SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC'
+        ).all(fileId);
     }
 
     /**
@@ -250,7 +260,6 @@ class ChunkManager {
      * @param {Function} getStorageFn - (storageId) => StorageProvider
      */
     static async deleteChunks(fileId, getStorageFn) {
-        const { db } = require('../database');
         const chunks = await this.getChunks(fileId);
 
         for (const chunk of chunks) {
@@ -264,7 +273,7 @@ class ChunkManager {
             }
         }
 
-        await db.deleteFrom('chunks').where('file_id', '=', fileId).execute();
+        sqlite.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileId);
     }
 
     /**
@@ -275,7 +284,6 @@ class ChunkManager {
     static async _streamToBuffer(stream) {
         if (Buffer.isBuffer(stream)) return stream;
 
-        const { Readable } = require('stream');
         // Node.js Readable
         if (stream instanceof Readable) {
             const chunks = [];
@@ -295,4 +303,4 @@ class ChunkManager {
     }
 }
 
-module.exports = ChunkManager;
+export default ChunkManager;

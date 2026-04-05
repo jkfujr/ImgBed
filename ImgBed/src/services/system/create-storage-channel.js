@@ -68,7 +68,5 @@ function validateStorageChannelInput(body, validTypes) {
   return null; // 验证通过
 }
 
-module.exports = {
-  buildNewStorageChannel,
-  validateStorageChannelInput,
-};
+export { buildNewStorageChannel,
+  validateStorageChannelInput, };

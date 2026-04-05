@@ -1,8 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
-const configPath = path.resolve(__dirname, '../../config.json');
+const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
 
 // 默认系统配置模板
 const defaultConfig = {
@@ -80,4 +81,4 @@ try {
   process.exit(1);
 }
 
-module.exports = config;
+export default config;

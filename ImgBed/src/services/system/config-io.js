@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'fs';
 
 /**
  * 读取系统配置文件
@@ -24,8 +24,6 @@ function syncAllowedUploadChannels(cfg) {
     .map((s) => s.id);
 }
 
-module.exports = {
-  readSystemConfig,
+export { readSystemConfig,
   writeSystemConfig,
-  syncAllowedUploadChannels,
-};
+  syncAllowedUploadChannels, };

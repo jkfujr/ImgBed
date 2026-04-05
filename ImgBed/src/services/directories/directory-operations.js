@@ -1,12 +1,12 @@
 /**
  * 解析目录父路径
  */
-async function resolveParentPath(parentId, db) {
+async function resolveParentPath(parentId, sqlite) {
   if (!parentId) {
     return { parentPath: '/', parentIdToSave: null };
   }
 
-  const parent = await db.selectFrom('directories').selectAll().where('id', '=', parentId).executeTakeFirst();
+  const parent = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(parentId);
   if (!parent) {
     const error = new Error('指定的父级目录不存在');
     error.status = 404;
@@ -19,8 +19,8 @@ async function resolveParentPath(parentId, db) {
 /**
  * 检查路径是否已存在
  */
-async function checkPathConflict(path, db) {
-  const exists = await db.selectFrom('directories').selectAll().where('path', '=', path).executeTakeFirst();
+async function checkPathConflict(path, sqlite) {
+  const exists = sqlite.prepare('SELECT * FROM directories WHERE path = ?').get(path);
   if (exists) {
     const error = new Error('该层级下同名目录已存在');
     error.status = 409;
@@ -42,21 +42,21 @@ function buildPath(parentPath, rawName) {
 /**
  * 递归更新子目录路径
  */
-async function updateChildrenPaths(oldPath, newPath, db) {
-  const children = await db.selectFrom('directories').selectAll().where('path', 'like', `${oldPath}/%`).execute();
+async function updateChildrenPaths(oldPath, newPath, sqlite) {
+  const children = sqlite.prepare('SELECT * FROM directories WHERE path LIKE ?').all(`${oldPath}/%`);
 
   for (const child of children) {
     const updatedChildPath = child.path.replace(oldPath, newPath);
-    await db.updateTable('directories').set({ path: updatedChildPath }).where('id', '=', child.id).execute();
-    await db.updateTable('files').set({ directory: updatedChildPath }).where('directory', '=', child.path).execute();
+    sqlite.prepare('UPDATE directories SET path = ? WHERE id = ?').run(updatedChildPath, child.id);
+    sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(updatedChildPath, child.path);
   }
 }
 
 /**
  * 重命名目录并级联更新子目录和文件
  */
-async function renameDirectory(id, newName, db) {
-  const targetDir = await db.selectFrom('directories').selectAll().where('id', '=', id).executeTakeFirst();
+async function renameDirectory(id, newName, sqlite) {
+  const targetDir = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(id);
   if (!targetDir) {
     const error = new Error('修改对象不存在');
     error.status = 404;
@@ -67,14 +67,14 @@ async function renameDirectory(id, newName, db) {
 
   let parentPath = '/';
   if (targetDir.parent_id) {
-    const parent = await db.selectFrom('directories').selectAll().where('id', '=', targetDir.parent_id).executeTakeFirst();
+    const parent = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(targetDir.parent_id);
     if (parent) parentPath = parent.path;
   }
 
   const newPath = buildPath(parentPath, newName);
 
   if (oldPath !== newPath) {
-    const exist = await db.selectFrom('directories').select('id').where('path', '=', newPath).executeTakeFirst();
+    const exist = sqlite.prepare('SELECT id FROM directories WHERE path = ?').get(newPath);
     if (exist) {
       const error = new Error('该级别已存在此同名目录');
       error.status = 409;
@@ -82,27 +82,20 @@ async function renameDirectory(id, newName, db) {
     }
   }
 
-  await db.updateTable('directories')
-    .set({ name: newName.trim(), path: newPath })
-    .where('id', '=', id)
-    .execute();
+  sqlite.prepare('UPDATE directories SET name = ?, path = ? WHERE id = ?')
+    .run(newName.trim(), newPath, id);
 
   if (oldPath !== newPath) {
-    await db.updateTable('files')
-      .set({ directory: newPath })
-      .where('directory', '=', oldPath)
-      .execute();
+    sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(newPath, oldPath);
 
-    await updateChildrenPaths(oldPath, newPath, db);
+    await updateChildrenPaths(oldPath, newPath, sqlite);
   }
 
   return { id, name: newName.trim(), path: newPath };
 }
 
-module.exports = {
-  resolveParentPath,
+export { resolveParentPath,
   checkPathConflict,
   buildPath,
   updateChildrenPaths,
-  renameDirectory,
-};
+  renameDirectory, };

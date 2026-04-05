@@ -1,16 +1,14 @@
-const { Hono } = require('hono');
-const {
-  API_TOKEN_PERMISSIONS,
+import { Hono } from 'hono';
+import { API_TOKEN_PERMISSIONS,
   generateTokenId,
   generatePlainApiToken,
   hashApiToken,
   normalizePermissions,
   parsePermissions,
-  isExpired
-} = require('../utils/apiToken');
-const { adminAuth } = require('../middleware/auth');
-const { db } = require('../database');
-const { validateTokenInput, createTokenRecord } = require('../services/api-tokens/create-token');
+  isExpired } from '../utils/apiToken.js';
+import { adminAuth } from '../middleware/auth.js';
+import { sqlite } from '../database/index.js';
+import { validateTokenInput, createTokenRecord } from '../services/api-tokens/create-token.js';
 
 const apiTokensApp = new Hono();
 
@@ -33,10 +31,9 @@ const toSafeToken = (tokenRow) => ({
 
 apiTokensApp.get('/', async (c) => {
   try {
-    const list = await db.selectFrom('api_tokens')
-      .selectAll()
-      .orderBy('created_at', 'desc')
-      .execute();
+    const list = sqlite.prepare(
+      'SELECT * FROM api_tokens ORDER BY created_at DESC'
+    ).all();
 
     return c.json({
       code: 0,
@@ -63,12 +60,29 @@ apiTokensApp.post('/', async (c) => {
       generateTokenId
     );
 
-    await db.insertInto('api_tokens').values(tokenRow).execute();
+    sqlite.prepare(
+      `INSERT INTO api_tokens (
+        id, name, token_prefix, token_hash, permissions, status,
+        expires_at, last_used_at, last_used_ip, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      tokenRow.id,
+      tokenRow.name,
+      tokenRow.token_prefix,
+      tokenRow.token_hash,
+      tokenRow.permissions,
+      tokenRow.status,
+      tokenRow.expires_at,
+      tokenRow.last_used_at,
+      tokenRow.last_used_ip,
+      tokenRow.created_by,
+      tokenRow.created_at,
+      tokenRow.updated_at
+    );
 
-    const created = await db.selectFrom('api_tokens')
-      .selectAll()
-      .where('id', '=', tokenRow.id)
-      .executeTakeFirst();
+    const created = sqlite.prepare(
+      'SELECT * FROM api_tokens WHERE id = ? LIMIT 1'
+    ).get(tokenRow.id);
 
     return c.json({
       code: 0,
@@ -90,16 +104,13 @@ apiTokensApp.post('/', async (c) => {
 apiTokensApp.delete('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const token = await db.selectFrom('api_tokens')
-      .select(['id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
+    const token = sqlite.prepare('SELECT id FROM api_tokens WHERE id = ? LIMIT 1').get(id);
 
     if (!token) {
       return c.json({ code: 404, message: 'API Token 不存在', error: {} }, 404);
     }
 
-    await db.deleteFrom('api_tokens').where('id', '=', id).execute();
+    sqlite.prepare('DELETE FROM api_tokens WHERE id = ?').run(id);
     return c.json({ code: 0, message: 'API Token 已删除', data: { id } });
   } catch (err) {
     console.error('[API Token] 删除失败:', err);
@@ -107,4 +118,4 @@ apiTokensApp.delete('/:id', async (c) => {
   }
 });
 
-module.exports = apiTokensApp;
+export default apiTokensApp;

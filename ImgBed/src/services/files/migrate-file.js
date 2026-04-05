@@ -1,5 +1,6 @@
-const { Readable } = require('stream');
-const { parseStorageConfig } = require('./delete-file');
+import pLimit from 'p-limit';
+import { Readable } from 'stream';
+import { parseStorageConfig } from './delete-file.js';
 
 const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
 
@@ -55,7 +56,7 @@ async function streamToBuffer(stream) {
 
 async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager }) {
   const sourceConfig = parseStorageConfig(fileRecord.storage_config);
-  const sourceInstanceId = sourceConfig.instance_id;
+  const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
 
   if (sourceInstanceId === targetChannel) {
     return { status: 'skipped' };
@@ -75,18 +76,22 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     mimeType: fileRecord.mime_type,
   });
 
-  const runMigrate = async (executor) => {
-    await executor.updateTable('files')
-      .set({
-        storage_channel: targetEntry.type,
-        storage_key: uploadResult.id || fileRecord.storage_key,
-        storage_config: JSON.stringify({
-          instance_id: targetChannel,
-          extra_result: uploadResult,
-        }),
-      })
-      .where('id', '=', fileRecord.id)
-      .execute();
+  const runMigrate = () => {
+    db.prepare(`UPDATE files SET
+        storage_channel = ?,
+        storage_key = ?,
+        storage_config = ?,
+        storage_instance_id = ?
+      WHERE id = ?`).run(
+      targetEntry.type,
+      uploadResult.id || fileRecord.storage_key,
+      JSON.stringify({
+        instance_id: targetChannel,
+        extra_result: uploadResult,
+      }),
+      targetChannel,
+      fileRecord.id
+    );
 
     const fileSize = Number(fileRecord.size) || 0;
     if (sourceInstanceId) {
@@ -97,9 +102,9 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
   try {
     if (typeof db.transaction === 'function') {
-      await db.transaction().execute(runMigrate);
+      db.transaction(runMigrate)();
     } else {
-      await runMigrate(db);
+      runMigrate();
     }
   } catch (err) {
     console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
@@ -111,6 +116,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
 async function migrateFilesBatch(files, { targetChannel, db, storageManager, logger = console }) {
   const targetEntry = validateMigrationTarget(targetChannel, storageManager);
+  const limit = pLimit(3); // 并发度为 3
   const results = {
     total: files.length,
     success: 0,
@@ -119,36 +125,47 @@ async function migrateFilesBatch(files, { targetChannel, db, storageManager, log
     errors: [],
   };
 
-  for (const fileRecord of files) {
-    try {
-      const result = await migrateFileRecord(fileRecord, {
-        targetChannel,
-        targetEntry,
-        db,
-        storageManager,
-      });
+  const tasks = files.map((fileRecord) =>
+    limit(async () => {
+      try {
+        const result = await migrateFileRecord(fileRecord, {
+          targetChannel,
+          targetEntry,
+          db,
+          storageManager,
+        });
 
-      if (result.status === 'success') {
-        results.success++;
-      } else if (result.status === 'skipped') {
-        results.skipped++;
-      } else {
-        results.failed++;
-        results.errors.push({ id: fileRecord.id, reason: result.reason || '迁移失败' });
+        return { fileRecord, result };
+      } catch (err) {
+        logger.error(`[Files API] 迁移文件 ${fileRecord.id} 失败:`, err.message);
+        return { fileRecord, error: err };
       }
-    } catch (err) {
-      logger.error(`[Files API] 迁移文件 ${fileRecord.id} 失败:`, err.message);
+    })
+  );
+
+  const taskResults = await Promise.all(tasks);
+
+  for (const item of taskResults) {
+    if (item.error) {
       results.failed++;
-      results.errors.push({ id: fileRecord.id, reason: err.message });
+      results.errors.push({ id: item.fileRecord.id, reason: item.error.message });
+      continue;
+    }
+
+    if (item.result.status === 'success') {
+      results.success++;
+    } else if (item.result.status === 'skipped') {
+      results.skipped++;
+    } else {
+      results.failed++;
+      results.errors.push({ id: item.fileRecord.id, reason: item.result.reason || '迁移失败' });
     }
   }
 
   return results;
 }
 
-module.exports = {
-  createFilesError,
+export { createFilesError,
   validateMigrationTarget,
   migrateFileRecord,
-  migrateFilesBatch,
-};
+  migrateFilesBatch, };

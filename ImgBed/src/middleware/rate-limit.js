@@ -113,9 +113,7 @@ const createAuthLimiter = () => new RateLimiter({
   },
 });
 
-module.exports = {
-  RateLimiter,
+export { RateLimiter,
   createUploadLimiter,
   createApiLimiter,
-  createAuthLimiter,
-};
+  createAuthLimiter, };
