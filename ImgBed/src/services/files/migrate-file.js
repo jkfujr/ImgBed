@@ -75,9 +75,8 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     mimeType: fileRecord.mime_type,
   });
 
-  // 使用事务确保数据库更新和配额更新的原子性
-  await db.transaction().execute(async (trx) => {
-    await trx.updateTable('files')
+  const runMigrate = async (executor) => {
+    await executor.updateTable('files')
       .set({
         storage_channel: targetEntry.type,
         storage_key: uploadResult.id || fileRecord.storage_key,
@@ -89,18 +88,23 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
       .where('id', '=', fileRecord.id)
       .execute();
 
-    // 在事务内更新配额缓存
-    try {
-      const fileSize = Number(fileRecord.size) || 0;
-      if (sourceInstanceId) {
-        storageManager.updateQuotaCache(sourceInstanceId, -fileSize);
-      }
-      storageManager.updateQuotaCache(targetChannel, fileSize);
-    } catch (err) {
-      console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
-      throw err; // 抛出错误以回滚事务
+    const fileSize = Number(fileRecord.size) || 0;
+    if (sourceInstanceId) {
+      storageManager.updateQuotaCache(sourceInstanceId, -fileSize);
     }
-  });
+    storageManager.updateQuotaCache(targetChannel, fileSize);
+  };
+
+  try {
+    if (typeof db.transaction === 'function') {
+      await db.transaction().execute(runMigrate);
+    } else {
+      await runMigrate(db);
+    }
+  } catch (err) {
+    console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
+    throw err;
+  }
 
   return { status: 'success' };
 }
