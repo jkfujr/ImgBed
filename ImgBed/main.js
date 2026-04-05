@@ -1,4 +1,3 @@
-import app from './src/app.js';
 import config from './src/config/index.js';
 import { initDb } from './src/database/index.js';
 
@@ -17,13 +16,15 @@ const handleServerError = (error) => {
 
 process.on('uncaughtException', handleServerError);
 
-// 在启动服务前初始化数据库
+// 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
 try {
   initDb();
 } catch (error) {
   console.error('[服务端] 数据库初始化失败，应用终止启动:', error);
   process.exit(1);
 }
+
+const { default: app } = await import('./src/app.js');
 
 console.log(`[服务端] 正在启动服务，地址: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
 

@@ -25,121 +25,30 @@ sqlite.exec('PRAGMA cache_size = -64000');      // 64MB 缓存
 sqlite.exec('PRAGMA temp_store = MEMORY');      // 临时表存内存
 sqlite.exec('PRAGMA mmap_size = 268435456');    // 256MB 内存映射 I/O
 
-// ========== 数据库版本迁移机制 ==========
-
-const CURRENT_SCHEMA_VERSION = 3;
-
-/**
- * 安全添加列（仅在迁移函数内部使用）
- */
-const _addColumnIfNotExists = (tableName, columnName, columnSql) => {
-  const stmt = sqlite.prepare(`PRAGMA table_info(${tableName})`);
-  const columns = stmt.all();
-  const exists = columns.some((column) => column.name === columnName);
-  if (!exists) {
-    sqlite.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
-    console.log(`[数据库迁移] ${tableName} 表添加列: ${columnName}`);
-  }
-};
-
-/**
- * 迁移函数列表（索引 = 目标版本号）
- * 每个函数负责从 version-1 升级到 version
- */
-const migrations = [
-  // v0 → v1: 基础表结构由 CREATE TABLE IF NOT EXISTS 创建，无额外操作
-  () => {},
-  // v1 → v2: files 表新增 uploader_type/uploader_id，chunks 表新增 size
-  () => {
-    _addColumnIfNotExists('files', 'uploader_type', 'uploader_type TEXT');
-    _addColumnIfNotExists('files', 'uploader_id', 'uploader_id TEXT');
-    _addColumnIfNotExists('chunks', 'size', 'size INTEGER DEFAULT 0');
-  },
-  // v2 → v3: files 表新增 storage_instance_id 冗余字段，优化容量统计查询
-  () => {
-    _addColumnIfNotExists('files', 'storage_instance_id', 'storage_instance_id TEXT');
-
-    // 创建索引
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_files_storage_instance ON files(storage_instance_id);`);
-    console.log('[数据库迁移] 创建索引: idx_files_storage_instance');
-
-    // 数据回填：从 storage_config JSON 提取 instance_id
-    console.log('[数据库迁移] 开始回填 storage_instance_id 字段...');
-    const selectStmt = sqlite.prepare('SELECT id, storage_config FROM files WHERE storage_instance_id IS NULL');
-    const files = selectStmt.all();
-    const updateStmt = sqlite.prepare('UPDATE files SET storage_instance_id = ? WHERE id = ?');
-
-    let updatedCount = 0;
-    for (const file of files) {
-      try {
-        const config = JSON.parse(file.storage_config || '{}');
-        if (config.instance_id) {
-          updateStmt.run(config.instance_id, file.id);
-          updatedCount++;
-        }
-      } catch (err) {
-        console.warn(`[数据库迁移] 文件 ${file.id} 的 storage_config 解析失败，跳过`);
-      }
-    }
-
-    console.log(`[数据库迁移] storage_instance_id 回填完成，共更新 ${updatedCount} 条记录`);
-  }
-];
-
-/**
- * 执行数据库迁移
- * 检测当前版本，备份旧库，逐版本升级
- */
-const runMigrations = () => {
-  const stmt = sqlite.prepare('PRAGMA user_version');
-  const result = stmt.get();
-  const currentVersion = result.user_version;
-
-  if (currentVersion >= CURRENT_SCHEMA_VERSION) return;
-
-  // 备份旧数据库
-  if (currentVersion > 0 && fs.existsSync(dbPath)) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const bakPath = `${dbPath}.v${currentVersion}.${timestamp}.bak`;
-    fs.copyFileSync(dbPath, bakPath);
-    console.log(`[数据库迁移] 已备份旧数据库: ${path.basename(bakPath)}`);
-  }
-
-  // 逐版本执行迁移
-  for (let v = currentVersion; v < CURRENT_SCHEMA_VERSION; v++) {
-    const migrateFn = migrations[v];
-    if (migrateFn) {
-      console.log(`[数据库迁移] 执行迁移 v${v} → v${v + 1}`);
-      migrateFn();
-    }
-  }
-
-  sqlite.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
-  console.log(`[数据库迁移] 版本升级完成: v${currentVersion} → v${CURRENT_SCHEMA_VERSION}`);
-};
-
 // 初始化数据库表
 const initDb = () => {
     try {
         // files table
         sqlite.exec(`
-            CREATE TABLE IF NOT EXISTS files (
-                id TEXT PRIMARY KEY,
-                file_name TEXT NOT NULL,
-                original_name TEXT NOT NULL,
-                mime_type TEXT,
-                size INTEGER NOT NULL,
+             CREATE TABLE IF NOT EXISTS files (
+                 id TEXT PRIMARY KEY,
+                 file_name TEXT NOT NULL,
+                 original_name TEXT NOT NULL,
+                 mime_type TEXT,
+                 size INTEGER NOT NULL,
 
                 -- 存储渠道信息
                 storage_channel TEXT NOT NULL,
                 storage_key TEXT NOT NULL,
                 storage_config JSON,
 
-                -- 上传信息
-                upload_ip TEXT,
-                upload_address TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                 -- 上传信息
+                 upload_ip TEXT,
+                 upload_address TEXT,
+                 uploader_type TEXT,
+                 uploader_id TEXT,
+                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
                 -- 分类和标签
                 directory TEXT DEFAULT '/',
@@ -161,16 +70,20 @@ const initDb = () => {
                 discord_message_id TEXT,
                 discord_channel_id TEXT,
 
-                huggingface_repo TEXT,
-                huggingface_path TEXT,
+                 huggingface_repo TEXT,
+                 huggingface_path TEXT,
 
-                is_chunked BOOLEAN DEFAULT FALSE,
-                chunk_count INTEGER DEFAULT 0
-            );
+                 -- 冗余存储实例 ID（用于容量统计优化）
+                 storage_instance_id TEXT,
+
+                 is_chunked BOOLEAN DEFAULT FALSE,
+                 chunk_count INTEGER DEFAULT 0
+             );
 
             CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_files_directory ON files(directory);
             CREATE INDEX IF NOT EXISTS idx_files_storage_channel ON files(storage_channel);
+            CREATE INDEX IF NOT EXISTS idx_files_storage_instance ON files(storage_instance_id);
             CREATE INDEX IF NOT EXISTS idx_files_mime_type ON files(mime_type);
             CREATE INDEX IF NOT EXISTS idx_files_is_chunked ON files(is_chunked);
 
@@ -299,8 +212,8 @@ const initDb = () => {
                 END;
         `);
 
-        // 执行版本迁移（备份旧库 + 逐版本升级）
-        runMigrations();
+        // 当前初始化直接以完整 schema 建表，不执行迁移；版本保持 v0
+        sqlite.exec('PRAGMA user_version = 0');
 
         console.log('[数据库] 表结构初始化完成。');
     } catch (err) {
