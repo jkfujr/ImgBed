@@ -34,15 +34,16 @@ function validateUploadFile(file) {
 
 async function extractFileMetadata(file) {
   const buffer = file.buffer;
-  const originalName = file.name || 'blob';
+  const originalName = file.originalname || 'blob';
+  const mimeType = file.mimetype || 'application/octet-stream';
   const rawExt = path.extname(originalName).toLowerCase();
-  const mimeExt = file.type ? `.${file.type.split('/')[1]}`.replace('.jpeg', '.jpg') : '';
+  const mimeExt = mimeType ? `.${mimeType.split('/')[1]}`.replace('.jpeg', '.jpg') : '';
   const extension = rawExt || mimeExt || '';
-  const isImageMime = file.type && file.type.startsWith('image/');
+  const isImageMime = mimeType.startsWith('image/');
   const isImageExt = ALLOWED_EXTENSIONS.includes(extension.toLowerCase());
 
   if (!isImageMime || !isImageExt) {
-    throw createResponseError(400, `非法文件格式: ${file.type || '未知'} (${extension || '无后缀'})。本站仅支持图片托管。`);
+    throw createResponseError(400, `非法文件格式: ${mimeType || '未知'} (${extension || '无后缀'})。本站仅支持图片托管。`);
   }
 
   let width = null;
@@ -68,7 +69,7 @@ async function extractFileMetadata(file) {
       hasExif: !!rawExif,
     });
   } catch (metaErr) {
-    console.warn(`[Upload] 提取文件 ${file.name} 元数据失败:`, metaErr.message);
+    console.warn(`[Upload] 提取文件 ${file.originalname} 元数据失败:`, metaErr.message);
   }
 
   const hash = crypto.createHash('sha1').update(buffer).digest('hex').substring(0, 12);
@@ -82,7 +83,7 @@ async function extractFileMetadata(file) {
     extension,
     fileId,
     newFileName: fileId,
-    mimeType: file.type || 'application/octet-stream',
+    mimeType,
     width,
     height,
     exif,
@@ -154,12 +155,7 @@ function buildUploadResponse({ fileId, newFileName, originalName, fileSize, widt
 uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), async (req, res) => {
   try {
     const body = req.body || {};
-    const file = req.file
-      ? {
-          ...req.file,
-          name: req.file.originalname,
-        }
-      : null;
+    const file = req.file || null;
 
     validateUploadFile(file);
 
