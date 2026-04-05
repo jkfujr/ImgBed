@@ -2,13 +2,36 @@ const { S3Client, HeadBucketCommand, ListObjectsV2Command, PutObjectCommand, Del
 const assert = require('node:assert/strict');
 
 const config = {
-  bucket: 'test',
-  region: 'openlist',
-  accessKeyId: 'TTWps5Uz/OWzAH3tZapa',
-  secretAccessKey: 'LaCvu9diQjHboU8Gfl7pZiz4JoZ9Z5EVIo4TcUa+',
-  endpoint: 'http://100.100.201.91:5244',
-  pathStyle: true,
+  bucket: process.env.S3_DEBUG_BUCKET || '',
+  region: process.env.S3_DEBUG_REGION || '',
+  accessKeyId: process.env.S3_DEBUG_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.S3_DEBUG_SECRET_ACCESS_KEY || '',
+  endpoint: process.env.S3_DEBUG_ENDPOINT || '',
+  pathStyle: process.env.S3_DEBUG_PATH_STYLE === 'true',
 };
+
+function assertRequiredEnv() {
+  const missing = [];
+  if (!config.bucket) missing.push('S3_DEBUG_BUCKET');
+  if (!config.region) missing.push('S3_DEBUG_REGION');
+  if (!config.accessKeyId) missing.push('S3_DEBUG_ACCESS_KEY_ID');
+  if (!config.secretAccessKey) missing.push('S3_DEBUG_SECRET_ACCESS_KEY');
+  if (!config.endpoint) missing.push('S3_DEBUG_ENDPOINT');
+
+  if (missing.length) {
+    throw new Error(`缺少调试环境变量: ${missing.join(', ')}`);
+  }
+}
+
+function maskValue(value, visibleStart = 3, visibleEnd = 2) {
+  if (!value) {
+    return '';
+  }
+  if (value.length <= visibleStart + visibleEnd) {
+    return '*'.repeat(value.length);
+  }
+  return `${value.slice(0, visibleStart)}***${value.slice(-visibleEnd)}`;
+}
 
 function createClient() {
   return new S3Client({
@@ -58,13 +81,19 @@ async function runStep(title, fn) {
 }
 
 async function main() {
+  assertRequiredEnv();
+
   const client = createClient();
   const testKey = `claude-debug-${Date.now()}.txt`;
 
   console.log('使用配置:');
   console.log(JSON.stringify({
-    ...config,
-    secretAccessKey: '***',
+    bucket: config.bucket,
+    region: config.region,
+    accessKeyId: maskValue(config.accessKeyId, 4, 2),
+    secretAccessKey: maskValue(config.secretAccessKey, 3, 2),
+    endpoint: config.endpoint,
+    pathStyle: config.pathStyle,
   }, null, 2));
 
   const headBucket = await runStep('HeadBucket', async () => {

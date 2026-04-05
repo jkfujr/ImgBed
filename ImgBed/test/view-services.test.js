@@ -36,9 +36,26 @@ async function testResolveFileStorageWithLegacyTelegram() {
     telegram_bot_token: 'bot123',
   };
 
-  const result = resolveFileStorage(fileRecord, { storageManager, config: {} });
+  const result = resolveFileStorage(fileRecord, {
+    storageManager,
+    config: {
+      storage: {
+        storages: [
+          {
+            id: 'tg-1',
+            type: 'telegram',
+            config: {
+              botToken: 'bot123',
+              proxyUrl: 'socks5://127.0.0.1:1080',
+            },
+          },
+        ],
+      },
+    },
+  });
   assert.ok(result.storage);
   assert.equal(result.storageKey, 'tg-key');
+  assert.equal(result.storage.proxyUrl, 'socks5://127.0.0.1:1080');
 }
 
 async function testResolveFileStorageWithLegacyExternal() {

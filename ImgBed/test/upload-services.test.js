@@ -30,6 +30,30 @@ function createStorageManager(overrides = {}) {
   };
 }
 
+async function testResolveUploadChannelUsesExplicitChannel() {
+  const storage = { name: 's3 storage' };
+  const manager = createStorageManager({
+    storages: { 's3-1': storage },
+    getDefaultStorageId: () => 'local-1',
+  });
+
+  const result = resolveUploadChannel({ channel: 's3-1' }, manager, { storage: { loadBalanceStrategy: 'default' } });
+  assert.equal(result.channelId, 's3-1');
+  assert.equal(result.storage, storage);
+}
+
+async function testResolveUploadChannelRejectsMissingExplicitChannel() {
+  const manager = createStorageManager({
+    storages: { 'local-1': { name: 'local storage' } },
+    getDefaultStorageId: () => 'local-1',
+  });
+
+  assert.throws(
+    () => resolveUploadChannel({ channel: 'missing-channel' }, manager, { storage: { loadBalanceStrategy: 'default' } }),
+    /找不到指定的存储渠道: missing-channel/
+  );
+}
+
 async function testResolveUploadChannel() {
   const storage = { name: 'storage' };
   const manager = createStorageManager({
@@ -161,6 +185,8 @@ async function testExecuteUploadWithFailoverSwitchesChannel() {
 }
 
 async function main() {
+  await testResolveUploadChannelUsesExplicitChannel();
+  await testResolveUploadChannelRejectsMissingExplicitChannel();
   await testResolveUploadChannel();
   await testResolveUploadChannelThrowsWhenMissing();
   await testCheckUploadQuotaAutoMode();

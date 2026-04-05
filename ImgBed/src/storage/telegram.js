@@ -1,4 +1,5 @@
 const StorageProvider = require('./base');
+const { fetchWithProxy } = require('../network/proxy');
 
 /**
  * Telegram API 封装类
@@ -10,13 +11,16 @@ class TelegramStorage extends StorageProvider {
         this.botToken = config.botToken;
         this.chatId = config.chatId;
         this.proxyUrl = config.proxyUrl || '';
-        // 如果设置了代理域名，使用代理域名，否则使用官方 API
-        const apiDomain = this.proxyUrl ? `https://${this.proxyUrl}` : 'https://api.telegram.org';
-        this.baseURL = `${apiDomain}/bot${this.botToken}`;
-        this.fileDomain = this.proxyUrl ? `https://${this.proxyUrl}` : 'https://api.telegram.org';
+        this.apiDomain = 'https://api.telegram.org';
+        this.baseURL = `${this.apiDomain}/bot${this.botToken}`;
+        this.fileDomain = this.apiDomain;
         this.defaultHeaders = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0"
         };
+    }
+
+    async requestTelegram(url, options = {}) {
+        return fetchWithProxy(url, options, this.proxyUrl);
     }
 
     /**
@@ -35,7 +39,7 @@ class TelegramStorage extends StorageProvider {
             formData.append('caption', caption);
         }
 
-        const response = await fetch(`${this.baseURL}/${functionName}`, {
+        const response = await this.requestTelegram(`${this.baseURL}/${functionName}`, {
             method: 'POST',
             headers: this.defaultHeaders,
             body: formData
@@ -97,7 +101,7 @@ class TelegramStorage extends StorageProvider {
     async getFilePath(fileId) {
         try {
             const url = `${this.baseURL}/getFile?file_id=${fileId}`;
-            const response = await fetch(url, {
+            const response = await this.requestTelegram(url, {
                 method: 'GET',
                 headers: this.defaultHeaders,
             });
@@ -124,7 +128,7 @@ class TelegramStorage extends StorageProvider {
         }
 
         const fullURL = `${this.fileDomain}/file/bot${this.botToken}/${filePath}`;
-        const response = await fetch(fullURL, {
+        const response = await this.requestTelegram(fullURL, {
             headers: this.defaultHeaders
         });
 
@@ -179,7 +183,7 @@ class TelegramStorage extends StorageProvider {
      */
     async testConnection() {
         try {
-            const response = await fetch(`${this.baseURL}/getMe`, {
+            const response = await this.requestTelegram(`${this.baseURL}/getMe`, {
                 headers: this.defaultHeaders,
                 signal: AbortSignal.timeout(10000)
             });
@@ -189,7 +193,19 @@ class TelegramStorage extends StorageProvider {
             }
             return { ok: false, message: `连接失败: ${data.description || '未知错误'}` };
         } catch (err) {
-            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
+            if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+                return { ok: false, message: '连接失败: 请求超时，请检查代理是否可访问 Telegram' };
+            }
+            if (err?.code === 'ETIMEDOUT') {
+                return { ok: false, message: '连接失败: 连接 Telegram 超时，请检查代理链路' };
+            }
+            if (err?.code === 'ECONNREFUSED') {
+                return { ok: false, message: '连接失败: 代理连接被拒绝，请检查代理地址和端口' };
+            }
+            if (err?.code === 'ENOTFOUND') {
+                return { ok: false, message: '连接失败: 域名解析失败，请检查代理或网络配置' };
+            }
+            return { ok: false, message: `连接失败: ${err.message}` };
         }
     }
 

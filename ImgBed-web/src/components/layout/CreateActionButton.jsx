@@ -47,6 +47,7 @@ export default function CreateActionButton() {
 
   const handlePasteUpload = () => {
     handleCreateMenuClose();
+    setUploadMode('file');
     setPasteDialogOpen(true);
   };
 
@@ -55,9 +56,9 @@ export default function CreateActionButton() {
     setFolderDialogOpen(true);
   };
 
-  const handlePasteUploadFile = async (file) => {
+  const handlePasteUploadFile = async (file, options = {}) => {
     try {
-      const result = await upload(file);
+      const result = await upload(file, options);
       if (!result.success) {
         logger.error('上传失败:', result.error);
       }

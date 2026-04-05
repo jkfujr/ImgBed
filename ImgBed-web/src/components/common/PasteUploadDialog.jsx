@@ -1,19 +1,68 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, Box, Typography, Alert, LinearProgress, ImageList, ImageListItem, IconButton
+  Button, Box, Typography, Alert, LinearProgress, ImageList, ImageListItem, IconButton,
+  FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import CloseIcon from '@mui/icons-material/Close';
 import { BORDER_RADIUS } from '../../utils/constants';
+import { StorageDocs } from '../../api';
+import logger from '../../utils/logger';
+
+const DEFAULT_CHANNEL = '__system_default__';
 
 export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder = false }) {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [selectedChannel, setSelectedChannel] = useState(DEFAULT_CHANNEL);
+  const [availableChannels, setAvailableChannels] = useState([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [channelsError, setChannelsError] = useState(null);
   const boxRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  const resetState = useCallback(() => {
+    setFiles([]);
+    setError(null);
+    setProgress(0);
+    setSelectedChannel(DEFAULT_CHANNEL);
+    setAvailableChannels([]);
+    setChannelsError(null);
+    setChannelsLoading(false);
+  }, []);
+
+  const loadChannels = useCallback(async () => {
+    setChannelsLoading(true);
+    setChannelsError(null);
+
+    try {
+      const res = await StorageDocs.list();
+      if (res.code !== 0) {
+        throw new Error(res.message || '获取上传渠道失败');
+      }
+
+      const writableChannels = (res.data?.list || []).filter((channel) => channel.enabled && channel.allowUpload);
+      setAvailableChannels(writableChannels);
+    } catch (err) {
+      logger.error('获取上传渠道失败:', err);
+      setAvailableChannels([]);
+      setChannelsError(err.message || '获取上传渠道失败');
+    } finally {
+      setChannelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      resetState();
+      return;
+    }
+
+    loadChannels();
+  }, [open, loadChannels, resetState]);
 
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
@@ -57,9 +106,11 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
     setUploading(true);
     setProgress(0);
 
+    const uploadOptions = selectedChannel === DEFAULT_CHANNEL ? {} : { channel: selectedChannel };
+
     try {
       for (let i = 0; i < files.length; i++) {
-        await onUpload(files[i]);
+        await onUpload(files[i], uploadOptions);
         setProgress(((i + 1) / files.length) * 100);
       }
       handleClose();
@@ -72,9 +123,7 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
 
   const handleClose = () => {
     if (!uploading) {
-      setFiles([]);
-      setError(null);
-      setProgress(0);
+      resetState();
       onClose();
     }
   };
@@ -83,6 +132,24 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>上传图片</DialogTitle>
       <DialogContent>
+        <FormControl fullWidth size="small" sx={{ mb: 2 }} disabled={uploading || channelsLoading}>
+          <InputLabel>上传渠道</InputLabel>
+          <Select
+            value={selectedChannel}
+            label="上传渠道"
+            onChange={(e) => setSelectedChannel(e.target.value)}
+          >
+            <MenuItem value={DEFAULT_CHANNEL}>系统默认渠道</MenuItem>
+            {availableChannels.map((channel) => (
+              <MenuItem key={channel.id} value={channel.id}>
+                {channel.name} ({channel.type})
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {channelsError && <Alert severity="warning" sx={{ mb: 2 }}>获取渠道列表失败，将使用系统默认渠道：{channelsError}</Alert>}
+
         <Box
           ref={boxRef}
           tabIndex={0}
