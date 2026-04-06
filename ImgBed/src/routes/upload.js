@@ -25,6 +25,7 @@ import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
+import { cacheInvalidation } from '../middleware/cache.js';
 
 const log = createLogger('upload');
 const uploadApp = express.Router();
@@ -291,6 +292,10 @@ uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), as
   await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
   markOperationCompleted(sqlite, operationId);
   log.info({ fileId: fileMeta.fileId, channel: uploadResult.finalChannelId }, '文件上传成功');
+
+  // 使文件列表和存储统计缓存失效
+  cacheInvalidation.invalidateFiles();
+  cacheInvalidation.invalidateStorages();
 
   return res.json(buildUploadResponse({
     fileId: fileMeta.fileId,

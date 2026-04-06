@@ -62,6 +62,12 @@ const defaultConfig = {
       concurrency: 4,             // 默认并发数
       maxConcurrency: 8,          // 最大并发数限制
       minPartSize: 5242880        // 最小分片大小 5MB（S3 协议要求）
+    },
+    // 响应缓存配置
+    responseCache: {
+      enabled: true,              // 是否启用响应缓存
+      ttlSeconds: 60,             // 默认缓存时间（秒）
+      maxKeys: 1000               // 最大缓存键数量
     }
   }
 };

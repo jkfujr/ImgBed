@@ -14,6 +14,15 @@ import { buildNewStorageChannel, validateStorageChannelInput } from '../services
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, NotFoundError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
+import {
+  systemConfigCache,
+  storagesListCache,
+  storagesStatsCache,
+  quotaStatsCache,
+  loadBalanceCache,
+  cacheInvalidation
+} from '../middleware/cache.js';
+import { getResponseCache } from '../services/cache/response-cache.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
@@ -36,7 +45,7 @@ systemApp.use(adminAuth);
  * 读取系统配置（脱敏）
  * GET /api/system/config
  */
-systemApp.get('/config', asyncHandler(async (_req, res) => {
+systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
   if (cfg.jwt) cfg.jwt.secret = '******';
   return res.json({ code: 0, message: 'success', data: cfg });
@@ -77,6 +86,10 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
   }
 
   writeSystemConfig(configPath, cfg);
+
+  // 使系统配置缓存失效
+  cacheInvalidation.invalidateSystemConfig();
+
   return res.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
 }));
 
@@ -84,7 +97,7 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
  * 获取存储渠道列表（含完整 config，敏感字段脱敏）
  * GET /api/system/storages
  */
-systemApp.get('/storages', asyncHandler(async (_req, res) => {
+systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
   const fileStorages = cfg.storage?.storages || [];
   const quotaStats = storageManager.getAllQuotaStats();
@@ -113,7 +126,7 @@ systemApp.get('/storages', asyncHandler(async (_req, res) => {
  * 获取存储渠道统计信息
  * GET /api/system/storages/stats
  */
-systemApp.get('/storages/stats', asyncHandler(async (_req, res) => {
+systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
   const fileStorages = cfg.storage?.storages || [];
 
@@ -169,7 +182,7 @@ systemApp.post('/storages/test', asyncHandler(async (req, res) => {
  * 获取负载均衡配置
  * GET /api/system/load-balance
  */
-systemApp.get('/load-balance', asyncHandler(async (_req, res) => {
+systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
   return res.json({
     code: 0,
@@ -201,6 +214,9 @@ systemApp.put('/load-balance', asyncHandler(async (req, res) => {
   writeSystemConfig(configPath, cfg);
   await storageManager.reload();
 
+  // 使负载均衡和存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
+
   return res.json({ code: 0, message: '负载均衡配置已更新' });
 }));
 
@@ -227,6 +243,9 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
 
   await insertStorageChannelMeta(newStorage, sqlite);
   await applyStorageConfigChange({ cfg, configPath, storageManager });
+
+  // 使存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
 
   return res.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
 }));
@@ -262,6 +281,9 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   await updateStorageChannelMeta(id, existing, sqlite);
   await applyStorageConfigChange({ cfg, configPath, storageManager });
 
+  // 使存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
+
   return res.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
 }));
 
@@ -284,6 +306,9 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   await deleteStorageChannelMeta(id, sqlite);
   await applyStorageConfigChange({ cfg, configPath, storageManager });
 
+  // 使存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
+
   return res.json({ code: 0, message: '存储渠道已删除' });
 }));
 
@@ -300,6 +325,10 @@ systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
   cfg.storage.default = id;
   writeSystemConfig(configPath, cfg);
   await storageManager.reload();
+
+  // 使存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
+
   return res.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
 }));
 
@@ -320,6 +349,9 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
   await updateStorageChannelMeta(id, storage, sqlite);
   await applyStorageConfigChange({ cfg, configPath, storageManager });
 
+  // 使存储相关缓存失效
+  cacheInvalidation.invalidateStorages();
+
   return res.json({
     code: 0,
     message: `渠道 "${id}" 已${storage.enabled ? '启用' : '禁用'}`,
@@ -331,7 +363,7 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
  * 获取各存储渠道已用容量统计
  * GET /api/system/quota-stats
  */
-systemApp.get('/quota-stats', asyncHandler(async (_req, res) => {
+systemApp.get('/quota-stats', quotaStatsCache(), asyncHandler(async (_req, res) => {
   const stats = storageManager.getAllQuotaStats();
   return res.json({
     code: 0,
@@ -387,6 +419,34 @@ systemApp.get('/maintenance/quota-history', asyncHandler(async (req, res) => {
     code: 0,
     message: 'success',
     data: { history }
+  });
+}));
+
+/**
+ * 获取响应缓存统计信息
+ * GET /api/system/cache/stats
+ */
+systemApp.get('/cache/stats', asyncHandler(async (_req, res) => {
+  const cache = getResponseCache();
+  const stats = cache.getStats();
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: stats
+  });
+}));
+
+/**
+ * 清空响应缓存
+ * POST /api/system/cache/clear
+ */
+systemApp.post('/cache/clear', asyncHandler(async (_req, res) => {
+  cacheInvalidation.invalidateAll();
+
+  return res.json({
+    code: 0,
+    message: '缓存已清空'
   });
 }));
 

@@ -9,6 +9,7 @@ import { rebuildMetadataTask } from '../services/files/rebuild-metadata.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { NotFoundError, ValidationError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
+import { filesListCache, cacheInvalidation } from '../middleware/cache.js';
 
 const log = createLogger('files');
 const filesApp = express.Router();
@@ -17,7 +18,7 @@ const filesApp = express.Router();
  * 文件列表接口 (带分页与简单过滤)
  * GET /api/files
  */
-filesApp.get('/', requirePermission('files:read'), asyncHandler(async (req, res) => {
+filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandler(async (req, res) => {
     const page = parseInt(req.query.page || '1');
     const pageSize = parseInt(req.query.pageSize || '20');
     const directory = req.query.directory;
@@ -118,6 +119,9 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
         throw new NotFoundError('指定文件不存在或其值未发生变动');
     }
 
+    // 使文件列表缓存失效
+    cacheInvalidation.invalidateFiles();
+
     return res.json({ code: 0, message: '文件信息更新已完成', data: { id, ...updateData } });
 }));
 
@@ -133,6 +137,9 @@ filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     }
 
     await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager });
+
+    // 使文件列表缓存失效
+    cacheInvalidation.invalidateFiles();
 
     return res.json({ code: 0, message: '文件删除成功', data: { id } });
 }));
@@ -152,6 +159,10 @@ filesApp.post('/batch', adminAuth, asyncHandler(async (req, res) => {
         storageManager,
         ChunkManager,
     });
+
+    // 使文件列表缓存失效
+    cacheInvalidation.invalidateFiles();
+
     return res.json(response);
 }));
 

@@ -1,5 +1,6 @@
 import config from './src/config/index.js';
 import { initDb } from './src/database/index.js';
+import { initResponseCache } from './src/services/cache/response-cache.js';
 
 const port = config.server?.port || 13000;
 const host = config.server?.host || '0.0.0.0';
@@ -23,6 +24,14 @@ try {
   console.error('[服务端] 数据库初始化失败，应用终止启动:', error);
   process.exit(1);
 }
+
+// 初始化响应缓存服务
+const cacheConfig = config.performance?.responseCache || {};
+initResponseCache({
+  enabled: cacheConfig.enabled !== false,
+  ttlSeconds: cacheConfig.ttlSeconds || 60,
+  maxKeys: cacheConfig.maxKeys || 1000
+});
 
 const { default: app } = await import('./src/app.js');
 
