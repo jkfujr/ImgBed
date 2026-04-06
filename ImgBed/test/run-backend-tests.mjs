@@ -128,3 +128,32 @@ test('fetchWithProxy 通过 dispatcher 透传代理对象', async () => {
 
   __resetDepsForTest();
 });
+
+// 运行补偿逻辑测试
+test('补偿逻辑测试套件', async () => {
+  const { spawn } = await import('node:child_process');
+  const { fileURLToPath } = await import('url');
+  const { dirname, join } = await import('path');
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const compensationTestPath = join(__dirname, 'test-compensation-logic.mjs');
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [compensationTestPath], {
+      stdio: 'inherit',
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`补偿逻辑测试失败，退出码: ${code}`));
+      }
+    });
+
+    child.on('error', (err) => {
+      reject(err);
+    });
+  });
+});
