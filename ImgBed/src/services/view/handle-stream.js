@@ -1,6 +1,9 @@
 import { Readable } from 'stream';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { buildStreamHeaders } from './resolve-file-storage.js';
+import { createLogger } from '../../utils/logger.js';
+
+const log = createLogger('handle-stream');
 
 const applyHeaders = (res, headers) => {
   Object.entries(headers).forEach(([key, value]) => {
@@ -49,7 +52,7 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
   const options = isPartial ? { start, end } : {};
 
   const fileStream = await storage.getStream(storageKey, options).catch(e => {
-    console.error(`[View API] 拉取真实流 ${storageKey} 出错:`, e.message);
+    log.error({ storageKey, err: e }, '拉取真实流出错');
     return null;
   });
 

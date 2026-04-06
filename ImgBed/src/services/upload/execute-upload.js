@@ -1,5 +1,8 @@
 import ChunkManager from '../../storage/chunk-manager.js';
 import { createUploadError } from './resolve-upload.js';
+import { createLogger } from '../../utils/logger.js';
+
+const log = createLogger('execute-upload');
 
 function isRetryableError(error) {
   const networkCodes = ['ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN'];
@@ -114,7 +117,7 @@ async function executeUploadWithFailover({
         const excludeIds = failedChannels.map((item) => item.id);
         const nextChannelId = storageManager.selectUploadChannel(null, excludeIds);
         if (nextChannelId) {
-          console.log(`[Upload Failover] 渠道 ${finalChannelId} 不存在，切换到: ${nextChannelId}`);
+          log.info({ from: finalChannelId, to: nextChannelId }, 'Upload Failover: 渠道不存在，切换');
           finalChannelId = nextChannelId;
           continue;
         }
@@ -140,7 +143,7 @@ async function executeUploadWithFailover({
         failedChannels,
       };
     } catch (err) {
-      console.warn(`[Upload Failover] 渠道 ${finalChannelId} 上传失败: ${err.message}`);
+      log.warn({ channel: finalChannelId, err }, 'Upload Failover: 渠道上传失败');
       failedChannels.push({ id: finalChannelId, error: err.message });
 
       const canRetry = err._sizeLimit
@@ -167,7 +170,7 @@ async function executeUploadWithFailover({
         throw createUploadError(500, '所有可用渠道均已尝试，上传失败');
       }
 
-      console.log(`[Upload Failover] 切换到备选渠道: ${nextChannelId}`);
+      log.info({ to: nextChannelId }, 'Upload Failover: 切换到备选渠道');
       finalChannelId = nextChannelId;
     }
   }

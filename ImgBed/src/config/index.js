@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('config');
 
 const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
 
@@ -65,19 +68,19 @@ try {
     const rawData = fs.readFileSync(configPath, 'utf8');
     config = JSON.parse(rawData);
   } else {
-    console.log(`[配置] 未找到 config.json，系统正自动生成默认配置...`);
-    
+    log.info('未找到 config.json，系统正自动生成默认配置');
+
     // 生成新的配置
     config = { ...defaultConfig };
     // 随机生成 128 位的 JWT Secret
     config.jwt.secret = generateRandomString(128);
-    
+
     // 写入配置到文件
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    console.log(`[配置] 已在 ${configPath} 创建默认配置文件，并生成随机 JWT 秘钥。`);
+    log.info({ configPath }, '已创建默认配置文件，并生成随机 JWT 秘钥');
   }
 } catch (error) {
-  console.error('[配置] 初始化配置失败:', error);
+  log.error({ err: error }, '初始化配置失败');
   process.exit(1);
 }
 

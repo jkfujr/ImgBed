@@ -119,13 +119,18 @@ class S3Storage extends StorageProvider {
     }
 
     async delete(fileId, options) {
-        await this._ensureInitialized();
-        const command = new DeleteObjectCommand({
-            Bucket: this.bucket,
-            Key: this._getFullPath(fileId)
-        });
-        await this.s3.send(command);
-        return true;
+        try {
+            await this._ensureInitialized();
+            const command = new DeleteObjectCommand({
+                Bucket: this.bucket,
+                Key: this._getFullPath(fileId)
+            });
+            await this.s3.send(command);
+            return true;
+        } catch (err) {
+            // S3 删除失败时捕获异常并返回 false
+            return false;
+        }
     }
 
     async exists(fileId) {

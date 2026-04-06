@@ -1,4 +1,7 @@
 import StorageProvider from './base.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('huggingface');
 
 /**
  * HuggingFace API 封装类
@@ -71,7 +74,7 @@ class HuggingFaceStorage extends StorageProvider {
 
             return await response.json();
         } catch (error) {
-            console.error('[HuggingFaceStorage] Commit error:', error.message);
+            log.error({ err: error }, 'Commit error');
             throw error;
         }
     }
@@ -108,7 +111,7 @@ class HuggingFaceStorage extends StorageProvider {
 
             return true;
         } catch (error) {
-            console.error('[HuggingFaceStorage] Delete error:', error.message);
+            log.error({ err: error }, 'Delete error');
             return false;
         }
     }
@@ -131,7 +134,7 @@ class HuggingFaceStorage extends StorageProvider {
 
             return response;
         } catch (error) {
-            console.error('[HuggingFaceStorage] Get file error:', error.message);
+            log.error({ err: error }, 'Get file error');
             throw error;
         }
     }

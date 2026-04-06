@@ -7,6 +7,9 @@
 import pLimit from 'p-limit';
 import { Readable } from 'stream';
 import { sqlite } from '../database/index.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('chunk-manager');
 
 class ChunkManager {
 
@@ -77,7 +80,7 @@ class ChunkManager {
                             });
                             break;
                         } catch (err) {
-                            console.warn(`[ChunkManager] 分块 ${i} 第 ${attempt + 1} 次尝试失败: ${err.message}`);
+                            log.warn({ chunkIndex: i, attempt: attempt + 1, err }, '分块上传尝试失败');
                             if (attempt >= 2) throw err;
                             await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
                         }
@@ -101,12 +104,12 @@ class ChunkManager {
             chunkRecords.length = 0;
             chunkRecords.push(...records.sort((a, b) => a.chunk_index - b.chunk_index));
         } catch (err) {
-            console.warn(`[ChunkManager] 分块上传中途失败，清理 ${chunkRecords.length} 个已上传块`);
+            log.warn({ uploadedCount: chunkRecords.length }, '分块上传中途失败，清理已上传块');
             for (const record of chunkRecords) {
                 try {
                     await storage.deleteChunk(record.storage_key);
                 } catch (cleanErr) {
-                    console.warn(`[ChunkManager] 清理孤儿块 ${record.storage_key} 失败（忽略）:`, cleanErr.message);
+                    log.warn({ storageKey: record.storage_key, err: cleanErr }, '清理孤儿块失败（忽略）');
                 }
             }
             throw err;
@@ -186,7 +189,7 @@ class ChunkManager {
                         key: multipart.key
                     });
                 } catch (abortErr) {
-                    console.error('[ChunkManager] S3 abort multipart 失败:', abortErr.message);
+                    log.error({ err: abortErr }, 'S3 abort multipart 失败');
                 }
             }
             throw err;

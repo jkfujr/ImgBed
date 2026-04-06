@@ -32,11 +32,14 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   if (action === 'delete') {
     const placeholders = ids.map(() => '?').join(', ');
     const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
-    const deletedCount = await deleteFilesBatch(files, { db, storageManager, ChunkManager });
+    const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager });
     return {
       code: 0,
-      message: `完毕，已成功清除 ${deletedCount} 份上传档案`,
-      data: { deleted: deletedCount },
+      message: `删除完成：成功 ${results.success}，失败 ${results.failed}`,
+      data: {
+        ...results,
+        deleted: results.success,
+      },
     };
   }
 

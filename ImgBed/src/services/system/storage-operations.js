@@ -101,11 +101,13 @@ function markOperationRemoteDone(db, operationId, {
 function markOperationCommitted(db, operationId, {
   sourceStorageId,
   targetStorageId,
+  compensationPayload,
 } = {}) {
   updateStorageOperation(db, operationId, {
     status: OPERATION_STATUS.COMMITTED,
     sourceStorageId,
     targetStorageId,
+    compensationPayload,
     errorMessage: null,
   });
 }

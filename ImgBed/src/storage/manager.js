@@ -3,6 +3,9 @@ import { sqlite } from '../database/index.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('storage');
 
 import LocalStorage from './local.js';
 import S3Storage from './s3.js';
@@ -10,9 +13,20 @@ import TelegramStorage from './telegram.js';
 import DiscordStorage from './discord.js';
 import HuggingFaceStorage from './huggingface.js';
 import ExternalStorage from './external.js';
+import {
+    buildQuotaEvent,
+    insertQuotaEvents,
+    markOperationCommitted,
+    markOperationCompensated,
+    markOperationCompleted,
+    markOperationCompensationPending,
+    markOperationFailed,
+} from '../services/system/storage-operations.js';
+import { parseStorageConfig, removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 
 class StorageManager {
-    constructor() {
+    constructor({ db = sqlite, autoInit = true } = {}) {
+        this.db = db;
         this.config = config.storage || {};
         this.uploadConfig = config.upload || {};
         this.instances = new Map();
@@ -20,8 +34,12 @@ class StorageManager {
         this.usageStats = new Map();
         this.roundRobinIndex = 0;
         this._fullRebuildTimer = null;
+        this._compensationRetryTimer = null;
+        this._isRecoveryRunning = false;
 
-        this._init().catch((err) => console.error('[StorageManager] 初始化失败:', err.message));
+        if (autoInit) {
+            this._init().catch((err) => log.error({ err }, '初始化失败'));
+        }
     }
 
     async _init() {
@@ -31,9 +49,220 @@ class StorageManager {
         await this.applyPendingQuotaEvents({ adjustUsageStats: false, recordSnapshots: true });
 
         this._rebuildAllQuotaStats().catch((err) =>
-            console.error('[StorageManager] 初始化容量全量校正失败:', err.message));
+            log.error({ err }, '初始化容量全量校正失败'));
 
         this._startFullRebuildTimer();
+        this._recoverStaleOperations().catch((err) =>
+            log.error({ err }, '启动恢复失败'));
+        this._startCompensationRetryTimer();
+    }
+
+    _parseOperationPayload(rawPayload) {
+        if (!rawPayload) {
+            return {};
+        }
+
+        try {
+            return JSON.parse(rawPayload);
+        } catch {
+            return {};
+        }
+    }
+
+    async _recoverStaleOperations({ limit = 50 } = {}) {
+        const db = this.db;
+
+        if (this._isRecoveryRunning) {
+            return { recovered: 0, total: 0, skipped: true };
+        }
+
+        this._isRecoveryRunning = true;
+
+        try {
+            const operations = db.prepare(`
+                SELECT * FROM storage_operations
+                WHERE status IN ('remote_done', 'committed', 'compensation_pending')
+                ORDER BY created_at ASC
+                LIMIT ?
+            `).all(limit);
+
+            if (operations.length === 0) {
+                return { recovered: 0, total: 0, skipped: false };
+            }
+
+            log.info({ count: operations.length }, '恢复调度: 发现异常操作');
+
+            let recovered = 0;
+            for (const operation of operations) {
+                const current = db.prepare(
+                    'SELECT status FROM storage_operations WHERE id = ? LIMIT 1'
+                ).get(operation.id);
+
+                if (!current || current.status !== operation.status) {
+                    continue;
+                }
+
+                await this._executeRecovery(operation);
+                recovered++;
+            }
+
+            return { recovered, total: operations.length, skipped: false };
+        } finally {
+            this._isRecoveryRunning = false;
+        }
+    }
+
+    async _executeRecovery(operation) {
+        const db = this.db;
+
+        try {
+            switch (operation.status) {
+                case 'remote_done':
+                    await this._recoverRemoteDoneOperation(operation);
+                    break;
+                case 'committed':
+                    await this._recoverCommittedOperation(operation);
+                    break;
+                case 'compensation_pending':
+                    await this._executeCompensation(operation);
+                    break;
+                default:
+                    break;
+            }
+        } catch (err) {
+            markOperationFailed(db, operation.id, err);
+            log.error({ operationId: operation.id, err }, '恢复失败');
+        }
+    }
+
+    async _recoverRemoteDoneOperation(operation) {
+        const db = this.db;
+
+        if (operation.operation_type !== 'delete') {
+            await this._executeCompensation(operation, { payloadField: 'remote_payload' });
+            return;
+        }
+
+        const fileRecord = db.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(operation.file_id);
+        if (!fileRecord) {
+            markOperationCompleted(db, operation.id);
+            return;
+        }
+
+        const configObj = parseStorageConfig(fileRecord.storage_config);
+        const instanceId = operation.source_storage_id || fileRecord.storage_instance_id || configObj.instance_id || null;
+        const fileSize = Number(fileRecord.size) || 0;
+        const chunkRecords = fileRecord.is_chunked
+            ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)
+            : [];
+
+        const compensationPayload = {
+            storageId: instanceId,
+            storageKey: fileRecord.storage_key,
+            isChunked: Boolean(fileRecord.is_chunked),
+            chunkRecords,
+        };
+
+        const persistDelete = db.transaction(() => {
+            db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
+            db.prepare('DELETE FROM files WHERE id = ?').run(fileRecord.id);
+
+            if (instanceId) {
+                insertQuotaEvents(db, [buildQuotaEvent({
+                    operationId: operation.id,
+                    fileId: fileRecord.id,
+                    storageId: instanceId,
+                    eventType: 'delete',
+                    bytesDelta: -fileSize,
+                    fileCountDelta: -1,
+                    payload: { storageKey: fileRecord.storage_key },
+                })]);
+            }
+
+            markOperationCommitted(db, operation.id, {
+                sourceStorageId: instanceId,
+                compensationPayload,
+            });
+        });
+
+        persistDelete();
+        await this.applyPendingQuotaEvents({ operationId: operation.id, adjustUsageStats: true });
+        markOperationCompleted(db, operation.id);
+        log.info({ operationId: operation.id }, '恢复成功 (remote_done -> completed)');
+    }
+
+    async _recoverCommittedOperation(operation) {
+        const db = this.db;
+
+        await this.applyPendingQuotaEvents({ operationId: operation.id, adjustUsageStats: true });
+
+        if (operation.operation_type === 'migrate' && operation.compensation_payload) {
+            const payload = this._parseOperationPayload(operation.compensation_payload);
+            await removeStoredArtifacts({
+                storageManager: this,
+                storageId: payload.storageId || payload.sourceStorageId,
+                storageKey: payload.storageKey || payload.sourceStorageKey,
+                isChunked: Boolean(payload.isChunked),
+                chunkRecords: payload.chunkRecords || [],
+            });
+        }
+
+        markOperationCompleted(db, operation.id);
+        log.info({ operationId: operation.id }, '恢复成功 (committed -> completed)');
+    }
+
+    async _executeCompensation(operation, { payloadField = 'compensation_payload' } = {}) {
+        const db = this.db;
+        const payload = this._parseOperationPayload(operation[payloadField]);
+        if (!payload || Object.keys(payload).length === 0) {
+            markOperationCompensated(db, operation.id, { compensationPayload: payload });
+            return;
+        }
+
+        await removeStoredArtifacts({
+            storageManager: this,
+            storageId: payload.storageId || payload.sourceStorageId || payload.targetStorageId,
+            storageKey: payload.storageKey || payload.sourceStorageKey || payload.targetStorageKey,
+            isChunked: Boolean(payload.isChunked),
+            chunkRecords: payload.chunkRecords || [],
+        });
+
+        markOperationCompensated(db, operation.id, { compensationPayload: payload });
+        log.info({ operationId: operation.id }, '补偿成功');
+    }
+
+    _startCompensationRetryTimer() {
+        const db = this.db;
+
+        if (this._compensationRetryTimer) {
+            return;
+        }
+
+        const intervalMs = 5 * 60 * 1000;
+        this._compensationRetryTimer = setInterval(async () => {
+            try {
+                const pending = db.prepare(`
+                    SELECT COUNT(*) AS count FROM storage_operations
+                    WHERE status IN ('remote_done', 'committed', 'compensation_pending')
+                `).get();
+
+                if (pending.count > 0) {
+                    log.info({ count: pending.count }, '定时恢复: 发现异常操作');
+                    await this._recoverStaleOperations();
+                }
+            } catch (err) {
+                log.error({ err }, '定时恢复失败');
+            }
+        }, intervalMs);
+
+        this._compensationRetryTimer.unref();
+    }
+
+    _stopCompensationRetryTimer() {
+        if (this._compensationRetryTimer) {
+            clearInterval(this._compensationRetryTimer);
+            this._compensationRetryTimer = null;
+        }
     }
 
     async _loadQuotaFromHistory() {
@@ -54,10 +283,10 @@ class StorageManager {
             }
 
             if (latestRecords.length > 0) {
-                console.log(`[StorageManager] 已从数据库加载 ${latestRecords.length} 个渠道的容量快照`);
+                log.info({ count: latestRecords.length }, '已从数据库加载渠道容量快照');
             }
         } catch (err) {
-            console.error('[StorageManager] 从数据库加载容量快照失败:', err.message);
+            log.error({ err }, '从数据库加载容量快照失败');
         }
     }
 
@@ -67,7 +296,7 @@ class StorageManager {
                 'SELECT * FROM storage_quota_history WHERE storage_id = ? ORDER BY recorded_at DESC LIMIT ?'
             ).all(storageId, limit);
         } catch (err) {
-            console.error('[StorageManager] 获取容量历史失败:', err.message);
+            log.error({ err, storageId }, '获取容量历史失败');
             return [];
         }
     }
@@ -173,11 +402,12 @@ class StorageManager {
                         instance,
                     });
                 } catch (err) {
-                    console.error(`[StorageManager] 加载实例 ${sFile.id} 失败:`, err.message);
+                    log.error({ storageId: sFile.id, err }, '加载实例失败');
                 }
             }
 
-            console.log('[StorageManager] 存储渠道配置已加载，当前实例:', [...this.instances.keys()]);
+            const instanceIds = [...this.instances.keys()].join(', ');
+            log.info({ count: this.instances.size }, `存储渠道配置已加载: ${instanceIds}`);
 
             if (this._fullRebuildTimer) {
                 this._rebuildAllQuotaStats().catch(() => {});
@@ -185,7 +415,7 @@ class StorageManager {
                 this._startFullRebuildTimer();
             }
         } catch (err) {
-            console.error('[StorageManager] reload 失败:', err.message);
+            log.error({ err }, 'reload 失败');
         }
     }
 
@@ -215,7 +445,7 @@ class StorageManager {
                 });
             }
         } catch (err) {
-            console.error('[StorageManager] 初始化使用统计失败:', err.message);
+            log.error({ err }, '初始化使用统计失败');
         }
     }
 
@@ -234,7 +464,7 @@ class StorageManager {
         }
 
         if (uploadableChannels.length === 0) {
-            console.warn('[StorageManager] 没有可用的上传渠道');
+            log.warn('没有可用的上传渠道');
             return null;
         }
 
@@ -389,13 +619,13 @@ class StorageManager {
                     sqlite.prepare(`UPDATE storage_quota_events SET applied_at = NULL WHERE id IN (${placeholders})`)
                         .run(...eventIds);
                 }
-                console.error('[StorageManager] 应用容量事件失败，已回滚:', projectionErr.message);
+                log.error({ err: projectionErr }, '应用容量事件失败，已回滚');
                 throw projectionErr;
             }
 
             return { applied: rows.length, storageIds: [...affectedStorageIds] };
         } catch (err) {
-            console.error('[StorageManager] 应用容量事件失败:', err.message);
+            log.error({ err }, '应用容量事件失败');
             throw err;
         }
     }
@@ -441,9 +671,9 @@ class StorageManager {
             this.quotaProjection = nextProjection;
             this.usageStats = nextUsageStats;
 
-            console.log(`[StorageManager] 容量缓存全量校正完成，已持久化 ${historyRecords.length} 条记录`);
+            log.info({ count: historyRecords.length }, '容量缓存全量校正完成');
         } catch (err) {
-            console.error('[StorageManager] 容量缓存全量校正失败:', err.message);
+            log.error({ err }, '容量缓存全量校正失败');
         }
     }
 
@@ -452,7 +682,7 @@ class StorageManager {
         const intervalMs = intervalHours * 60 * 60 * 1000;
 
         this._fullRebuildTimer = setInterval(() => {
-            console.log('[StorageManager] 定时全量容量校正开始...');
+            log.info('定时全量容量校正开始');
             this._rebuildAllQuotaStats().catch(() => {});
         }, intervalMs);
 
@@ -519,4 +749,5 @@ class StorageManager {
 }
 
 const storageManager = new StorageManager();
+export { StorageManager };
 export default storageManager;

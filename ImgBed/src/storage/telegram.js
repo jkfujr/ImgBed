@@ -1,5 +1,8 @@
 import StorageProvider from './base.js';
 import { fetchWithProxy } from '../network/proxy.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('telegram');
 
 /**
  * Telegram API 封装类
@@ -44,7 +47,7 @@ class TelegramStorage extends StorageProvider {
             headers: this.defaultHeaders,
             body: formData
         });
-        console.log('[TelegramStorage] API response:', response.status, response.statusText);
+        log.debug({ status: response.status, statusText: response.statusText }, 'API response');
         if (!response.ok) {
             throw new Error(`Telegram API error: ${response.statusText}`);
         }
@@ -65,7 +68,7 @@ class TelegramStorage extends StorageProvider {
 
         try {
             if (!responseData.ok) {
-                console.error('[TelegramStorage] API error:', responseData.description);
+                log.error({ description: responseData.description }, 'API error');
                 return null;
             }
 
@@ -90,7 +93,7 @@ class TelegramStorage extends StorageProvider {
 
             return null;
         } catch (error) {
-            console.error('[TelegramStorage] 解析响应错误:', error.message);
+            log.error({ err: error }, '解析响应错误');
             return null;
         }
     }
@@ -113,7 +116,7 @@ class TelegramStorage extends StorageProvider {
                 return null;
             }
         } catch (error) {
-            console.error('[TelegramStorage] 获取文件路径失败:', error.message);
+            log.error({ err: error }, '获取文件路径失败');
             return null;
         }
     }
@@ -170,6 +173,19 @@ class TelegramStorage extends StorageProvider {
         const filePath = await this.getFilePath(fileId);
         if (!filePath) return null;
         return `${this.fileDomain}/file/bot${this.botToken}/${filePath}`;
+    }
+
+    async delete(fileId, options) {
+        try {
+            // Telegram 不支持直接删除文件，但可以尝试删除包含该文件的消息
+            // 由于我们只存储了 file_id，无法直接定位到 message_id
+            // 因此这里返回 false 表示不支持删除操作
+            log.warn({ fileId }, 'Telegram 存储不支持删除操作（缺少 message_id）');
+            return false;
+        } catch (err) {
+            log.error({ fileId, err }, '删除操作失败');
+            return false;
+        }
     }
 
     async exists(fileId) {

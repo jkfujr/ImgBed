@@ -3,6 +3,9 @@ import fs from 'fs';
 import config from '../config/index.js';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('database');
 
 // better-sqlite3 以 CommonJS 形式发布，需要 createRequire 在 ESM 中加载
 const require = createRequire(import.meta.url);
@@ -249,9 +252,9 @@ const initDb = () => {
         // 当前初始化直接以完整 schema 建表，不执行迁移；版本保持 v0
         sqlite.exec('PRAGMA user_version = 0');
 
-        console.log('[数据库] 表结构初始化完成。');
+        log.info('表结构初始化完成');
     } catch (err) {
-        console.error('[数据库] 初始化失败:', err);
+        log.error({ err }, '初始化失败');
         throw err; // 如果初始化失败则阻断启动
     }
 };

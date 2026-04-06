@@ -1,4 +1,7 @@
 import StorageProvider from './base.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('discord');
 
 /**
  * Discord API 封装类
@@ -35,7 +38,7 @@ class DiscordStorage extends StorageProvider {
             body: formData
         });
 
-        console.log('[DiscordStorage] API response:', response.status, response.statusText);
+        log.debug({ status: response.status, statusText: response.statusText }, 'API response');
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -51,7 +54,7 @@ class DiscordStorage extends StorageProvider {
     getFileInfo(responseData) {
         try {
             if (!responseData || !responseData.id) {
-                console.error('[DiscordStorage] Invalid response:', responseData);
+                log.error({ responseData }, 'Invalid response');
                 return null;
             }
 
@@ -70,7 +73,7 @@ class DiscordStorage extends StorageProvider {
 
             return null;
         } catch (error) {
-            console.error('[DiscordStorage] Error parsing response:', error.message);
+            log.error({ err: error }, 'Error parsing response');
             return null;
         }
     }
@@ -90,8 +93,8 @@ class DiscordStorage extends StorageProvider {
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After');
                     const waitTime = retryAfter ? parseFloat(retryAfter) * 1000 : 1000 * (attempt + 1);
-                    console.warn(`[DiscordStorage] 429 rate limit, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
-                    
+                    log.warn({ waitTime, attempt: attempt + 1, maxRetries }, '429 rate limit, waiting before retry');
+
                     if (attempt < maxRetries) {
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                         continue;
@@ -99,13 +102,13 @@ class DiscordStorage extends StorageProvider {
                 }
 
                 if (!response.ok) {
-                    console.error('[DiscordStorage] getMessage error:', response.status, response.statusText);
+                    log.error({ status: response.status, statusText: response.statusText }, 'getMessage error');
                     return null;
                 }
 
                 return await response.json();
             } catch (error) {
-                console.error('[DiscordStorage] Error getting message:', error.message);
+                log.error({ err: error }, 'Error getting message');
                 if (attempt < maxRetries) {
                     await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
                     continue;
@@ -143,10 +146,10 @@ class DiscordStorage extends StorageProvider {
                 return true;
             }
 
-            console.error('[DiscordStorage] deleteMessage error:', response.status, response.statusText);
+            log.error({ status: response.status, statusText: response.statusText }, 'deleteMessage error');
             return false;
         } catch (error) {
-            console.error('[DiscordStorage] Error deleting message:', error.message);
+            log.error({ err: error }, 'Error deleting message');
             return false;
         }
     }

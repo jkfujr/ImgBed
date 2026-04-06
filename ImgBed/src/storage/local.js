@@ -3,6 +3,9 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('local');
 
 /**
  * Local 存储渠道实现
@@ -88,7 +91,7 @@ class LocalStorage extends StorageProvider {
             }
             return true;
         } catch (err) {
-            console.error('[LocalStorage] Failed to delete file:', err.message);
+            log.error({ err }, 'Failed to delete file');
             return false;
         }
     }

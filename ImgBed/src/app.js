@@ -1,6 +1,8 @@
 import express from 'express';
+import pinoHttp from 'pino-http';
 import config from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
+import { createLogger } from './utils/logger.js';
 import authRouter from './routes/auth.js';
 import apiTokensRouter from './routes/api-tokens.js';
 import uploadRouter from './routes/upload.js';
@@ -9,6 +11,7 @@ import dirsRouter from './routes/directories.js';
 import systemRouter from './routes/system.js';
 import viewRouter from './routes/view.js';
 
+const logger = createLogger('app');
 const app = express();
 
 app.disable('x-powered-by');
@@ -17,10 +20,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // 全局中间件
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-  next();
-});
+app.use(pinoHttp({ logger }));
 
 app.use((req, res, next) => {
   const origin = config.security?.corsOrigin || '*';
@@ -58,7 +58,7 @@ app.use('/api/system', systemRouter);
 // 挂载图片直读路由到根路径 (放在 API 路由之后，避免冲突)
 app.use('/', viewRouter);
 
-registerErrorHandlers(app);
 app.use(notFoundHandler);
+registerErrorHandlers(app);
 
 export default app;

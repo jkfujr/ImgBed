@@ -1,5 +1,8 @@
 import { SignJWT, jwtVerify } from 'jose';
 import config from '../config/index.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('jwt');
 
 // 将配置中的密钥转换为 Uint8Array
 const secretKey = new TextEncoder().encode(config.jwt?.secret || 'fallback-secret-key-12345678');
@@ -28,7 +31,7 @@ async function verifyToken(token) {
     const { payload } = await jwtVerify(token, secretKey);
     return payload; // 解析成功，返回其中的数据
   } catch (error) {
-    console.error('[JWT] Token 解析失败或已变质/过期:', error.message);
+    log.error({ err: error }, 'Token 解析失败或已变质/过期');
     return null; // 验证失败
   }
 }

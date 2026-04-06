@@ -19,7 +19,10 @@ async function removeStoredArtifacts({
       if (!chunkStorage) {
         throw new Error(`分块渠道不可用: ${chunk.storage_id}`);
       }
-      await chunkStorage.deleteChunk(chunk.storage_key);
+      const deleted = await chunkStorage.deleteChunk(chunk.storage_key);
+      if (deleted === false) {
+        throw new Error(`分块删除失败: ${chunk.storage_key}`);
+      }
     }
     return;
   }
@@ -33,7 +36,10 @@ async function removeStoredArtifacts({
     throw new Error(`存储渠道不可用: ${storageId}`);
   }
 
-  await storage.delete(storageKey);
+  const deleted = await storage.delete(storageKey);
+  if (deleted === false) {
+    throw new Error(`存储对象删除失败: ${storageKey}`);
+  }
 }
 
 export {

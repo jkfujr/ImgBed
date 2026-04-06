@@ -1,5 +1,6 @@
 import pLimit from 'p-limit';
 import { Readable } from 'stream';
+import { createLogger } from '../../utils/logger.js';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { uploadToStorage } from '../upload/execute-upload.js';
 import {
@@ -13,6 +14,8 @@ import {
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
 import { parseStorageConfig, removeStoredArtifacts } from './storage-artifacts.js';
+
+const log = createLogger('migrate-file');
 
 const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
 
@@ -102,7 +105,7 @@ async function readSourceFile(fileRecord, storageManager) {
   };
 }
 
-async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager, logger = console }) {
+async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager, logger = log }) {
   const sourceConfig = parseStorageConfig(fileRecord.storage_config);
   const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
 
@@ -157,6 +160,13 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     chunkRecords: targetUploadResult.chunkRecords || [],
   };
 
+  const sourceCleanupPayload = {
+    storageId: sourceInstanceId,
+    storageKey: fileRecord.storage_key,
+    isChunked: Boolean(fileRecord.is_chunked),
+    chunkRecords: sourceChunkRecords,
+  };
+
   const persistMigration = db.transaction(() => {
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
     ChunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
@@ -204,6 +214,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     markOperationCommitted(db, operationId, {
       sourceStorageId: sourceInstanceId,
       targetStorageId: targetChannel,
+      compensationPayload: sourceCleanupPayload,
     });
   });
 
@@ -216,20 +227,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
       compensationPayload: cleanupTargetPayload,
       error: err,
     });
-
-    try {
-      await removeStoredArtifacts({
-        storageManager,
-        storageId: cleanupTargetPayload.storageId,
-        storageKey: cleanupTargetPayload.storageKey,
-        isChunked: cleanupTargetPayload.isChunked,
-        chunkRecords: cleanupTargetPayload.chunkRecords,
-      });
-      markOperationCompensated(db, operationId, { compensationPayload: cleanupTargetPayload });
-    } catch (cleanupErr) {
-      logger.error(`[Files API] 迁移补偿失败 ${fileRecord.id}:`, cleanupErr.message);
-    }
-
+    logger.warn(`[Files API] 迁移 ${fileRecord.id} 本地更新失败，目标端待补偿: ${err.message}`);
     throw err;
   }
 
@@ -238,22 +236,17 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
   try {
     await removeStoredArtifacts({
       storageManager,
-      storageId: sourceInstanceId,
-      storageKey: fileRecord.storage_key,
-      isChunked: Boolean(fileRecord.is_chunked),
-      chunkRecords: sourceChunkRecords,
+      storageId: sourceCleanupPayload.storageId,
+      storageKey: sourceCleanupPayload.storageKey,
+      isChunked: sourceCleanupPayload.isChunked,
+      chunkRecords: sourceCleanupPayload.chunkRecords,
     });
     markOperationCompleted(db, operationId);
   } catch (cleanupErr) {
     markOperationCompensationPending(db, operationId, {
       sourceStorageId: sourceInstanceId,
       targetStorageId: targetChannel,
-      compensationPayload: {
-        storageId: sourceInstanceId,
-        storageKey: fileRecord.storage_key,
-        isChunked: Boolean(fileRecord.is_chunked),
-        chunkRecords: sourceChunkRecords,
-      },
+      compensationPayload: sourceCleanupPayload,
       error: cleanupErr,
     });
     logger.warn(`[Files API] 迁移 ${fileRecord.id} 已提交，但源端清理待补偿: ${cleanupErr.message}`);
@@ -263,7 +256,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
   return { status: 'success' };
 }
 
-async function migrateFilesBatch(files, { targetChannel, db, storageManager, logger = console }) {
+async function migrateFilesBatch(files, { targetChannel, db, storageManager, logger = log }) {
   const targetEntry = validateMigrationTarget(targetChannel, storageManager);
   const limit = pLimit(3);
   const results = {

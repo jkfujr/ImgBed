@@ -1,4 +1,7 @@
 import StorageProvider from './base.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('external');
 
 /**
  * 外部代理 (External) 存储渠道实现
@@ -9,7 +12,7 @@ class ExternalStorage extends StorageProvider {
         super();
         this.baseUrl = config.baseUrl;
         if (!this.baseUrl) {
-             console.warn('[ExternalStorage] 未配置 baseUrl。');
+             log.warn('未配置 baseUrl');
         }
         // 确保baseUrl斜杠结尾标准一致
         if (this.baseUrl && !this.baseUrl.endsWith('/')) {

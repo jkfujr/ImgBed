@@ -22,25 +22,23 @@ import {
   markOperationRemoteDone,
 } from '../services/system/storage-operations.js';
 import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
+import asyncHandler from '../middleware/asyncHandler.js';
+import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
+import { createLogger } from '../utils/logger.js';
 
+const log = createLogger('upload');
 const uploadApp = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
 
-function createResponseError(status, message) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
-
 function validateUploadFile(file) {
   if (!file || typeof file === 'string') {
-    throw createResponseError(400, '未检测到文件上传或字段错误');
+    throw new ValidationError('未检测到文件上传或字段错误');
   }
 
   const maxSize = config.security?.maxFileSize || 100 * 1024 * 1024;
   if (file.size > maxSize) {
-    throw createResponseError(413, '文件体积超出服务器限制');
+    throw new ValidationError('文件体积超出服务器限制');
   }
 }
 
@@ -55,7 +53,7 @@ async function extractFileMetadata(file) {
   const isImageExt = ALLOWED_EXTENSIONS.includes(extension.toLowerCase());
 
   if (!isImageMime || !isImageExt) {
-    throw createResponseError(400, `非法文件格式: ${mimeType || '未知'} (${extension || '无后缀'})。本站仅支持图片托管。`);
+    throw new ValidationError(`非法文件格式: ${mimeType || '未知'} (${extension || '无后缀'})。本站仅支持图片托管。`);
   }
 
   let width = null;
@@ -81,7 +79,7 @@ async function extractFileMetadata(file) {
       hasExif: !!rawExif,
     });
   } catch (metaErr) {
-    console.warn(`[Upload] 提取文件 ${file.originalname} 元数据失败:`, metaErr.message);
+    log.warn({ err: metaErr, filename: file.originalname }, '提取文件元数据失败');
   }
 
   const hash = crypto.createHash('sha1').update(buffer).digest('hex').substring(0, 12);
@@ -162,161 +160,148 @@ function buildUploadResponse({ fileId, newFileName, originalName, fileSize, widt
 /**
  * 文件上传接口
  * POST /api/upload
- * （可选择是否需要 adminAuth。根据需求目前加上管理员拦截。若作为公共图床，后续可配置为宽松模式）
  */
-uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), async (req, res) => {
+uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const file = req.file || null;
+
+  validateUploadFile(file);
+
+  const { channelId } = resolveUploadChannel(body, storageManager, config);
+  const quotaAllowed = storageManager.isUploadAllowed(channelId);
+  if (!quotaAllowed) {
+    throw new QuotaExceededError(`渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`);
+  }
+
+  const fileMeta = await extractFileMetadata(file);
+  const operationId = createStorageOperation(sqlite, {
+    operationType: 'upload',
+    fileId: fileMeta.fileId,
+    targetStorageId: channelId,
+    payload: { originalName: fileMeta.originalName },
+  });
+
+  const uploadResult = await executeUploadWithFailover({
+    initialChannelId: channelId,
+    buffer: fileMeta.buffer,
+    fileId: fileMeta.fileId,
+    newFileName: fileMeta.newFileName,
+    originalName: fileMeta.originalName,
+    mimeType: fileMeta.mimeType,
+    storageManager,
+    config,
+  });
+
+  markOperationRemoteDone(sqlite, operationId, {
+    targetStorageId: uploadResult.finalChannelId,
+    remotePayload: {
+      storageId: uploadResult.finalChannelId,
+      storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
+      isChunked: Boolean(uploadResult.isChunked),
+      chunkRecords: uploadResult.chunkRecords || [],
+    },
+  });
+
+  if (uploadResult.failedChannels.length > 0) {
+    log.info({ fileId: fileMeta.fileId, retries: uploadResult.failedChannels.length, finalChannel: uploadResult.finalChannelId }, 'Upload Failover: 文件经过切换后成功上传');
+  }
+
+  const dbRecord = buildUploadRecord({
+    fileId: fileMeta.fileId,
+    newFileName: fileMeta.newFileName,
+    originalName: fileMeta.originalName,
+    mimeType: fileMeta.mimeType,
+    fileSize: file.size,
+    body,
+    finalChannelId: uploadResult.finalChannelId,
+    storageResult: uploadResult.storageResult,
+    isChunked: uploadResult.isChunked,
+    chunkCount: uploadResult.chunkCount,
+    width: fileMeta.width,
+    height: fileMeta.height,
+    exif: fileMeta.exif,
+    auth: req.auth,
+    clientIp: req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown',
+  });
+
+  const persistUpload = sqlite.transaction(() => {
+    sqlite.prepare(`INSERT INTO files (
+      id, file_name, original_name, mime_type, size,
+      storage_channel, storage_key, storage_config, storage_instance_id,
+      upload_ip, upload_address, uploader_type, uploader_id,
+      directory, tags, is_public, is_chunked, chunk_count,
+      width, height, exif
+    ) VALUES (
+      @id, @file_name, @original_name, @mime_type, @size,
+      @storage_channel, @storage_key, @storage_config, @storage_instance_id,
+      @upload_ip, @upload_address, @uploader_type, @uploader_id,
+      @directory, @tags, @is_public, @is_chunked, @chunk_count,
+      @width, @height, @exif
+    )`).run(dbRecord);
+
+    ChunkManager.insertChunks(uploadResult.chunkRecords || [], sqlite);
+    insertQuotaEvents(sqlite, [buildQuotaEvent({
+      operationId,
+      fileId: fileMeta.fileId,
+      storageId: uploadResult.finalChannelId,
+      eventType: 'upload',
+      bytesDelta: Number(file.size) || 0,
+      fileCountDelta: 1,
+      payload: { storageKey: dbRecord.storage_key },
+    })]);
+    markOperationCommitted(sqlite, operationId, { targetStorageId: uploadResult.finalChannelId });
+  });
+
+  // 保留补偿 try-catch: 数据库写入失败需要清理远端
   try {
-    const body = req.body || {};
-    const file = req.file || null;
+    persistUpload();
+  } catch (insertErr) {
+    log.error({ err: insertErr, dbRecord }, '数据库写入失败');
 
-    validateUploadFile(file);
+    const cleanupPayload = {
+      storageId: uploadResult.finalChannelId,
+      storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
+      isChunked: Boolean(uploadResult.isChunked),
+      chunkRecords: uploadResult.chunkRecords || [],
+    };
 
-    const { channelId } = resolveUploadChannel(body, storageManager, config);
-    const quotaAllowed = storageManager.isUploadAllowed(channelId);
-    if (!quotaAllowed) {
-      return res.status(403).json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} });
-    }
-
-    const fileMeta = await extractFileMetadata(file);
-    const operationId = createStorageOperation(sqlite, {
-      operationType: 'upload',
-      fileId: fileMeta.fileId,
-      targetStorageId: channelId,
-      payload: { originalName: fileMeta.originalName },
-    });
-
-    const uploadResult = await executeUploadWithFailover({
-      initialChannelId: channelId,
-      buffer: fileMeta.buffer,
-      fileId: fileMeta.fileId,
-      newFileName: fileMeta.newFileName,
-      originalName: fileMeta.originalName,
-      mimeType: fileMeta.mimeType,
-      storageManager,
-      config,
-    });
-
-    markOperationRemoteDone(sqlite, operationId, {
+    markOperationCompensationPending(sqlite, operationId, {
       targetStorageId: uploadResult.finalChannelId,
-      remotePayload: {
-        storageId: uploadResult.finalChannelId,
-        storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
-        isChunked: Boolean(uploadResult.isChunked),
-        chunkRecords: uploadResult.chunkRecords || [],
-      },
-    });
-
-    if (uploadResult.failedChannels.length > 0) {
-      console.info(`[Upload Failover] 文件 ${fileMeta.fileId} 经过 ${uploadResult.failedChannels.length} 次切换后成功上传到 ${uploadResult.finalChannelId}`);
-    }
-
-    const dbRecord = buildUploadRecord({
-      fileId: fileMeta.fileId,
-      newFileName: fileMeta.newFileName,
-      originalName: fileMeta.originalName,
-      mimeType: fileMeta.mimeType,
-      fileSize: file.size,
-      body,
-      finalChannelId: uploadResult.finalChannelId,
-      storageResult: uploadResult.storageResult,
-      isChunked: uploadResult.isChunked,
-      chunkCount: uploadResult.chunkCount,
-      width: fileMeta.width,
-      height: fileMeta.height,
-      exif: fileMeta.exif,
-      auth: req.auth,
-      clientIp: req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown',
-    });
-
-    const persistUpload = sqlite.transaction(() => {
-      sqlite.prepare(`INSERT INTO files (
-        id, file_name, original_name, mime_type, size,
-        storage_channel, storage_key, storage_config, storage_instance_id,
-        upload_ip, upload_address, uploader_type, uploader_id,
-        directory, tags, is_public, is_chunked, chunk_count,
-        width, height, exif
-      ) VALUES (
-        @id, @file_name, @original_name, @mime_type, @size,
-        @storage_channel, @storage_key, @storage_config, @storage_instance_id,
-        @upload_ip, @upload_address, @uploader_type, @uploader_id,
-        @directory, @tags, @is_public, @is_chunked, @chunk_count,
-        @width, @height, @exif
-      )`).run(dbRecord);
-
-      ChunkManager.insertChunks(uploadResult.chunkRecords || [], sqlite);
-      insertQuotaEvents(sqlite, [buildQuotaEvent({
-        operationId,
-        fileId: fileMeta.fileId,
-        storageId: uploadResult.finalChannelId,
-        eventType: 'upload',
-        bytesDelta: Number(file.size) || 0,
-        fileCountDelta: 1,
-        payload: { storageKey: dbRecord.storage_key },
-      })]);
-      markOperationCommitted(sqlite, operationId, { targetStorageId: uploadResult.finalChannelId });
+      compensationPayload: cleanupPayload,
+      error: insertErr,
     });
 
     try {
-      persistUpload();
-    } catch (insertErr) {
-      console.error('[Upload] 数据库写入失败! 导致 SQLite 报错的数据快照:', JSON.stringify(dbRecord, null, 2));
-
-      const cleanupPayload = {
-        storageId: uploadResult.finalChannelId,
-        storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
-        isChunked: Boolean(uploadResult.isChunked),
-        chunkRecords: uploadResult.chunkRecords || [],
-      };
-
-      markOperationCompensationPending(sqlite, operationId, {
-        targetStorageId: uploadResult.finalChannelId,
-        compensationPayload: cleanupPayload,
-        error: insertErr,
+      await removeStoredArtifacts({
+        storageManager,
+        storageId: cleanupPayload.storageId,
+        storageKey: cleanupPayload.storageKey,
+        isChunked: cleanupPayload.isChunked,
+        chunkRecords: cleanupPayload.chunkRecords,
       });
-
-      try {
-        await removeStoredArtifacts({
-          storageManager,
-          storageId: cleanupPayload.storageId,
-          storageKey: cleanupPayload.storageKey,
-          isChunked: cleanupPayload.isChunked,
-          chunkRecords: cleanupPayload.chunkRecords,
-        });
-        markOperationCompensated(sqlite, operationId, { compensationPayload: cleanupPayload });
-      } catch (cleanupErr) {
-        console.error('[Upload] 上传补偿失败:', cleanupErr.message);
-        markOperationFailed(sqlite, operationId, cleanupErr);
-      }
-
-      throw insertErr;
+      markOperationCompensated(sqlite, operationId, { compensationPayload: cleanupPayload });
+    } catch (cleanupErr) {
+      log.error({ err: cleanupErr }, '上传补偿失败');
+      markOperationFailed(sqlite, operationId, cleanupErr);
     }
 
-    await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
-    markOperationCompleted(sqlite, operationId);
-    console.log(`[Upload] 文件上传成功 - ID: ${fileMeta.fileId}, Channel: ${uploadResult.finalChannelId}`);
-
-    return res.json(buildUploadResponse({
-      fileId: fileMeta.fileId,
-      newFileName: fileMeta.newFileName,
-      originalName: fileMeta.originalName,
-      fileSize: file.size,
-      width: fileMeta.width,
-      height: fileMeta.height,
-      finalChannelId: uploadResult.finalChannelId,
-      failedChannels: uploadResult.failedChannels,
-    }));
-  } catch (err) {
-    if (err.status) {
-      return res.status(err.status).json({ code: err.status, message: err.message, error: {} });
-    }
-
-    console.error('[Upload] 上传过程中端点发生崩溃: ', err);
-    return res.status(500).json({
-      code: 500,
-      message: '处理文件上传异常',
-      error: err.message,
-    });
+    throw insertErr;
   }
-});
+
+  await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
+  markOperationCompleted(sqlite, operationId);
+  log.info({ fileId: fileMeta.fileId, channel: uploadResult.finalChannelId }, '文件上传成功');
+
+  return res.json(buildUploadResponse({
+    fileId: fileMeta.fileId,
+    newFileName: fileMeta.newFileName,
+    originalName: fileMeta.originalName,
+    fileSize: file.size,
+    width: fileMeta.width,
+    height: fileMeta.height,
+    finalChannelId: uploadResult.finalChannelId,
+    failedChannels: uploadResult.failedChannels,
+  }));
+}));
 
 export default uploadApp;
