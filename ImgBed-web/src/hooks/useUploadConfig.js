@@ -11,8 +11,9 @@ export function useUploadConfig() {
   const [result, setResult] = useState(null);
 
   const [config, setConfig] = useState({
-    quotaCheckMode: 'auto',
+    enableFullCheckInterval: true,
     fullCheckIntervalHours: 6,
+    enableS3Concurrent: false,
     enableSizeLimit: false,
     enableChunking: false,
     enableMaxLimit: false,
@@ -29,9 +30,11 @@ export function useUploadConfig() {
         const res = await SystemConfigDocs.get();
         if (res.code === 0) {
           const u = res.data.upload || {};
+          const p = res.data.performance?.s3Multipart || {};
           setConfig({
-            quotaCheckMode: u.quotaCheckMode || 'auto',
+            enableFullCheckInterval: u.fullCheckIntervalHours > 0,
             fullCheckIntervalHours: u.fullCheckIntervalHours || 6,
+            enableS3Concurrent: p.enabled ?? false,
             enableSizeLimit: u.enableSizeLimit ?? false,
             defaultSizeLimitMB: u.defaultSizeLimitMB || 10,
             enableChunking: u.enableChunking ?? false,
@@ -54,9 +57,31 @@ export function useUploadConfig() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const res = await SystemConfigDocs.update({ upload: config });
+      const uploadConfig = {
+        fullCheckIntervalHours: config.enableFullCheckInterval ? config.fullCheckIntervalHours : 0,
+        enableSizeLimit: config.enableSizeLimit,
+        defaultSizeLimitMB: config.defaultSizeLimitMB,
+        enableChunking: config.enableChunking,
+        defaultChunkSizeMB: config.defaultChunkSizeMB,
+        defaultMaxChunks: config.defaultMaxChunks,
+        enableMaxLimit: config.enableMaxLimit,
+        defaultMaxLimitMB: config.defaultMaxLimitMB,
+      };
+
+      const performanceConfig = {
+        s3Multipart: {
+          enabled: config.enableS3Concurrent,
+          concurrency: 4,
+          maxConcurrency: 8,
+        }
+      };
+
+      const res = await SystemConfigDocs.update({
+        upload: uploadConfig,
+        performance: performanceConfig
+      });
       if (res.code === 0) {
-        setResult({ type: 'success', msg: '上传配置已保存，重启服务后定时间隔生效' });
+        setResult({ type: 'success', msg: '上传配置已保存，重启服务后生效' });
       } else {
         setResult({ type: 'error', msg: res.message || '保存失败' });
       }

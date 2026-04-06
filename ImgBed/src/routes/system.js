@@ -63,6 +63,19 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
 
   updateUploadConfig(cfg, body.upload);
 
+  // 更新性能配置
+  if (body.performance !== undefined) {
+    cfg.performance = cfg.performance || {};
+    if (body.performance.s3Multipart !== undefined) {
+      cfg.performance.s3Multipart = {
+        enabled: Boolean(body.performance.s3Multipart.enabled),
+        concurrency: Number(body.performance.s3Multipart.concurrency) || 4,
+        maxConcurrency: Number(body.performance.s3Multipart.maxConcurrency) || 8,
+        minPartSize: 5242880
+      };
+    }
+  }
+
   writeSystemConfig(configPath, cfg);
   return res.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
 }));

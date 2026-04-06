@@ -54,6 +54,7 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
       originalName,
       mimeType,
       storageId: finalChannelId,
+      config,
     });
     return {
       storageResult: { id: result.id },

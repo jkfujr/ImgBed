@@ -145,13 +145,21 @@ class ChunkManager {
      * 完成后在 S3 侧是完整对象，不需要标记 is_chunked
      * @param {S3Storage} storage - S3 存储渠道实例
      * @param {Buffer} buffer - 完整文件 Buffer
-     * @param {Object} options - { fileId, fileName, originalName, mimeType, storageId }
+     * @param {Object} options - { fileId, fileName, originalName, mimeType, storageId, config }
      * @returns {Promise<{ id: string, totalSize: number }>}
      */
     static async uploadS3Multipart(storage, buffer, options) {
         const config = storage.getChunkConfig();
         const totalChunks = Math.ceil(buffer.length / config.chunkSize);
         let multipart;
+
+        // 获取并发配置
+        const performanceConfig = options.config?.performance?.s3Multipart || {};
+        const concurrencyEnabled = performanceConfig.enabled !== false;
+        const concurrency = Math.min(
+            Math.max(1, performanceConfig.concurrency || 4),
+            performanceConfig.maxConcurrency || 8
+        );
 
         try {
             multipart = await storage.initMultipartUpload({
@@ -160,17 +168,62 @@ class ChunkManager {
             });
 
             const parts = [];
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * config.chunkSize;
-                const end = Math.min(start + config.chunkSize, buffer.length);
-                const chunkBuffer = buffer.subarray(start, end);
 
-                const part = await storage.uploadPart(chunkBuffer, {
-                    uploadId: multipart.uploadId,
-                    key: multipart.key,
-                    partNumber: i + 1  // S3 PartNumber 从 1 开始
-                });
-                parts.push(part);
+            if (concurrencyEnabled && concurrency > 1) {
+                // 并发上传模式
+                const limit = pLimit(concurrency);
+                const uploadTasks = [];
+
+                for (let i = 0; i < totalChunks; i++) {
+                    const partNumber = i + 1;
+                    const start = i * config.chunkSize;
+                    const end = Math.min(start + config.chunkSize, buffer.length);
+                    const chunkBuffer = buffer.subarray(start, end);
+
+                    const task = limit(async () => {
+                        const part = await storage.uploadPart(chunkBuffer, {
+                            uploadId: multipart.uploadId,
+                            key: multipart.key,
+                            partNumber
+                        });
+                        return part;
+                    });
+
+                    uploadTasks.push(task);
+                }
+
+                // 等待所有 Part 上传完成
+                const uploadedParts = await Promise.all(uploadTasks);
+                parts.push(...uploadedParts);
+
+                // 按 PartNumber 排序（S3 协议要求）
+                parts.sort((a, b) => a.partNumber - b.partNumber);
+
+                log.info({
+                    totalChunks,
+                    concurrency,
+                    uploadId: multipart.uploadId
+                }, 'S3 并发 Multipart 上传完成');
+            } else {
+                // 串行上传模式（降级或配置关闭）
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * config.chunkSize;
+                    const end = Math.min(start + config.chunkSize, buffer.length);
+                    const chunkBuffer = buffer.subarray(start, end);
+
+                    const part = await storage.uploadPart(chunkBuffer, {
+                        uploadId: multipart.uploadId,
+                        key: multipart.key,
+                        partNumber: i + 1  // S3 PartNumber 从 1 开始
+                    });
+                    parts.push(part);
+                }
+
+                log.info({
+                    totalChunks,
+                    mode: 'serial',
+                    uploadId: multipart.uploadId
+                }, 'S3 串行 Multipart 上传完成');
             }
 
             const result = await storage.completeMultipartUpload({
@@ -188,6 +241,7 @@ class ChunkManager {
                         uploadId: multipart.uploadId,
                         key: multipart.key
                     });
+                    log.warn({ uploadId: multipart.uploadId }, 'S3 Multipart 上传失败，已中止');
                 } catch (abortErr) {
                     log.error({ err: abortErr }, 'S3 abort multipart 失败');
                 }

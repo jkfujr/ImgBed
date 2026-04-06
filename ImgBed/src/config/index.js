@@ -53,6 +53,16 @@ const defaultConfig = {
     quotaCheckMode: 'auto',
     // 定时全量校正间隔（小时）
     fullCheckIntervalHours: 6
+  },
+  // 性能优化配置
+  performance: {
+    // S3 Multipart 并发上传配置
+    s3Multipart: {
+      enabled: true,              // 是否启用并发上传
+      concurrency: 4,             // 默认并发数
+      maxConcurrency: 8,          // 最大并发数限制
+      minPartSize: 5242880        // 最小分片大小 5MB（S3 协议要求）
+    }
   }
 };
 

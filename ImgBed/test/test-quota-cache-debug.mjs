@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const Database = require('../ImgBed/node_modules/better-sqlite3');
+const Database = require('../node_modules/better-sqlite3');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const testDbPath = path.join(__dirname, 'test-quota-cache-debug.sqlite');
@@ -33,7 +33,7 @@ db.exec(`
 
 // 执行迁移
 const migrationSql = fs.readFileSync(
-  path.join(__dirname, '../ImgBed/database/migrations/001_add_storage_quota_cache.sql'),
+  path.join(__dirname, '../database/migrations/001_add_storage_quota_cache.sql'),
   'utf8'
 );
 db.exec(migrationSql);

@@ -1,6 +1,6 @@
 import {
   Box, Typography, Paper, TextField, Button, CircularProgress, Alert, Divider,
-  FormControl, Radio, RadioGroup, FormControlLabel, Switch
+  FormControlLabel, Switch
 } from '@mui/material';
 import { useUploadConfig } from '../../hooks/useUploadConfig';
 import { BORDER_RADIUS } from '../../utils/constants';
@@ -14,7 +14,6 @@ export default function UploadConfigPanel() {
   const { loading, saving, result, config, setConfig, clearResult, handleSave } = useUploadConfig();
   const update = useField(config, setConfig);
   const numHandler = (key, fallback) => (e) => update(key, Number(e.target.value) || fallback);
-  const textHandler = (key) => (e) => update(key, e.target.value);
   const switchHandler = (key) => (e) => update(key, e.target.checked);
 
   if (loading) {
@@ -28,33 +27,16 @@ export default function UploadConfigPanel() {
         {result && (
           <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
         )}
-        <FormControl component="fieldset">
-          <RadioGroup
-            value={config.quotaCheckMode}
-            onChange={textHandler('quotaCheckMode')}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-              <Radio checked={config.quotaCheckMode === 'auto'} value="auto" size="medium" />
-              <Box sx={{ pt: 0.5 }}>
-                <Typography>自动</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  内存缓存已用容量 + 上传/删除增量更新 + 定时全量校正。
-                </Typography>
-              </Box>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, py: 1 }}>
-              <Radio checked={config.quotaCheckMode === 'always'} value="always" size="medium" />
-              <Box sx={{ pt: 0.5 }}>
-                <Typography>全量检查</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  每次上传都遍历数据库全量统计，准确但较慢，不推荐
-                </Typography>
-              </Box>
-            </Box>
-          </RadioGroup>
-        </FormControl>
 
-        {config.quotaCheckMode === 'auto' && (
+        <FormControlLabel
+          control={<Switch
+            checked={config.enableFullCheckInterval}
+            onChange={switchHandler('enableFullCheckInterval')}
+          />}
+          label="定时全量校正"
+        />
+
+        {config.enableFullCheckInterval && (
           <TextField
             label="定时全量校正间隔（小时）"
             size="small"
@@ -63,9 +45,26 @@ export default function UploadConfigPanel() {
             onChange={(e) => update('fullCheckIntervalHours', Math.max(1, Number(e.target.value) || 6))}
             helperText="定期从数据库全量校正，防止缓存与实际不一致。默认 6 小时"
             slotProps={{ htmlInput: { min: 1, max: 168, step: 1 } }}
-            sx={{ maxWidth: 300 }}
+            sx={{ maxWidth: 300, ml: 4 }}
           />
         )}
+
+        <Divider sx={{ my: 1 }} />
+
+        <Typography variant="subtitle1" fontWeight="bold" mb={1}>S3 渠道</Typography>
+
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+          <FormControlLabel
+            control={<Switch
+              checked={config.enableS3Concurrent}
+              onChange={switchHandler('enableS3Concurrent')}
+            />}
+            label="S3 并发上传"
+          />
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1, mb: 1 }}>
+          S3 Multipart 上传使用并发模式，大幅提升大文件上传速度
+        </Typography>
 
         <Divider sx={{ my: 1 }} />
 
