@@ -247,6 +247,82 @@ const initDb = () => {
                 BEGIN
                     UPDATE storage_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
+
+            -- 存储容量缓存表（性能优化层）
+            CREATE TABLE IF NOT EXISTS storage_quota_cache (
+                storage_id TEXT PRIMARY KEY,
+                used_bytes INTEGER NOT NULL DEFAULT 0,
+                file_count INTEGER NOT NULL DEFAULT 0,
+                last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK (used_bytes >= 0),
+                CHECK (file_count >= 0)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_storage_quota_cache_last_updated
+            ON storage_quota_cache(last_updated DESC);
+
+            -- 容量缓存触发器：INSERT
+            CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_insert
+            AFTER INSERT ON files
+            WHEN NEW.storage_instance_id IS NOT NULL
+            BEGIN
+                INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
+                VALUES (NEW.storage_instance_id, NEW.size, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(storage_id) DO UPDATE SET
+                    used_bytes = storage_quota_cache.used_bytes + NEW.size,
+                    file_count = storage_quota_cache.file_count + 1,
+                    last_updated = CURRENT_TIMESTAMP;
+            END;
+
+            -- 容量缓存触发器：DELETE
+            CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_delete
+            AFTER DELETE ON files
+            WHEN OLD.storage_instance_id IS NOT NULL
+            BEGIN
+                UPDATE storage_quota_cache
+                SET
+                    used_bytes = MAX(0, used_bytes - OLD.size),
+                    file_count = MAX(0, file_count - 1),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE storage_id = OLD.storage_instance_id;
+            END;
+
+            -- 容量缓存触发器：UPDATE
+            CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_update
+            AFTER UPDATE ON files
+            WHEN OLD.storage_instance_id IS NOT NULL OR NEW.storage_instance_id IS NOT NULL
+            BEGIN
+                -- 情况1: storage_instance_id 未变化，只是 size 变化
+                UPDATE storage_quota_cache
+                SET
+                    used_bytes = storage_quota_cache.used_bytes - OLD.size + NEW.size,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE storage_id = OLD.storage_instance_id
+                    AND OLD.storage_instance_id IS NOT NULL
+                    AND NEW.storage_instance_id IS NOT NULL
+                    AND OLD.storage_instance_id = NEW.storage_instance_id;
+
+                -- 情况2: storage_instance_id 发生变化（迁移）
+                -- 从旧存储实例减少
+                UPDATE storage_quota_cache
+                SET
+                    used_bytes = MAX(0, storage_quota_cache.used_bytes - OLD.size),
+                    file_count = MAX(0, storage_quota_cache.file_count - 1),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE storage_id = OLD.storage_instance_id
+                    AND OLD.storage_instance_id IS NOT NULL
+                    AND (NEW.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id);
+
+                -- 向新存储实例增加
+                INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
+                VALUES (NEW.storage_instance_id, NEW.size, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(storage_id) DO UPDATE SET
+                    used_bytes = storage_quota_cache.used_bytes + NEW.size,
+                    file_count = storage_quota_cache.file_count + 1,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE NEW.storage_instance_id IS NOT NULL
+                    AND (OLD.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id);
+            END;
         `);
 
         // 当前初始化直接以完整 schema 建表，不执行迁移；版本保持 v0

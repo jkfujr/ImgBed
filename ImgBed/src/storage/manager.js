@@ -44,7 +44,7 @@ class StorageManager {
 
     async _init() {
         await this.reload();
-        await this._loadQuotaFromHistory();
+        await this._loadQuotaFromCache();
         await this._initUsageStats();
         await this.applyPendingQuotaEvents({ adjustUsageStats: false, recordSnapshots: true });
 
@@ -262,6 +262,27 @@ class StorageManager {
         if (this._compensationRetryTimer) {
             clearInterval(this._compensationRetryTimer);
             this._compensationRetryTimer = null;
+        }
+    }
+
+    async _loadQuotaFromCache() {
+        try {
+            const cacheRecords = sqlite.prepare(`
+                SELECT storage_id, used_bytes
+                FROM storage_quota_cache
+            `).all();
+
+            this.quotaProjection.clear();
+            for (const record of cacheRecords) {
+                this.quotaProjection.set(record.storage_id, Number(record.used_bytes) || 0);
+            }
+
+            if (cacheRecords.length > 0) {
+                log.info({ count: cacheRecords.length }, '已从缓存表加载渠道容量');
+            }
+        } catch (err) {
+            log.warn({ err }, '从缓存表加载容量失败，回退到历史表');
+            await this._loadQuotaFromHistory();
         }
     }
 
@@ -642,6 +663,7 @@ class StorageManager {
             const nextProjection = new Map();
             const nextUsageStats = new Map();
             const historyRecords = [];
+            const cacheRecords = [];
 
             for (const row of rows) {
                 const storageId = row.storage_instance_id;
@@ -650,9 +672,10 @@ class StorageManager {
                 nextProjection.set(storageId, usedBytes);
                 nextUsageStats.set(storageId, { uploadCount: 0, fileCount });
                 historyRecords.push({ storage_id: storageId, used_bytes: usedBytes });
+                cacheRecords.push({ storage_id: storageId, used_bytes: usedBytes, file_count: fileCount });
             }
 
-            const rebuildProjection = sqlite.transaction((records) => {
+            const rebuildProjection = sqlite.transaction((records, cacheRecs) => {
                 sqlite.prepare(
                     'UPDATE storage_quota_events SET applied_at = CURRENT_TIMESTAMP WHERE applied_at IS NULL'
                 ).run();
@@ -665,9 +688,24 @@ class StorageManager {
                         insertHistoryStmt.run(record);
                     }
                 }
+
+                // 更新缓存表
+                if (cacheRecs.length > 0) {
+                    const upsertCacheStmt = sqlite.prepare(`
+                        INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
+                        VALUES (@storage_id, @used_bytes, @file_count, CURRENT_TIMESTAMP)
+                        ON CONFLICT(storage_id) DO UPDATE SET
+                            used_bytes = @used_bytes,
+                            file_count = @file_count,
+                            last_updated = CURRENT_TIMESTAMP
+                    `);
+                    for (const record of cacheRecs) {
+                        upsertCacheStmt.run(record);
+                    }
+                }
             });
 
-            rebuildProjection(historyRecords);
+            rebuildProjection(historyRecords, cacheRecords);
             this.quotaProjection = nextProjection;
             this.usageStats = nextUsageStats;
 
@@ -677,13 +715,88 @@ class StorageManager {
         }
     }
 
+    async verifyQuotaConsistency() {
+        try {
+            // 从 files 表聚合真实数据
+            const actualStats = sqlite.prepare(`
+                SELECT storage_instance_id, SUM(size) AS used_bytes, COUNT(*) AS file_count
+                FROM files
+                WHERE storage_instance_id IS NOT NULL
+                GROUP BY storage_instance_id
+            `).all();
+
+            // 从缓存表读取
+            const cachedStats = sqlite.prepare(`
+                SELECT storage_id, used_bytes, file_count
+                FROM storage_quota_cache
+            `).all();
+
+            const actualMap = new Map(actualStats.map(s => [s.storage_instance_id, s]));
+            const cachedMap = new Map(cachedStats.map(s => [s.storage_id, s]));
+
+            const inconsistencies = [];
+
+            // 检查缓存表中的每个存储实例
+            for (const [storageId, cached] of cachedMap) {
+                const actual = actualMap.get(storageId);
+                if (!actual) {
+                    inconsistencies.push({
+                        storageId,
+                        issue: 'cache_orphan',
+                        cached: { used_bytes: cached.used_bytes, file_count: cached.file_count },
+                        actual: { used_bytes: 0, file_count: 0 }
+                    });
+                } else if (cached.used_bytes !== Number(actual.used_bytes) || cached.file_count !== Number(actual.file_count)) {
+                    inconsistencies.push({
+                        storageId,
+                        issue: 'mismatch',
+                        cached: { used_bytes: cached.used_bytes, file_count: cached.file_count },
+                        actual: { used_bytes: Number(actual.used_bytes), file_count: Number(actual.file_count) }
+                    });
+                }
+            }
+
+            // 检查实际数据中存在但缓存中缺失的
+            for (const [storageId, actual] of actualMap) {
+                if (!cachedMap.has(storageId)) {
+                    inconsistencies.push({
+                        storageId,
+                        issue: 'cache_missing',
+                        cached: { used_bytes: 0, file_count: 0 },
+                        actual: { used_bytes: Number(actual.used_bytes), file_count: Number(actual.file_count) }
+                    });
+                }
+            }
+
+            if (inconsistencies.length > 0) {
+                log.warn({ inconsistencies }, '容量缓存不一致检测到');
+                return { consistent: false, inconsistencies };
+            }
+
+            log.info('容量缓存一致性校验通过');
+            return { consistent: true, inconsistencies: [] };
+        } catch (err) {
+            log.error({ err }, '容量缓存一致性校验失败');
+            throw err;
+        }
+    }
+
     _startFullRebuildTimer() {
         const intervalHours = config.upload?.fullCheckIntervalHours || 6;
         const intervalMs = intervalHours * 60 * 60 * 1000;
 
-        this._fullRebuildTimer = setInterval(() => {
-            log.info('定时全量容量校正开始');
-            this._rebuildAllQuotaStats().catch(() => {});
+        this._fullRebuildTimer = setInterval(async () => {
+            try {
+                log.info('定时容量一致性校验开始');
+                const result = await this.verifyQuotaConsistency();
+
+                if (!result.consistent) {
+                    log.warn({ count: result.inconsistencies.length }, '检测到容量不一致，执行自动修复');
+                    await this._rebuildAllQuotaStats();
+                }
+            } catch (err) {
+                log.error({ err }, '定时容量校验失败');
+            }
         }, intervalMs);
 
         this._fullRebuildTimer.unref();
