@@ -8,7 +8,6 @@ import { requirePermission } from '../middleware/auth.js';
 import config from '../config/index.js';
 import path from 'path';
 import { resolveUploadChannel } from '../services/upload/resolve-upload.js';
-import { checkUploadQuota } from '../services/upload/check-upload-quota.js';
 import { executeUploadWithFailover } from '../services/upload/execute-upload.js';
 
 const uploadApp = express.Router();
@@ -160,7 +159,7 @@ uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), as
     validateUploadFile(file);
 
     const { channelId } = resolveUploadChannel(body, storageManager, config);
-    const quotaAllowed = await checkUploadQuota({ channelId, storageManager });
+    const quotaAllowed = storageManager.isUploadAllowed(channelId);
     if (!quotaAllowed) {
       return res.status(403).json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} });
     }
