@@ -17,11 +17,7 @@ async function moveFilesBatch(ids, targetDirectory, db) {
     `UPDATE files SET directory = ? WHERE id IN (${placeholders})`
   ).run(targetDirectory, ...ids);
 
-  if (typeof db.transaction === 'function') {
-    db.transaction(runMove)();
-  } else {
-    runMove();
-  }
+  db.transaction(runMove)();
 
   return {
     code: 0,

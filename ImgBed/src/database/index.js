@@ -62,18 +62,7 @@ const initDb = () => {
                 height INTEGER,
                 exif JSON,
 
-                -- 渠道特有信息
-                telegram_file_id TEXT,
-                telegram_chat_id TEXT,
-                telegram_bot_token TEXT,
-
-                discord_message_id TEXT,
-                discord_channel_id TEXT,
-
-                 huggingface_repo TEXT,
-                 huggingface_path TEXT,
-
-                 -- 冗余存储实例 ID（用于容量统计优化）
+                 -- 存储实例 ID（运行时事实字段，用于路由与容量统计）
                  storage_instance_id TEXT,
 
                  is_chunked BOOLEAN DEFAULT FALSE,

@@ -68,8 +68,8 @@ viewApp.get('/:id', async (req, res) => {
              });
         }
 
-        // 3. 解析存储渠道（含 legacy 兼容）
-        const { storage, storageKey } = resolveFileStorage(fileRecord, { storageManager, config });
+        // 3. 解析存储渠道
+        const { storage, storageKey } = resolveFileStorage(fileRecord, { storageManager });
 
         // 4. 解析 Range 请求头
         const requestRange = req.get('Range');
