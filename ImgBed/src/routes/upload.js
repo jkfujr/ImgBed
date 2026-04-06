@@ -160,7 +160,7 @@ uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), as
     validateUploadFile(file);
 
     const { channelId } = resolveUploadChannel(body, storageManager, config);
-    const quotaAllowed = await checkUploadQuota({ channelId, storageManager, db: sqlite, config });
+    const quotaAllowed = await checkUploadQuota({ channelId, storageManager });
     if (!quotaAllowed) {
       return res.status(403).json({ code: 403, message: `渠道 [${channelId}] 容量已达到停用阈值，已关闭上传功能`, error: {} });
     }

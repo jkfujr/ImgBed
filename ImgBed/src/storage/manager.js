@@ -282,18 +282,20 @@ class StorageManager {
      */
     async _initUsageStats() {
         try {
-            const files = sqlite.prepare('SELECT storage_config FROM files').all();
+            // 使用 SQL 聚合直接统计，避免 JSON 解析和内存遍历
+            const stats = sqlite.prepare(`
+                SELECT storage_instance_id, COUNT(*) AS file_count
+                FROM files
+                WHERE storage_instance_id IS NOT NULL
+                GROUP BY storage_instance_id
+            `).all();
 
             this.usageStats.clear();
-            for (const file of files) {
-                let config = {};
-                try { config = JSON.parse(file.storage_config || '{}'); } catch (e) {}
-                const instanceId = config.instance_id;
-                if (instanceId) {
-                    const stat = this.usageStats.get(instanceId) || { uploadCount: 0, fileCount: 0 };
-                    stat.fileCount++;
-                    this.usageStats.set(instanceId, stat);
-                }
+            for (const row of stats) {
+                this.usageStats.set(row.storage_instance_id, {
+                    uploadCount: 0,
+                    fileCount: row.file_count
+                });
             }
         } catch (err) {
             console.error('[StorageManager] 初始化使用统计失败:', err.message);
@@ -497,12 +499,6 @@ class StorageManager {
      * 启动定时全量校正定时器
      */
     _startFullRebuildTimer() {
-        // 如果用户配置为每次全量检查，则不启动定时任务
-        const mode = config.upload?.quotaCheckMode || 'auto';
-        if (mode !== 'auto') {
-            return;
-        }
-
         const intervalHours = config.upload?.fullCheckIntervalHours || 6;
         const intervalMs = intervalHours * 60 * 60 * 1000;
 

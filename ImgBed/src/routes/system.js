@@ -5,12 +5,10 @@ import path from 'path';
 import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
-import config from '../config/index.js';
 import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels } from '../services/system/config-io.js';
 import { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannelMeta } from '../services/system/storage-channel-sync.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
-import { calculateQuotaStatsFromDB } from '../services/system/calculate-quota-stats.js';
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
 import { buildNewStorageChannel, validateStorageChannelInput } from '../services/system/create-storage-channel.js';
 
@@ -376,28 +374,83 @@ systemApp.put('/storages/:id/toggle', async (req, res) => {
  */
 systemApp.get('/quota-stats', async (_req, res) => {
   try {
-    // 如果是 always 模式，强制从数据库全量统计
-    const mode = config.upload?.quotaCheckMode || 'auto';
-    let stats;
-
-    if (mode === 'always') {
-      stats = await calculateQuotaStatsFromDB(sqlite, configPath);
-    } else {
-      // 自动模式：从缓存读取
-      stats = storageManager.getAllQuotaStats();
-    }
-
+    const stats = storageManager.getAllQuotaStats();
     return res.json({
       code: 0,
       message: 'success',
-      data: {
-        stats: stats
-      }
+      data: { stats }
     });
   } catch (err) {
     return res.status(500).json({
       code: 500,
       message: '获取容量统计失败: ' + err.message
+    });
+  }
+});
+
+/**
+ * 手动触发全量容量校正
+ * POST /api/system/maintenance/rebuild-quota-stats
+ * 后台异步执行，立即返回
+ */
+systemApp.post('/maintenance/rebuild-quota-stats', async (req, res) => {
+  try {
+    // 后台异步执行，不阻塞响应
+    (async () => {
+      try {
+        console.log('[Maintenance] 手动触发容量校正任务...');
+        await storageManager._rebuildAllQuotaStats();
+        console.log('[Maintenance] 容量校正任务完成');
+      } catch (err) {
+        console.error('[Maintenance] 容量校正任务失败:', err);
+      }
+    })();
+
+    return res.json({
+      code: 0,
+      message: '容量校正任务已在后台启动',
+      data: { status: 'processing' }
+    });
+  } catch (err) {
+    return res.status(500).json({
+      code: 500,
+      message: '启动容量校正任务失败: ' + err.message
+    });
+  }
+});
+
+/**
+ * 获取容量校正历史记录
+ * GET /api/system/maintenance/quota-history
+ * Query: ?limit=10&storage_id=xxx
+ */
+systemApp.get('/maintenance/quota-history', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '10'), 100);
+    const storageId = req.query.storage_id;
+
+    let query = 'SELECT * FROM storage_quota_history';
+    const params = [];
+
+    if (storageId) {
+      query += ' WHERE storage_id = ?';
+      params.push(storageId);
+    }
+
+    query += ' ORDER BY recorded_at DESC LIMIT ?';
+    params.push(limit);
+
+    const history = sqlite.prepare(query).all(...params);
+
+    return res.json({
+      code: 0,
+      message: 'success',
+      data: { history }
+    });
+  } catch (err) {
+    return res.status(500).json({
+      code: 500,
+      message: '获取历史记录失败: ' + err.message
     });
   }
 });

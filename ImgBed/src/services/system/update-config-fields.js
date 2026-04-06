@@ -10,9 +10,6 @@ function updateUploadConfig(cfg, uploadBody) {
 
   cfg.upload = cfg.upload || {};
 
-  if (uploadBody.quotaCheckMode !== undefined) {
-    cfg.upload.quotaCheckMode = String(uploadBody.quotaCheckMode);
-  }
   if (uploadBody.fullCheckIntervalHours !== undefined) {
     cfg.upload.fullCheckIntervalHours = Math.max(1, Number(uploadBody.fullCheckIntervalHours) || 6);
   }
