@@ -23,6 +23,8 @@ import {
   cacheInvalidation
 } from '../middleware/cache.js';
 import { getResponseCache } from '../services/cache/response-cache.js';
+import { getQuotaEventsArchive } from '../services/archive/quota-events-archive.js';
+import { getArchiveScheduler } from '../services/archive/archive-scheduler.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
@@ -447,6 +449,59 @@ systemApp.post('/cache/clear', asyncHandler(async (_req, res) => {
   return res.json({
     code: 0,
     message: '缓存已清空'
+  });
+}));
+
+/**
+ * 获取事件归档统计信息
+ * GET /api/system/archive/stats
+ */
+systemApp.get('/archive/stats', asyncHandler(async (_req, res) => {
+  const archive = getQuotaEventsArchive();
+  const stats = archive.getStats();
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: stats
+  });
+}));
+
+/**
+ * 手动触发归档任务
+ * POST /api/system/archive/run
+ */
+systemApp.post('/archive/run', asyncHandler(async (_req, res) => {
+  const scheduler = getArchiveScheduler();
+  const result = await scheduler.runNow();
+
+  if (result.skipped) {
+    return res.json({
+      code: 0,
+      message: '归档任务正在执行中，已跳过本次触发',
+      data: result
+    });
+  }
+
+  return res.json({
+    code: 0,
+    message: '归档任务执行完成',
+    data: result
+  });
+}));
+
+/**
+ * 获取归档调度器状态
+ * GET /api/system/archive/scheduler
+ */
+systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
+  const scheduler = getArchiveScheduler();
+  const status = scheduler.getStatus();
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: status
   });
 }));
 

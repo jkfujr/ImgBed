@@ -1,6 +1,8 @@
 import config from './src/config/index.js';
 import { initDb } from './src/database/index.js';
 import { initResponseCache } from './src/services/cache/response-cache.js';
+import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
+import { initArchiveScheduler } from './src/services/archive/archive-scheduler.js';
 
 const port = config.server?.port || 13000;
 const host = config.server?.host || '0.0.0.0';
@@ -31,6 +33,21 @@ initResponseCache({
   enabled: cacheConfig.enabled !== false,
   ttlSeconds: cacheConfig.ttlSeconds || 60,
   maxKeys: cacheConfig.maxKeys || 1000
+});
+
+// 初始化事件归档服务
+const archiveConfig = config.performance?.quotaEventsArchive || {};
+initQuotaEventsArchive({
+  enabled: archiveConfig.enabled !== false,
+  retentionDays: archiveConfig.retentionDays || 30,
+  batchSize: archiveConfig.batchSize || 500,
+  maxBatchesPerRun: archiveConfig.maxBatchesPerRun || 10
+});
+
+// 初始化归档调度器
+initArchiveScheduler({
+  enabled: archiveConfig.enabled !== false,
+  scheduleHour: archiveConfig.scheduleHour || 3
 });
 
 const { default: app } = await import('./src/app.js');

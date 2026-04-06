@@ -68,6 +68,14 @@ const defaultConfig = {
       enabled: true,              // 是否启用响应缓存
       ttlSeconds: 60,             // 默认缓存时间（秒）
       maxKeys: 1000               // 最大缓存键数量
+    },
+    // 事件表归档配置
+    quotaEventsArchive: {
+      enabled: true,              // 是否启用归档
+      retentionDays: 30,          // 保留期（天）
+      batchSize: 500,             // 单批次归档数量
+      maxBatchesPerRun: 10,       // 单次运行最大批次数
+      scheduleHour: 3             // 每天执行时间（小时，0-23）
     }
   }
 };
