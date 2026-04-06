@@ -38,6 +38,8 @@ async function updateStorageChannelMeta(id, storage, db) {
  */
 async function deleteStorageChannelMeta(id, db) {
   db.prepare('DELETE FROM storage_channels WHERE id = ?').run(id);
+  db.prepare('DELETE FROM storage_operations WHERE source_storage_id = ? OR target_storage_id = ?').run(id, id);
+  db.prepare('DELETE FROM storage_quota_events WHERE storage_id = ?').run(id);
   db.prepare('DELETE FROM storage_quota_history WHERE storage_id = ?').run(id);
 }
 

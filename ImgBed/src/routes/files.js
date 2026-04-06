@@ -141,9 +141,7 @@ filesApp.put('/:id', adminAuth, async (req, res) => {
 filesApp.delete('/:id', adminAuth, async (req, res) => {
     try {
         const id = req.params.id;
-        const fileRecord = sqlite.prepare(
-          'SELECT id, size, storage_key, storage_config, is_chunked FROM files WHERE id = ?'
-        ).get(id);
+        const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
         if (!fileRecord) {
              return res.status(200).json({ code: 404, message: '无需移除，该项目已从归档记录剔除', error: {} });
         }

@@ -71,6 +71,7 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
       storageResult: { id: fileId },
       isChunked: 1,
       chunkCount: result.chunkCount,
+      chunkRecords: result.chunkRecords,
     };
   }
 
@@ -85,6 +86,7 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
     storageResult,
     isChunked: 0,
     chunkCount: 0,
+    chunkRecords: [],
   };
 }
 
@@ -174,4 +176,5 @@ async function executeUploadWithFailover({
 }
 
 export { executeUploadWithFailover,
-  isRetryableError, };
+  isRetryableError,
+  uploadToStorage, };

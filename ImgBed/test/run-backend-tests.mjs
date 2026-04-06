@@ -5,6 +5,7 @@ import { parsePermissions, normalizePermissions, hashApiToken } from '../src/uti
 import { buildPath } from '../src/services/directories/directory-operations.js';
 import { validateTokenInput, createTokenRecord } from '../src/services/api-tokens/create-token.js';
 import { createFilesError } from '../src/services/files/migrate-file.js';
+import { buildQuotaEvent, normalizeErrorMessage } from '../src/services/system/storage-operations.js';
 import { normalizeProxyUrl, fetchWithProxy, __setDepsForTest, __resetDepsForTest } from '../src/network/proxy.js';
 
 test('normalizePermissions 仅保留合法权限并去重', () => {
@@ -62,6 +63,28 @@ test('createFilesError 生成带 status 的异常对象', () => {
   const err = createFilesError(403, 'forbidden');
   assert.equal(err.status, 403);
   assert.equal(err.message, 'forbidden');
+});
+
+test('buildQuotaEvent 生成稳定的幂等键与增量结构', () => {
+  const event = buildQuotaEvent({
+    operationId: 'op-1',
+    fileId: 'file-1',
+    storageId: 'local-main',
+    eventType: 'upload',
+    bytesDelta: 123,
+    fileCountDelta: 1,
+  });
+
+  assert.equal(event.operation_id, 'op-1');
+  assert.equal(event.storage_id, 'local-main');
+  assert.equal(event.bytes_delta, 123);
+  assert.equal(event.file_count_delta, 1);
+  assert.equal(event.idempotency_key, 'op-1:upload:local-main:file-1');
+});
+
+test('normalizeErrorMessage 在 Error 与普通值之间统一输出文本', () => {
+  assert.equal(normalizeErrorMessage(new Error('boom')), 'boom');
+  assert.equal(normalizeErrorMessage('plain'), 'plain');
 });
 
 test('后端测试入口已加载', () => {

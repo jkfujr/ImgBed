@@ -1,4 +1,4 @@
-import { parseStorageConfig } from '../files/delete-file.js';
+import { parseStorageConfig } from '../files/storage-artifacts.js';
 import TelegramStorage from '../../storage/telegram.js';
 import DiscordStorage from '../../storage/discord.js';
 import S3Storage from '../../storage/s3.js';

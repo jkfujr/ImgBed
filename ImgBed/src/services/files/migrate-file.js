@@ -1,6 +1,18 @@
 import pLimit from 'p-limit';
 import { Readable } from 'stream';
-import { parseStorageConfig } from './delete-file.js';
+import ChunkManager from '../../storage/chunk-manager.js';
+import { uploadToStorage } from '../upload/execute-upload.js';
+import {
+  buildQuotaEvent,
+  createStorageOperation,
+  insertQuotaEvents,
+  markOperationCommitted,
+  markOperationCompensated,
+  markOperationCompensationPending,
+  markOperationCompleted,
+  markOperationRemoteDone,
+} from '../system/storage-operations.js';
+import { parseStorageConfig, removeStoredArtifacts } from './storage-artifacts.js';
 
 const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
 
@@ -54,7 +66,43 @@ async function streamToBuffer(stream) {
   return Buffer.concat(chunks);
 }
 
-async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager }) {
+async function readSourceFile(fileRecord, storageManager) {
+  const sourceConfig = parseStorageConfig(fileRecord.storage_config);
+  const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
+
+  if (!sourceInstanceId) {
+    throw new Error('源文件缺少 storage_instance_id');
+  }
+
+  if (fileRecord.is_chunked) {
+    const chunkRecords = await ChunkManager.getChunks(fileRecord.id);
+    const stream = ChunkManager.createChunkedReadStream(
+      chunkRecords,
+      (storageId) => storageManager.getStorage(storageId),
+      { totalSize: Number(fileRecord.size) || 0 }
+    );
+
+    return {
+      sourceInstanceId,
+      sourceChunkRecords: chunkRecords,
+      buffer: await streamToBuffer(stream),
+    };
+  }
+
+  const sourceEntry = storageManager.instances.get(sourceInstanceId);
+  if (!sourceEntry) {
+    throw new Error('源渠道不存在');
+  }
+
+  const fileStream = await sourceEntry.instance.getStream(fileRecord.storage_key);
+  return {
+    sourceInstanceId,
+    sourceChunkRecords: [],
+    buffer: await streamToBuffer(fileStream),
+  };
+}
+
+async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager, logger = console }) {
   const sourceConfig = parseStorageConfig(fileRecord.storage_config);
   const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
 
@@ -67,48 +115,149 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     return { status: 'failed', reason: '源渠道不存在' };
   }
 
-  const fileStream = await sourceEntry.instance.getStream(fileRecord.storage_key);
-  const fileBuffer = await streamToBuffer(fileStream);
-  const uploadResult = await targetEntry.instance.put(fileBuffer, {
-    id: fileRecord.id,
-    fileName: fileRecord.file_name,
-    originalName: fileRecord.original_name,
-    mimeType: fileRecord.mime_type,
+  const { buffer, sourceChunkRecords } = await readSourceFile(fileRecord, storageManager);
+  const operationId = createStorageOperation(db, {
+    operationType: 'migrate',
+    fileId: fileRecord.id,
+    sourceStorageId: sourceInstanceId,
+    targetStorageId: targetChannel,
+    payload: {
+      sourceStorageId: sourceInstanceId,
+      targetStorageId: targetChannel,
+      previousStorageKey: fileRecord.storage_key,
+    },
   });
 
-  const runMigrate = () => {
+  const targetUploadResult = await uploadToStorage({
+    storage: targetEntry.instance,
+    buffer,
+    fileId: fileRecord.id,
+    newFileName: fileRecord.file_name,
+    originalName: fileRecord.original_name,
+    mimeType: fileRecord.mime_type,
+    finalChannelId: targetChannel,
+    storageManager,
+  });
+
+  markOperationRemoteDone(db, operationId, {
+    sourceStorageId: sourceInstanceId,
+    targetStorageId: targetChannel,
+    remotePayload: {
+      targetStorageId: targetChannel,
+      targetStorageKey: targetUploadResult.storageResult.id || fileRecord.file_name,
+      isChunked: Boolean(targetUploadResult.isChunked),
+      chunkRecords: targetUploadResult.chunkRecords || [],
+    },
+  });
+
+  const cleanupTargetPayload = {
+    storageId: targetChannel,
+    storageKey: targetUploadResult.storageResult.id || fileRecord.file_name,
+    isChunked: Boolean(targetUploadResult.isChunked),
+    chunkRecords: targetUploadResult.chunkRecords || [],
+  };
+
+  const persistMigration = db.transaction(() => {
+    db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
+    ChunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
+
     db.prepare(`UPDATE files SET
         storage_channel = ?,
         storage_key = ?,
         storage_config = ?,
-        storage_instance_id = ?
+        storage_instance_id = ?,
+        is_chunked = ?,
+        chunk_count = ?
       WHERE id = ?`).run(
       targetEntry.type,
-      uploadResult.id || fileRecord.storage_key,
+      targetUploadResult.storageResult.id || fileRecord.storage_key,
       JSON.stringify({
         instance_id: targetChannel,
-        extra_result: uploadResult,
+        extra_result: targetUploadResult.storageResult,
       }),
       targetChannel,
+      targetUploadResult.isChunked ? 1 : 0,
+      Number(targetUploadResult.chunkCount) || 0,
       fileRecord.id
     );
 
     const fileSize = Number(fileRecord.size) || 0;
-    if (sourceInstanceId) {
-      storageManager.updateQuotaCache(sourceInstanceId, -fileSize);
-    }
-    storageManager.updateQuotaCache(targetChannel, fileSize);
-  };
+    insertQuotaEvents(db, [
+      buildQuotaEvent({
+        operationId,
+        fileId: fileRecord.id,
+        storageId: sourceInstanceId,
+        eventType: 'migrate_out',
+        bytesDelta: -fileSize,
+        fileCountDelta: -1,
+      }),
+      buildQuotaEvent({
+        operationId,
+        fileId: fileRecord.id,
+        storageId: targetChannel,
+        eventType: 'migrate_in',
+        bytesDelta: fileSize,
+        fileCountDelta: 1,
+      }),
+    ]);
+
+    markOperationCommitted(db, operationId, {
+      sourceStorageId: sourceInstanceId,
+      targetStorageId: targetChannel,
+    });
+  });
 
   try {
-    if (typeof db.transaction === 'function') {
-      db.transaction(runMigrate)();
-    } else {
-      runMigrate();
-    }
+    persistMigration();
   } catch (err) {
-    console.error('[Files API] 迁移后更新容量缓存失败:', err.message);
+    markOperationCompensationPending(db, operationId, {
+      sourceStorageId: sourceInstanceId,
+      targetStorageId: targetChannel,
+      compensationPayload: cleanupTargetPayload,
+      error: err,
+    });
+
+    try {
+      await removeStoredArtifacts({
+        storageManager,
+        storageId: cleanupTargetPayload.storageId,
+        storageKey: cleanupTargetPayload.storageKey,
+        isChunked: cleanupTargetPayload.isChunked,
+        chunkRecords: cleanupTargetPayload.chunkRecords,
+      });
+      markOperationCompensated(db, operationId, { compensationPayload: cleanupTargetPayload });
+    } catch (cleanupErr) {
+      logger.error(`[Files API] 迁移补偿失败 ${fileRecord.id}:`, cleanupErr.message);
+    }
+
     throw err;
+  }
+
+  await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
+
+  try {
+    await removeStoredArtifacts({
+      storageManager,
+      storageId: sourceInstanceId,
+      storageKey: fileRecord.storage_key,
+      isChunked: Boolean(fileRecord.is_chunked),
+      chunkRecords: sourceChunkRecords,
+    });
+    markOperationCompleted(db, operationId);
+  } catch (cleanupErr) {
+    markOperationCompensationPending(db, operationId, {
+      sourceStorageId: sourceInstanceId,
+      targetStorageId: targetChannel,
+      compensationPayload: {
+        storageId: sourceInstanceId,
+        storageKey: fileRecord.storage_key,
+        isChunked: Boolean(fileRecord.is_chunked),
+        chunkRecords: sourceChunkRecords,
+      },
+      error: cleanupErr,
+    });
+    logger.warn(`[Files API] 迁移 ${fileRecord.id} 已提交，但源端清理待补偿: ${cleanupErr.message}`);
+    throw cleanupErr;
   }
 
   return { status: 'success' };
@@ -116,7 +265,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
 async function migrateFilesBatch(files, { targetChannel, db, storageManager, logger = console }) {
   const targetEntry = validateMigrationTarget(targetChannel, storageManager);
-  const limit = pLimit(3); // 并发度为 3
+  const limit = pLimit(3);
   const results = {
     total: files.length,
     success: 0,
@@ -133,6 +282,7 @@ async function migrateFilesBatch(files, { targetChannel, db, storageManager, log
           targetEntry,
           db,
           storageManager,
+          logger,
         });
 
         return { fileRecord, result };

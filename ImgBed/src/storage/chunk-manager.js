@@ -112,19 +112,28 @@ class ChunkManager {
             throw err;
         }
 
-        const insertChunkStmt = sqlite.prepare(`INSERT INTO chunks (
+        return { chunkCount: totalChunks, totalSize: buffer.length, chunkRecords };
+    }
+
+    /**
+     * 将分块记录写入数据库
+     * @param {Array} records
+     * @param {import('better-sqlite3').Database} db
+     */
+    static insertChunks(records, db = sqlite) {
+        if (!Array.isArray(records) || records.length === 0) {
+            return;
+        }
+
+        const insertChunkStmt = db.prepare(`INSERT INTO chunks (
             file_id, chunk_index, storage_type, storage_id, storage_key, storage_config, size
         ) VALUES (
             @file_id, @chunk_index, @storage_type, @storage_id, @storage_key, @storage_config, @size
         )`);
 
-        const insertChunkBatch = sqlite.transaction((records) => {
-            for (const record of records) insertChunkStmt.run(record);
-        });
-
-        insertChunkBatch(chunkRecords);
-
-        return { chunkCount: totalChunks, totalSize: buffer.length };
+        for (const record of records) {
+            insertChunkStmt.run(record);
+        }
     }
 
     /**
@@ -252,28 +261,6 @@ class ChunkManager {
         return sqlite.prepare(
             'SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC'
         ).all(fileId);
-    }
-
-    /**
-     * 删除文件的所有分块（物理存储 + 数据库记录）
-     * @param {string} fileId - 文件 ID
-     * @param {Function} getStorageFn - (storageId) => StorageProvider
-     */
-    static async deleteChunks(fileId, getStorageFn) {
-        const chunks = await this.getChunks(fileId);
-
-        for (const chunk of chunks) {
-            try {
-                const storage = getStorageFn(chunk.storage_id);
-                if (storage) {
-                    await storage.deleteChunk(chunk.storage_key);
-                }
-            } catch (err) {
-                console.warn(`[ChunkManager] 删除分块 ${chunk.storage_key} 失败（忽略）:`, err.message);
-            }
-        }
-
-        sqlite.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileId);
     }
 
     /**

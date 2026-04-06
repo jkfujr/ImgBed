@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { parseStorageConfig } from './delete-file.js';
+import { parseStorageConfig } from './storage-artifacts.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

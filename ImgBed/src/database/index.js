@@ -194,7 +194,52 @@ const initDb = () => {
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
-            -- 存储容量校正记录历史表
+            -- 存储容量事件账本表（唯一增量事实来源）
+            CREATE TABLE IF NOT EXISTS storage_quota_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id TEXT NOT NULL,
+                file_id TEXT,
+                storage_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                bytes_delta INTEGER NOT NULL,
+                file_count_delta INTEGER NOT NULL DEFAULT 0,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                payload JSON,
+                applied_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_quota_events_operation_id ON storage_quota_events(operation_id);
+            CREATE INDEX IF NOT EXISTS idx_quota_events_storage_id ON storage_quota_events(storage_id);
+            CREATE INDEX IF NOT EXISTS idx_quota_events_applied_at ON storage_quota_events(applied_at);
+            CREATE INDEX IF NOT EXISTS idx_quota_events_created_at ON storage_quota_events(created_at DESC);
+
+            -- 存储操作状态表（跨远程副作用/本地事务的补偿跟踪）
+            CREATE TABLE IF NOT EXISTS storage_operations (
+                id TEXT PRIMARY KEY,
+                operation_type TEXT NOT NULL,
+                file_id TEXT,
+                status TEXT NOT NULL,
+                source_storage_id TEXT,
+                target_storage_id TEXT,
+                remote_payload JSON,
+                compensation_payload JSON,
+                error_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_storage_operations_status ON storage_operations(status);
+            CREATE INDEX IF NOT EXISTS idx_storage_operations_file_id ON storage_operations(file_id);
+            CREATE INDEX IF NOT EXISTS idx_storage_operations_created_at ON storage_operations(created_at DESC);
+
+            CREATE TRIGGER IF NOT EXISTS update_storage_operations_updated_at
+                AFTER UPDATE ON storage_operations
+                BEGIN
+                    UPDATE storage_operations SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
+
+            -- 存储容量校正记录历史表（快照/观测层）
             CREATE TABLE IF NOT EXISTS storage_quota_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 storage_id TEXT NOT NULL,
