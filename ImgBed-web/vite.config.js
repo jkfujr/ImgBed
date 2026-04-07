@@ -15,7 +15,14 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:13000',
-        changeOrigin: true
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // 移除 Connection: close 请求头，避免连接过早关闭
+            proxyReq.removeHeader('connection');
+            proxyReq.setHeader('Connection', 'keep-alive');
+          });
+        }
       },
       // 匹配以 12 位 Hex 哈希 + 下划线开头的 ID
       '^/[0-9a-f]{12}_.*': {

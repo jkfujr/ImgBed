@@ -29,4 +29,6 @@ config.json
 .claude/
 data/
 
-ImgBed-test/reports/
+ImgBed-test/reports
+entities.json
+mempalace.yaml
