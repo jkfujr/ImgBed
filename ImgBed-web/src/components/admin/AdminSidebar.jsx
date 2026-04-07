@@ -11,6 +11,7 @@ import {
   Tooltip,
   Box
 } from '@mui/material';
+import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -23,6 +24,7 @@ export const ADMIN_DRAWER_WIDTH = 240;
 export const ADMIN_COLLAPSED_WIDTH = 56;
 
 const ADMIN_MENU_ITEMS = [
+  { text: '仪表盘', icon: <DashboardIcon />, path: '/admin/dashboard' },
   { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
   { text: '存储渠道', icon: <StorageIcon />, path: '/admin/channels' },
   { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },

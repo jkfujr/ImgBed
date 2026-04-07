@@ -115,6 +115,13 @@ export const SystemConfigDocs = {
   get:        ()     => api.get('/api/system/config'),
   update:     (data) => api.put('/api/system/config', data),
   quotaStats: ()     => api.get('/api/system/quota-stats'),
+  cacheStats: ()     => api.get('/api/system/cache/stats'),
+};
+
+export const DashboardAPI = {
+  getOverview: () => api.get('/api/system/dashboard/overview'),
+  getUploadTrend: (days = 7) => api.get('/api/system/dashboard/upload-trend', { params: { days } }),
+  getAccessStats: () => api.get('/api/system/dashboard/access-stats'),
 };
 
 // 导出默认实例

@@ -59,6 +59,23 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
         throw new NotFoundError('文件未找到或标识符无效');
     }
 
+    // 记录访问日志（异步，不阻塞响应）
+    setImmediate(() => {
+        try {
+            const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+            const userAgent = req.headers['user-agent'] || null;
+            const referer = req.headers['referer'] || null;
+
+            sqlite.prepare(`
+                INSERT INTO access_logs (file_id, ip, user_agent, referer)
+                VALUES (?, ?, ?, ?)
+            `).run(id, ip, userAgent, referer);
+        } catch (error) {
+            // 日志记录失败不影响文件访问
+            console.error('Failed to log access:', error);
+        }
+    });
+
     const { storage, storageKey } = resolveFileStorage(fileRecord, { storageManager });
 
     const requestRange = req.get('Range');

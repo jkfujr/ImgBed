@@ -269,6 +269,21 @@ const initDb = () => {
                     UPDATE storage_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
                 END;
 
+            -- 访问日志表（用于仪表盘统计）
+            CREATE TABLE IF NOT EXISTS access_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id TEXT NOT NULL,
+                ip TEXT NOT NULL,
+                user_agent TEXT,
+                referer TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_access_logs_file_id ON access_logs(file_id);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_created_at ON access_logs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_ip ON access_logs(ip);
+
             -- 存储容量缓存表（性能优化层）
             CREATE TABLE IF NOT EXISTS storage_quota_cache (
                 storage_id TEXT PRIMARY KEY,

@@ -20,6 +20,9 @@ import {
   storagesStatsCache,
   quotaStatsCache,
   loadBalanceCache,
+  dashboardOverviewCache,
+  dashboardUploadTrendCache,
+  dashboardAccessStatsCache,
   cacheInvalidation
 } from '../middleware/cache.js';
 import { getResponseCache } from '../services/cache/response-cache.js';
@@ -502,6 +505,144 @@ systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
     code: 0,
     message: 'success',
     data: status
+  });
+}));
+
+/**
+ * 仪表盘 - 系统概览统计
+ * GET /api/system/dashboard/overview
+ */
+systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(async (_req, res) => {
+  // 查询总文件数
+  const totalFilesResult = sqlite.prepare('SELECT COUNT(*) as count FROM files').get();
+  const totalFiles = totalFilesResult?.count || 0;
+
+  // 查询总存储大小
+  const totalSizeResult = sqlite.prepare('SELECT SUM(size) as sum FROM files').get();
+  const totalSize = totalSizeResult?.sum || 0;
+
+  // 查询今日上传数
+  const todayUploadsResult = sqlite.prepare(`
+    SELECT COUNT(*) as count FROM files
+    WHERE DATE(created_at) = DATE('now')
+  `).get();
+  const todayUploads = todayUploadsResult?.count || 0;
+
+  // 查询今日访问次数
+  const todayAccessResult = sqlite.prepare(`
+    SELECT COUNT(*) as count FROM access_logs
+    WHERE DATE(created_at) = DATE('now')
+  `).get();
+  const todayAccess = todayAccessResult?.count || 0;
+
+  // 查询存储渠道数
+  const channelsResult = sqlite.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled
+    FROM storage_channels
+  `).get();
+  const totalChannels = channelsResult?.total || 0;
+  const enabledChannels = channelsResult?.enabled || 0;
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: {
+      totalFiles,
+      totalSize,
+      todayUploads,
+      todayAccess,
+      totalChannels,
+      enabledChannels
+    }
+  });
+}));
+
+/**
+ * 仪表盘 - 上传趋势统计
+ * GET /api/system/dashboard/upload-trend?days=7
+ */
+systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandler(async (req, res) => {
+  const days = parseInt(req.query.days) || 7;
+
+  // 验证参数
+  if (![7, 30, 90].includes(days)) {
+    throw new ValidationError('days 参数必须是 7、30 或 90');
+  }
+
+  const trend = sqlite.prepare(`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*) as fileCount,
+      COALESCE(SUM(size), 0) as totalSize
+    FROM files
+    WHERE created_at >= datetime('now', '-${days} days')
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `).all();
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: { trend }
+  });
+}));
+
+/**
+ * 仪表盘 - 访问统计
+ * GET /api/system/dashboard/access-stats
+ */
+systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandler(async (_req, res) => {
+  // 今日访问次数
+  const todayAccessResult = sqlite.prepare(`
+    SELECT COUNT(*) as count FROM access_logs
+    WHERE DATE(created_at) = DATE('now')
+  `).get();
+  const todayAccess = todayAccessResult?.count || 0;
+
+  // 今日独立访客数
+  const todayVisitorsResult = sqlite.prepare(`
+    SELECT COUNT(DISTINCT ip) as count FROM access_logs
+    WHERE DATE(created_at) = DATE('now')
+  `).get();
+  const todayVisitors = todayVisitorsResult?.count || 0;
+
+  // 热门文件 TOP 5
+  const topFiles = sqlite.prepare(`
+    SELECT
+      access_logs.file_id as fileId,
+      files.file_name as fileName,
+      files.original_name as originalName,
+      COUNT(access_logs.id) as accessCount
+    FROM access_logs
+    INNER JOIN files ON access_logs.file_id = files.id
+    WHERE DATE(access_logs.created_at) >= DATE('now', '-7 days')
+    GROUP BY access_logs.file_id
+    ORDER BY accessCount DESC
+    LIMIT 5
+  `).all();
+
+  // 近7天访问趋势
+  const accessTrend = sqlite.prepare(`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*) as accessCount
+    FROM access_logs
+    WHERE created_at >= datetime('now', '-7 days')
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `).all();
+
+  return res.json({
+    code: 0,
+    message: 'success',
+    data: {
+      todayAccess,
+      todayVisitors,
+      topFiles,
+      accessTrend
+    }
   });
 }));
 

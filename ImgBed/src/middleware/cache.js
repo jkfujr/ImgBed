@@ -145,6 +145,42 @@ export function loadBalanceCache() {
 }
 
 /**
+ * 仪表盘概览缓存中间件
+ */
+export function dashboardOverviewCache() {
+  return cacheMiddleware({
+    prefix: 'system:dashboard:overview',
+    ttl: 30
+  });
+}
+
+/**
+ * 仪表盘上传趋势缓存中间件
+ */
+export function dashboardUploadTrendCache() {
+  return cacheMiddleware({
+    prefix: 'system:dashboard:upload-trend',
+    keyBuilder: (req) => {
+      const cache = getResponseCache();
+      return cache.buildKey('system:dashboard:upload-trend', {
+        days: req.query.days || '7'
+      });
+    },
+    ttl: 60
+  });
+}
+
+/**
+ * 仪表盘访问统计缓存中间件
+ */
+export function dashboardAccessStatsCache() {
+  return cacheMiddleware({
+    prefix: 'system:dashboard:access-stats',
+    ttl: 30
+  });
+}
+
+/**
  * 缓存失效辅助函数
  */
 export const cacheInvalidation = {
@@ -175,6 +211,15 @@ export const cacheInvalidation = {
     cache.deleteByPrefix('system:quota-stats');
     cache.deleteByPrefix('system:load-balance');
     log.info('存储渠道相关缓存已失效');
+  },
+
+  /**
+   * 使仪表盘缓存失效
+   */
+  invalidateDashboard() {
+    const cache = getResponseCache();
+    cache.deleteByPrefix('system:dashboard:');
+    log.info('仪表盘相关缓存已失效');
   },
 
   /**

@@ -12,6 +12,7 @@ import RequireAuth from './components/RequireAuth';
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const DashboardPage = lazy(() => import('./pages/admin/DashboardPage'));
 const FilesAdmin = lazy(() => import('./pages/admin/FilesAdmin'));
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
 const SystemPage = lazy(() => import('./pages/admin/SystemPage'));
@@ -64,7 +65,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                               <AdminDashboard />
                           </RequireAuth>
                       }>
-                           <Route index element={<Navigate to="files" replace />} />
+                           <Route index element={<Navigate to="dashboard" replace />} />
+                           <Route path="dashboard" element={<DashboardPage />} />
                            <Route path="files" element={<FilesAdmin />} />
                            <Route path="settings" element={<SettingsPage />} />
                            <Route path="channels" element={<StorageChannelsPage />} />
