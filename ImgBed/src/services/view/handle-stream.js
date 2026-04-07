@@ -6,17 +6,26 @@ import { createLogger } from '../../utils/logger.js';
 const log = createLogger('handle-stream');
 
 const applyHeaders = (res, headers) => {
-  Object.entries(headers).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      res.setHeader(key, value);
-    }
-  });
+  // 处理 Headers 对象或普通对象
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      if (value !== undefined && value !== null) {
+        res.setHeader(key, value);
+      }
+    });
+  } else {
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        res.setHeader(key, value);
+      }
+    });
+  }
 };
 
 /**
  * 处理分块文件流
  */
-async function handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager }) {
+async function handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager, etag, lastModified }) {
   const chunks = await ChunkManager.getChunks(fileRecord.id);
   if (!chunks || chunks.length === 0) {
     const error = new Error('分块记录缺失，无法重组文件');
@@ -36,7 +45,9 @@ async function handleChunkedStream(fileRecord, res, { start, end, isPartial, sto
     start,
     end,
     isPartial,
-    totalSize: fileRecord.size
+    totalSize: fileRecord.size,
+    etag,
+    lastModified
   });
 
   applyHeaders(res, headers);
@@ -48,7 +59,7 @@ async function handleChunkedStream(fileRecord, res, { start, end, isPartial, sto
 /**
  * 处理普通文件流
  */
-async function handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial }) {
+async function handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial, etag, lastModified }) {
   const options = isPartial ? { start, end } : {};
 
   const fileStream = await storage.getStream(storageKey, options).catch(e => {
@@ -67,7 +78,9 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
     start,
     end,
     isPartial,
-    totalSize: fileRecord.size
+    totalSize: fileRecord.size,
+    etag,
+    lastModified
   });
 
   applyHeaders(res, headers);

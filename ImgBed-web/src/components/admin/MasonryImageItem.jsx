@@ -1,33 +1,41 @@
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Box, Checkbox, Typography, IconButton, useTheme } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
 import { fmtDate } from '../../utils/formatters';
+import imageCacheManager from '../../utils/imageCache';
 
 const getImageSrc = (item) => `/${item.id}`;
 
 /**
  * 瀑布流图片展示核心 - 仅在 id 改变时重渲染
  */
-const MasonryImage = memo(({ item, onOpenDetail }) => (
-  <Box
-    component="img"
-    src={getImageSrc(item)}
-    onClick={() => onOpenDetail?.(item)}
-    loading="lazy"
-    sx={{
-      display: 'block',
-      width: '100%',
-      aspectRatio: item.width && item.height ? `${item.width}/${item.height}` : 'auto',
-      minHeight: item.width && item.height ? 'auto' : '200px',
-      height: 'auto',
-      borderRadius: BORDER_RADIUS.md,
-      cursor: 'pointer',
-      transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s',
-      bgcolor: 'action.hover'
-    }}
-  />
-), (prev, next) => prev.item.id === next.item.id);
+const MasonryImage = memo(({ item, onOpenDetail }) => {
+  useEffect(() => {
+    // 图片加载成功后标记为已缓存
+    imageCacheManager.markAsLoaded(item.id);
+  }, [item.id]);
+
+  return (
+    <Box
+      component="img"
+      src={getImageSrc(item)}
+      onClick={() => onOpenDetail?.(item)}
+      loading="lazy"
+      sx={{
+        display: 'block',
+        width: '100%',
+        aspectRatio: item.width && item.height ? `${item.width}/${item.height}` : 'auto',
+        minHeight: item.width && item.height ? 'auto' : '200px',
+        height: 'auto',
+        borderRadius: BORDER_RADIUS.md,
+        cursor: 'pointer',
+        transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s',
+        bgcolor: 'action.hover'
+      }}
+    />
+  );
+}, (prev, next) => prev.item.id === next.item.id);
 MasonryImage.displayName = 'MasonryImage';
 
 /**

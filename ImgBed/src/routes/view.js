@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { sqlite } from '../database/index.js';
 import config from '../config/index.js';
 import storageManager from '../storage/manager.js';
@@ -9,6 +10,40 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import { ForbiddenError, NotFoundError } from '../errors/AppError.js';
 
 const viewApp = express.Router();
+
+/**
+ * 生成 ETag（基于文件 ID 和更新时间）
+ */
+const generateETag = (fileRecord) => {
+  const hash = crypto.createHash('md5')
+    .update(`${fileRecord.id}-${fileRecord.updated_at || fileRecord.created_at}`)
+    .digest('hex');
+  return `"${hash}"`;
+};
+
+/**
+ * 检查缓存是否有效
+ */
+const checkCache = (req, fileRecord, etag) => {
+  const ifNoneMatch = req.get('If-None-Match');
+  const ifModifiedSince = req.get('If-Modified-Since');
+
+  // 优先检查 ETag
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return true;
+  }
+
+  // 检查 Last-Modified
+  if (ifModifiedSince && fileRecord.updated_at) {
+    const modifiedTime = new Date(fileRecord.updated_at).getTime();
+    const requestTime = new Date(ifModifiedSince).getTime();
+    if (modifiedTime <= requestTime) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 /**
  * 校验反盗链逻辑
@@ -59,6 +94,16 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
         throw new NotFoundError('文件未找到或标识符无效');
     }
 
+    // 生成 ETag 和 Last-Modified
+    const etag = generateETag(fileRecord);
+    const lastModified = fileRecord.updated_at || fileRecord.created_at;
+
+    // 检查缓存是否有效，返回 304
+    if (checkCache(req, fileRecord, etag)) {
+        res.status(304).end();
+        return;
+    }
+
     // 记录访问日志（异步，不阻塞响应）
     setImmediate(() => {
         try {
@@ -85,9 +130,9 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
     const { start, end, isPartial } = parseRangeHeader(requestRange, fileRecord.size);
 
     if (fileRecord.is_chunked) {
-        return await handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager });
+        return await handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager, etag, lastModified });
     } else {
-        return await handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial });
+        return await handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial, etag, lastModified });
     }
 }));
 

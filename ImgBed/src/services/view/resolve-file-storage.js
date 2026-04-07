@@ -33,11 +33,19 @@ function parseRangeHeader(rangeHeader, totalSize) {
   return { start, end, isPartial: true };
 }
 
-function buildStreamHeaders({ fileRecord, start, end, isPartial, totalSize }) {
+function buildStreamHeaders({ fileRecord, start, end, isPartial, totalSize, etag, lastModified }) {
   const headers = new Headers();
   headers.set('Content-Type', fileRecord.mime_type || 'application/octet-stream');
   headers.set('Cache-Control', 'public, max-age=31536000');
   headers.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileRecord.original_name)}`);
+
+  // 添加协商缓存头
+  if (etag) {
+    headers.set('ETag', etag);
+  }
+  if (lastModified) {
+    headers.set('Last-Modified', new Date(lastModified).toUTCString());
+  }
 
   if (isPartial) {
     headers.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);

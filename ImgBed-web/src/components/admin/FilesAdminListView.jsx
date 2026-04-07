@@ -1,11 +1,13 @@
 import {
   Box, Checkbox, Chip, IconButton, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material';
+import { useEffect } from 'react';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InfoIcon from '@mui/icons-material/Info';
 import FolderIcon from '@mui/icons-material/Folder';
 import { BORDER_RADIUS } from '../../utils/constants';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from '../../utils/formatters';
+import imageCacheManager from '../../utils/imageCache';
 
 export default function FilesAdminListView({
   directories,
@@ -18,6 +20,13 @@ export default function FilesAdminListView({
   onOpenDetail,
   onTriggerDelete,
 }) {
+  // 批量标记图片已加载
+  useEffect(() => {
+    if (data.length > 0) {
+      const imageIds = data.map(item => item.id);
+      imageCacheManager.markBatchAsLoaded(imageIds);
+    }
+  }, [data]);
   return (
     <Table size="small" stickyHeader>
       <TableHead>
