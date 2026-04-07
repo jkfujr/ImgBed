@@ -1,11 +1,10 @@
 import { useMemo } from 'react';
 import {
-  Box, Typography, Paper, Button, CircularProgress, Alert, Divider,
+  Box, Typography, Button, CircularProgress, Alert, Divider,
   FormControl, InputLabel, Select, MenuItem, Grid, Radio, RadioGroup,
   FormGroup, Checkbox, FormControlLabel, TextField
 } from '@mui/material';
 import { useLoadBalance } from '../../hooks/useLoadBalance';
-import { BORDER_RADIUS } from '../../utils/constants';
 
 /** 辅助：更新 config 单字段 */
 function useField(config, setConfig) {
@@ -24,13 +23,14 @@ export default function LoadBalancePanel() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-      <Box display="flex" flexDirection="column" gap={2.5}>
-        {result && (
-          <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
-        )}
+    <Box display="flex" flexDirection="column" gap={2.5}>
+      {result && (
+        <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
+      )}
 
-        <FormControl component="fieldset">
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>上传策略</Typography>
+
+      <FormControl component="fieldset">
           <RadioGroup
             value={config.uploadStrategy}
             onChange={(e) => update('uploadStrategy', e.target.value)}
@@ -58,10 +58,10 @@ export default function LoadBalancePanel() {
 
         {config.uploadStrategy === 'load-balance' && (
           <>
-            <Divider />
+            <Divider sx={{ my: 1 }} />
 
             <FormControl component="fieldset">
-              <Typography variant="body2" fontWeight="medium" mb={1}>负载均衡作用域</Typography>
+              <Typography variant="subtitle1" fontWeight="bold" mb={1}>负载均衡作用域</Typography>
               <RadioGroup
                 value={config.lbScope}
                 onChange={(e) => update('lbScope', e.target.value)}
@@ -110,7 +110,9 @@ export default function LoadBalancePanel() {
               </FormGroup>
             )}
 
-            <Divider />
+            <Divider sx={{ my: 1 }} />
+
+            <Typography variant="subtitle1" fontWeight="bold" mb={1}>均衡算法</Typography>
 
             <FormControl size="small" sx={{ maxWidth: 320 }}>
               <InputLabel>均衡算法</InputLabel>
@@ -157,7 +159,9 @@ export default function LoadBalancePanel() {
           </>
         )}
 
-        <Divider />
+        <Divider sx={{ my: 1 }} />
+
+        <Typography variant="subtitle1" fontWeight="bold" mb={1}>故障转移</Typography>
 
         <FormControlLabel
           control={
@@ -177,12 +181,11 @@ export default function LoadBalancePanel() {
           sx={{ alignItems: 'flex-start', ml: 0 }}
         />
 
-        <Box>
+        <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
           <Button variant="contained" onClick={handleSave} disabled={saving}>
             {saving ? <CircularProgress size={18} color="inherit" /> : '保存策略'}
           </Button>
         </Box>
       </Box>
-    </Paper>
   );
 }

@@ -97,9 +97,9 @@ export default function SettingsPage() {
 
           {/* 偏好 */}
           <TabPanel value={tab} index={1}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
               <Box>
-                <Typography variant="body2" fontWeight="medium" mb={1}>瀑布流列数</Typography>
+                <Typography variant="subtitle1" fontWeight="bold" mb={1}>瀑布流列数</Typography>
                 <ToggleButtonGroup value={prefCols} exclusive onChange={handlePrefCols} size="small">
                   <ToggleButton value="0">自动</ToggleButton>
                   <ToggleButton value="2">2 列</ToggleButton>
@@ -112,10 +112,10 @@ export default function SettingsPage() {
                 </Typography>
               </Box>
 
-              <Divider />
+              <Divider sx={{ my: 1 }} />
 
               <Box>
-                <Typography variant="body2" fontWeight="medium" mb={1}>每页显示数量</Typography>
+                <Typography variant="subtitle1" fontWeight="bold" mb={1}>每页显示数量</Typography>
                 <FormControl size="small" sx={{ minWidth: 120 }}>
                   <InputLabel>每页数量</InputLabel>
                   <Select value={prefPageSize} label="每页数量" onChange={handlePrefPageSize}>
@@ -127,7 +127,7 @@ export default function SettingsPage() {
                 </FormControl>
               </Box>
 
-              <Divider />
+              <Divider sx={{ my: 1 }} />
 
               <FormControlLabel
                 control={<Switch checked={prefShowFilename} onChange={handlePrefShowFilename} />}

@@ -1,9 +1,8 @@
 import {
-  Box, Typography, Paper, TextField, Button, CircularProgress, Alert, Divider,
+  Box, Typography, TextField, Button, CircularProgress, Alert, Divider,
   FormControlLabel, Switch
 } from '@mui/material';
 import { useUploadConfig } from '../../hooks/useUploadConfig';
-import { BORDER_RADIUS } from '../../utils/constants';
 
 /** 辅助函数：更新 config 中的单个字段 */
 function useField(config, setConfig) {
@@ -21,12 +20,12 @@ export default function UploadConfigPanel() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-      <Typography variant="subtitle1" fontWeight="bold" mb={2}>容量检查</Typography>
-      <Box display="flex" flexDirection="column" gap={2.5}>
-        {result && (
-          <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
-        )}
+    <Box display="flex" flexDirection="column" gap={2.5}>
+      {result && (
+        <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
+      )}
+
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>容量检查</Typography>
 
         <FormControlLabel
           control={<Switch
@@ -154,7 +153,7 @@ export default function UploadConfigPanel() {
           </>
         )}
 
-        <Box>
+        <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
           <Button
             variant="contained"
             onClick={handleSave}
@@ -164,6 +163,5 @@ export default function UploadConfigPanel() {
           </Button>
         </Box>
       </Box>
-    </Paper>
   );
 }

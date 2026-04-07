@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react';
 import {
-  Box, Paper, TextField, Button, CircularProgress, Alert, Divider
+  Box, TextField, Button, CircularProgress, Alert, Divider, Typography
 } from '@mui/material';
 import { SystemConfigDocs } from '../../api';
-import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function SystemConfigPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
   const [corsOrigin, setCorsOrigin] = useState('');
-  const [maxFileSize, setMaxFileSize] = useState('');
   const [serverPort, setServerPort] = useState('');
+  const [initialConfig, setInitialConfig] = useState(null);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -19,9 +18,17 @@ export default function SystemConfigPanel() {
       try {
         const res = await SystemConfigDocs.get();
         if (res.code === 0) {
-          setCorsOrigin(res.data.security?.corsOrigin || '*');
-          setMaxFileSize(String((res.data.security?.maxFileSize || 104857600) / (1024 * 1024)));
-          setServerPort(String(res.data.server?.port || 3000));
+          const corsValue = res.data.security?.corsOrigin || '*';
+          const portValue = String(res.data.server?.port || 3000);
+
+          setCorsOrigin(corsValue);
+          setServerPort(portValue);
+
+          // 保存初始配置用于重置
+          setInitialConfig({
+            corsOrigin: corsValue,
+            serverPort: portValue,
+          });
         }
       } catch {
         setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
@@ -33,6 +40,14 @@ export default function SystemConfigPanel() {
     loadConfig();
   }, []);
 
+  const handleReset = () => {
+    if (initialConfig) {
+      setCorsOrigin(initialConfig.corsOrigin);
+      setServerPort(initialConfig.serverPort);
+      setResult(null);
+    }
+  };
+
   const handleSave = async () => {
     setResult(null);
     setSaving(true);
@@ -40,7 +55,6 @@ export default function SystemConfigPanel() {
       const payload = {
         security: {
           corsOrigin,
-          maxFileSize: Math.round(parseFloat(maxFileSize) * 1024 * 1024),
         },
         server: { port: parseInt(serverPort) },
       };
@@ -62,51 +76,59 @@ export default function SystemConfigPanel() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, px: 3, py: 3 }}>
-      <Box display="flex" flexDirection="column" gap={2.5}>
-        {result && (
-          <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
-        )}
+    <Box display="flex" flexDirection="column" gap={2.5}>
+      {result && (
+        <Alert severity={result.type} onClose={() => setResult(null)}>{result.msg}</Alert>
+      )}
 
-        <TextField
-          label="服务端口"
-          size="small"
-          value={serverPort}
-          onChange={(e) => setServerPort(e.target.value)}
-          helperText="修改后需重启后端服务生效"
-          sx={{ maxWidth: 200 }}
-        />
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>
+        服务配置
+      </Typography>
 
-        <Divider />
+      <TextField
+        label="服务端口"
+        size="small"
+        type="number"
+        value={serverPort}
+        onChange={(e) => setServerPort(e.target.value)}
+        sx={{ maxWidth: 200 }}
+      />
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1.5 }}>
+        修改后需重启后端服务生效
+      </Typography>
 
-        <TextField
-          label="CORS 允许来源"
-          size="small"
-          value={corsOrigin}
-          onChange={(e) => setCorsOrigin(e.target.value)}
-          helperText="填 * 表示允许所有来源，生产环境建议填写具体域名"
-        />
+      <Divider sx={{ my: 1 }} />
 
-        <TextField
-          label="最大上传文件大小（MB）"
-          size="small"
-          type="number"
-          value={maxFileSize}
-          onChange={(e) => setMaxFileSize(e.target.value)}
-          slotProps={{ htmlInput: { min: 1, step: 1 } }}
-          sx={{ maxWidth: 280 }}
-        />
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>
+        安全配置
+      </Typography>
 
-        <Box>
-          <Button
-            variant="contained"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
-          </Button>
-        </Box>
+      <TextField
+        label="CORS 允许来源"
+        size="small"
+        value={corsOrigin}
+        onChange={(e) => setCorsOrigin(e.target.value)}
+      />
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1.5 }}>
+        填 * 表示允许所有来源，生产环境建议填写具体域名
+      </Typography>
+
+      <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+        <Button
+          variant="contained"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={handleReset}
+          disabled={saving}
+        >
+          重置
+        </Button>
       </Box>
-    </Paper>
+    </Box>
   );
 }
