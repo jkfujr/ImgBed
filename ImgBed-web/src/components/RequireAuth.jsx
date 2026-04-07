@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom';
-import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
+import LoadingSpinner from './common/LoadingSpinner';
 
 /**
  * 路由守卫组件：
@@ -10,11 +10,7 @@ export default function RequireAuth({ children }) {
     const { isAuthenticated, loading } = useAuth();
 
     if (loading) {
-        return (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 6 }}>
-                <CircularProgress size={28} />
-            </Box>
-        );
+        return <LoadingSpinner />;
     }
 
     if (!isAuthenticated) {

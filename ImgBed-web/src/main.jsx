@@ -2,13 +2,14 @@
 import { StrictMode, Suspense, lazy, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Box, CircularProgress, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { Box, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
 import Layout from './layout/MainLayout';
 import { AuthProvider } from './contexts/AuthProvider';
 import { RefreshProvider } from './contexts/RefreshContext';
 import { ThemeProvider as CustomThemeProvider, useThemeMode } from './contexts/ThemeContext';
 import RequireAuth from './components/RequireAuth';
+import LoadingSpinner from './components/common/LoadingSpinner';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -20,8 +21,8 @@ const SystemPage = lazy(() => import('./pages/admin/SystemPage'));
 const StorageChannelsPage = lazy(() => import('./pages/admin/StorageChannelsPage'));
 
 const routeFallback = (
-  <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-    <CircularProgress />
+  <Box sx={{ height: '100vh' }}>
+    <LoadingSpinner />
   </Box>
 );
 

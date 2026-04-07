@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import FilesAdminMasonryView from './FilesAdminMasonryView';
 import FilesAdminListView from './FilesAdminListView';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 const INITIAL_RENDER_COUNT = {
   masonry: 24,
@@ -64,11 +65,7 @@ export default function FilesAdminContent({
 
   return (
     <Box sx={{ flexGrow: 1, overflow: 'auto', overflowX: 'hidden', minHeight: 0 }}>
-      {loading && data.length === 0 && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-          <CircularProgress />
-        </Box>
-      )}
+      {loading && data.length === 0 && <LoadingSpinner />}
 
       {!loading && data.length === 0 && directories.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>

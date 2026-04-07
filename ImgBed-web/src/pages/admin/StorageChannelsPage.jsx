@@ -1,6 +1,6 @@
 import {
   Box, Typography, Grid, Card, CardContent, CardActions,
-  IconButton, Chip, Tooltip, CircularProgress, Alert,
+  IconButton, Chip, Tooltip, Alert,
   Divider, LinearProgress,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -12,6 +12,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
 import { useStorageChannels } from '../../hooks/useStorageChannels';
@@ -90,7 +91,7 @@ export default function StorageChannelsPage() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={clearError}>{error}</Alert>}
 
       {loading ? (
-        <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>
+        <LoadingSpinner fullHeight={false} />
       ) : storages.length === 0 ? (
         <Typography color="text.secondary" textAlign="center" pt={6}>暂无存储渠道，点击「新增渠道」添加</Typography>
       ) : (

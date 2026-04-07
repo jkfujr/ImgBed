@@ -5,6 +5,7 @@ import {
   FormGroup, Checkbox, FormControlLabel, TextField
 } from '@mui/material';
 import { useLoadBalance } from '../../hooks/useLoadBalance';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 /** 辅助：更新 config 单字段 */
 function useField(config, setConfig) {
@@ -19,7 +20,7 @@ export default function LoadBalancePanel() {
   const uploadableChannels = useMemo(() => availableChannels.filter(s => s.enabled && s.allowUpload), [availableChannels]);
 
   if (loading) {
-    return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
+    return <LoadingSpinner fullHeight={false} />;
   }
 
   return (

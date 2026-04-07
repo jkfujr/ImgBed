@@ -3,6 +3,7 @@ import {
   Box, TextField, Button, CircularProgress, Alert, Divider, Typography
 } from '@mui/material';
 import { SystemConfigDocs } from '../../api';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 export default function SystemConfigPanel() {
   const [loading, setLoading] = useState(true);
@@ -72,7 +73,7 @@ export default function SystemConfigPanel() {
   };
 
   if (loading) {
-    return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
+    return <LoadingSpinner fullHeight={false} />;
   }
 
   return (

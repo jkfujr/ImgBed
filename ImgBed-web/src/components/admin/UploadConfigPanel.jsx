@@ -3,6 +3,7 @@ import {
   FormControlLabel, Switch
 } from '@mui/material';
 import { useUploadConfig } from '../../hooks/useUploadConfig';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 /** 辅助函数：更新 config 中的单个字段 */
 function useField(config, setConfig) {
@@ -16,7 +17,7 @@ export default function UploadConfigPanel() {
   const switchHandler = (key) => (e) => update(key, e.target.checked);
 
   if (loading) {
-    return <Box display="flex" justifyContent="center" pt={6}><CircularProgress /></Box>;
+    return <LoadingSpinner fullHeight={false} />;
   }
 
   return (
