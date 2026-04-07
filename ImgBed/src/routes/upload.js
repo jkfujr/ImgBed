@@ -5,6 +5,7 @@ import storageManager from '../storage/manager.js';
 import sharp from 'sharp';
 import { sqlite } from '../database/index.js';
 import { requirePermission } from '../middleware/auth.js';
+import { guestUploadAuth } from '../middleware/guestUpload.js';
 import config from '../config/index.js';
 import path from 'path';
 import ChunkManager from '../storage/chunk-manager.js';
@@ -157,7 +158,7 @@ function buildUploadResponse({ fileId, newFileName, originalName, fileSize, widt
  * 文件上传接口
  * POST /api/upload
  */
-uploadApp.post('/', requirePermission('upload:image'), upload.single('file'), asyncHandler(async (req, res) => {
+uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.single('file'), asyncHandler(async (req, res) => {
   const body = req.body || {};
   const file = req.file || null;
 

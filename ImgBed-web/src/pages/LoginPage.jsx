@@ -33,7 +33,7 @@ export default function LoginPage() {
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Paper elevation={3} sx={{ p: 5, maxWidth: 400, width: '100%', borderRadius: BORDER_RADIUS.lg }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
-           <Box sx={{ m: 1, bgcolor: 'secondary.main', p: 1, borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center' }}>
+           <Box sx={{ m: 1, bgcolor: 'secondary.main', p: 1, borderRadius: BORDER_RADIUS.circle, color: 'white', display: 'flex', alignItems: 'center' }}>
               <LockOutlinedIcon />
            </Box>
            <Typography component="h1" variant="h5" fontWeight="bold">

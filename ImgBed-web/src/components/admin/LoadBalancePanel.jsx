@@ -29,7 +29,7 @@ export default function LoadBalancePanel() {
         <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
       )}
 
-      <Typography variant="subtitle1" fontWeight="bold" mb={1}>上传策略</Typography>
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>存储策略</Typography>
 
       <FormControl component="fieldset">
           <RadioGroup

@@ -104,9 +104,10 @@ export function useHomeUpload() {
         patchEntry(entry.id, { status: 'error', errorMsg: result.error });
       }
     } catch (err) {
+      const errorMsg = err.response?.data?.message || err.message || '网络错误';
       patchEntry(entry.id, {
         status: 'error',
-        errorMsg: err.response?.data?.message || err.message || '网络错误',
+        errorMsg,
       });
     }
   }, [upload]);
@@ -119,7 +120,19 @@ export function useHomeUpload() {
       await uploadOne(entry);
     }
     setUploading(false);
-    showToast('全部上传完成', 'success');
+
+    // 统计上传结果
+    const finalEntries = entriesRef.current;
+    const successCount = finalEntries.filter((e) => e.status === 'done').length;
+    const errorCount = finalEntries.filter((e) => e.status === 'error').length;
+
+    if (errorCount === 0) {
+      showToast('全部上传完成', 'success');
+    } else if (successCount === 0) {
+      showToast('全部上传失败', 'error');
+    } else {
+      showToast(`上传完成：成功 ${successCount} 个，失败 ${errorCount} 个`, 'warning');
+    }
   }, [entries, showToast, uploadOne]);
 
   const pendingCount = entries.filter((e) => e.status === 'idle' || e.status === 'error').length;

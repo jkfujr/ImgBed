@@ -8,6 +8,7 @@ import CardContent from '@mui/material/CardContent';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import LinearProgress, { linearProgressClasses } from '@mui/material/LinearProgress';
+import { BORDER_RADIUS } from '../../../utils/constants';
 
 const StyledText = styled('text', {
   shouldForwardProp: (prop) => prop !== 'variant',
@@ -156,7 +157,7 @@ export default function CacheStatsCard({ data }) {
               sx={{
                 width: 12,
                 height: 12,
-                borderRadius: '50%',
+                borderRadius: BORDER_RADIUS.circle,
                 backgroundColor: stat.color,
               }}
             />
@@ -191,7 +192,7 @@ export default function CacheStatsCard({ data }) {
             value={(currentKeys / maxKeys) * 100}
             sx={{
               height: 6,
-              borderRadius: 1,
+              borderRadius: BORDER_RADIUS.sm,
             }}
           />
         </Box>

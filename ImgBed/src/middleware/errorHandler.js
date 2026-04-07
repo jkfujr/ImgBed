@@ -13,8 +13,7 @@ const registerErrorHandlers = (app) => {
 
     res.status(status).json({
       code: status,
-      message: err.message || '内部服务器错误',
-      error: {},
+      message: err.message || '内部服务器错误'
     });
   });
 };
@@ -22,8 +21,7 @@ const registerErrorHandlers = (app) => {
 const notFoundHandler = (_req, res) => {
   res.status(404).json({
     code: 404,
-    message: '未找到请求的资源',
-    error: {},
+    message: '未找到请求的资源'
   });
 };
 

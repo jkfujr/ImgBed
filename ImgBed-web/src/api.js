@@ -26,14 +26,40 @@ api.interceptors.response.use(
     return response.data;
   },
   (error) => {
+    // 处理 401 授权失效
     if (error.response && error.response.status === 401) {
-        // 授权失效时清除本地状态并跳转登录
-        localStorage.removeItem('token');
-        if (window.location.pathname.startsWith('/admin')) {
-            window.location.href = '/login';
-        }
+      localStorage.removeItem('token');
+      if (window.location.pathname.startsWith('/admin')) {
+        window.location.href = '/login';
+      }
     }
-    return Promise.reject(error);
+
+    // 如果有后端响应，直接返回
+    if (error.response?.data) {
+      return Promise.reject(error);
+    }
+
+    // 处理网络错误：没有响应对象
+    let errorMessage = '网络错误';
+
+    if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      errorMessage = '网络连接失败，请检查后端服务是否启动';
+    } else if (error.code === 'ECONNABORTED') {
+      errorMessage = '请求超时，请稍后重试';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    // 构造统一的错误响应格式
+    const enhancedError = new Error(errorMessage);
+    enhancedError.response = {
+      data: {
+        code: error.response?.status || 0,
+        message: errorMessage
+      }
+    };
+
+    return Promise.reject(enhancedError);
   }
 );
 

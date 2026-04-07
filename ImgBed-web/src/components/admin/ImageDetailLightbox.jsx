@@ -2,6 +2,7 @@ import { Box, IconButton, Dialog, useTheme, useMediaQuery } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close';
 import useImageTransform from '../../hooks/useImageTransform';
 import ImageDetailPanel from './ImageDetailPanel';
+import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
   const theme = useTheme();
@@ -105,7 +106,7 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
               color: 'white',
               px: 3,
               py: 1.5,
-              borderRadius: 2,
+              borderRadius: BORDER_RADIUS.md,
               fontSize: '1.5rem',
               fontWeight: 'bold',
               pointerEvents: 'none',

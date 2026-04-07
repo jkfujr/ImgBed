@@ -6,6 +6,7 @@ import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useTheme } from '@mui/material/styles';
+import { BORDER_RADIUS } from '../../../utils/constants';
 
 export default function AccessTrendChart({ data }) {
   const theme = useTheme();
@@ -79,7 +80,7 @@ export default function AccessTrendChart({ data }) {
         </Box>
 
         <BarChart
-          borderRadius={8}
+          borderRadius={BORDER_RADIUS.md * 4}
           colors={colorPalette}
           xAxis={[
             {

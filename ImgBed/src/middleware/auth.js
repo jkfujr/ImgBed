@@ -12,16 +12,14 @@ const extractBearerToken = (req) => {
 const unauthorized = (message = '未授权：缺失有效的 Bearer Token') => {
   return {
     code: 401,
-    message,
-    error: {}
+    message
   };
 };
 
 const forbidden = (message = '权限不足') => {
   return {
     code: 403,
-    message,
-    error: {}
+    message
   };
 };
 

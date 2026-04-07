@@ -114,7 +114,7 @@ export default function StorageChannelsPage() {
                             {s.id === defaultId && (
                               <Chip label="默认" size="small" color="warning" variant="outlined" />
                             )}
-                            <Box sx={{ ml: 'auto', width: 10, height: 10, borderRadius: '50%',
+                            <Box sx={{ ml: 'auto', width: 10, height: 10, borderRadius: BORDER_RADIUS.circle,
                               bgcolor: s.enabled ? 'success.main' : 'action.disabled' }} />
                           </Box>
                           <Typography variant="subtitle1" fontWeight="bold" noWrap>{s.name}</Typography>

@@ -8,6 +8,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Badge from '@mui/material/Badge';
 import Box from '@mui/material/Box';
 import { useNavigate } from 'react-router-dom';
+import { BORDER_RADIUS } from '../../../utils/constants';
 
 export default function TopFilesTree({ data }) {
   const navigate = useNavigate();
@@ -51,13 +52,13 @@ export default function TopFilesTree({ data }) {
             <ListItem key={file.fileId} disablePadding>
               <ListItemButton
                 onClick={() => handleFileClick(file.fileId)}
-                sx={{ borderRadius: 1 }}
+                sx={{ borderRadius: BORDER_RADIUS.sm }}
               >
                 <Box
                   sx={{
                     minWidth: 24,
                     height: 24,
-                    borderRadius: '50%',
+                    borderRadius: BORDER_RADIUS.circle,
                     backgroundColor: 'primary.main',
                     color: 'white',
                     display: 'flex',

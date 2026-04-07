@@ -4,6 +4,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { fmtSize } from '../../../utils/formatters';
+import { BORDER_RADIUS } from '../../../utils/constants';
 
 function getUsageLevel(usedBytes, quotaLimitGB) {
   if (!quotaLimitGB) return { level: 'normal', color: 'success', percent: 0 };
@@ -32,7 +33,7 @@ function UsageProgressBar({ usedBytes, quotaLimitGB }) {
           variant="determinate"
           value={Math.min(usage.percent, 100)}
           color={usage.color}
-          sx={{ flexGrow: 1, height: 8, borderRadius: 1 }}
+          sx={{ flexGrow: 1, height: 8, borderRadius: BORDER_RADIUS.sm }}
         />
       </Box>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>

@@ -67,7 +67,67 @@ export const DEFAULT_PAGE_SIZE = 20;
  * 统一圆角规范（使用 MUI 主题单元，1 = 4px）
  */
 export const BORDER_RADIUS = {
-  sm: 1, // 小元素：缩略图、进度条、列表项
-  md: 2, // 中元素：卡片、按钮、对话框
-  lg: 3, // 大元素：页面卡片、登录框
+  sm: 1,     // 4px - 小元素：缩略图、进度条、列表项、按钮
+  md: 2,     // 8px - 中元素：卡片、对话框、图片容器
+  lg: 3,     // 12px - 大元素：页面卡片、登录框、选择栏
+  circle: '50%', // 圆形：头像、状态指示器、排名徽章
+};
+
+/**
+ * 统一字体大小规范（使用 MUI Typography variant）
+ */
+export const FONT_SIZE = {
+  xs: '0.75rem',    // 12px - 辅助文字、标签
+  sm: '0.875rem',   // 14px - 正文、列表项
+  md: '1rem',       // 16px - 标题、按钮
+  lg: '1.25rem',    // 20px - 页面标题
+  xl: '1.5rem',     // 24px - 大标题
+};
+
+/**
+ * 统一间距规范（使用 MUI 主题单元，1 = 8px）
+ */
+export const SPACING = {
+  xs: 0.5,  // 4px
+  sm: 1,    // 8px
+  md: 2,    // 16px
+  lg: 3,    // 24px
+  xl: 4,    // 32px
+};
+
+/**
+ * 统一阴影规范（使用 MUI elevation）
+ */
+export const ELEVATION = {
+  none: 0,
+  low: 1,
+  medium: 3,
+  high: 6,
+};
+
+/**
+ * 统一尺寸规范（像素值）
+ */
+export const SIZE = {
+  icon: {
+    xs: 16,
+    sm: 20,
+    md: 24,
+    lg: 32,
+  },
+  avatar: {
+    sm: 32,
+    md: 40,
+    lg: 48,
+  },
+  progressBar: {
+    thin: 3,
+    normal: 6,
+    thick: 8,
+  },
+  thumbnail: {
+    sm: 48,
+    md: 64,
+    lg: 80,
+  },
 };

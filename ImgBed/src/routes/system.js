@@ -67,6 +67,10 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
   if (body.security !== undefined) {
     if (body.security.corsOrigin !== undefined)
       cfg.security.corsOrigin = String(body.security.corsOrigin);
+    if (body.security.guestUploadEnabled !== undefined)
+      cfg.security.guestUploadEnabled = Boolean(body.security.guestUploadEnabled);
+    if (body.security.uploadPassword !== undefined)
+      cfg.security.uploadPassword = String(body.security.uploadPassword);
   }
   if (body.storage?.default !== undefined)
     cfg.storage.default = String(body.storage.default);
