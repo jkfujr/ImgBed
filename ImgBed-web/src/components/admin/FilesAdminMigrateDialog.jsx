@@ -66,14 +66,14 @@ export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess 
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>迁移文件渠道</DialogTitle>
+      <DialogTitle>迁移文件</DialogTitle>
       <DialogContent dividers>
         <Typography gutterBottom>
-          将 <b>{ids.length}</b> 个文件迁移到指定渠道：
+          将 <b>{ids.length}</b> 个文件迁移到指定存储渠道：
         </Typography>
         <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-          <InputLabel>目标渠道</InputLabel>
-          <Select value={targetChannel} label="目标渠道" onChange={(e) => setTargetChannel(e.target.value)} disabled={migrating}>
+          <InputLabel>目标存储渠道</InputLabel>
+          <Select value={targetChannel} label="目标存储渠道" onChange={(e) => setTargetChannel(e.target.value)} disabled={migrating}>
             {availableChannels.map((ch) => (
               <MenuItem key={ch.id} value={ch.id}>
                 {ch.name} ({ch.type})
@@ -100,7 +100,7 @@ export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess 
           </Alert>
         )}
         <Alert severity="info" sx={{ mt: 2 }}>
-          迁移成功后源文件将保留作为备份，不会被删除。
+          迁移操作会将文件从当前存储渠道复制到目标渠道，源文件将被删除。
         </Alert>
       </DialogContent>
       <DialogActions>

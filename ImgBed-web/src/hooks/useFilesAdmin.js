@@ -24,6 +24,7 @@ export function useFilesAdmin() {
   const [error, setError] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(EMPTY_DELETE);
   const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
+  const [moveDialog, setMoveDialog] = useState({ open: false, ids: [] });
   const [detailItem, setDetailItem] = useState(null);
 
   const pageRef = useRef(0);
@@ -133,6 +134,8 @@ export function useFilesAdmin() {
   const navigateToDir = (path) => setCurrentDir(path || null);
   const openMigrate = () => setMigrateDialog({ open: true, ids: [...selected] });
   const closeMigrate = () => setMigrateDialog({ open: false, ids: [] });
+  const openMove = () => setMoveDialog({ open: true, ids: [...selected] });
+  const closeMove = () => setMoveDialog({ open: false, ids: [] });
 
   return {
     data: listData.data,
@@ -142,6 +145,7 @@ export function useFilesAdmin() {
     loading, currentDir, selected, error,
     deleteDialog, deleting: deleteDialog.saving,
     migrateDialog,
+    moveDialog,
     detailOpen: detailItem !== null,
     selectedItem: detailItem,
     pageRef,
@@ -152,5 +156,6 @@ export function useFilesAdmin() {
     triggerDelete, closeDeleteDialog, confirmDelete,
     navigateToDir,
     openMigrate, closeMigrate,
+    openMove, closeMove,
   };
 }

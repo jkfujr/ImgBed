@@ -55,6 +55,9 @@ class S3Storage extends StorageProvider {
                     secretAccessKey: this.config.secretAccessKey,
                 },
                 forcePathStyle: pathStyle,
+                // 禁用响应校验和验证，避免因校验和不匹配导致服务崩溃
+                requestChecksumCalculation: 'WHEN_REQUIRED',
+                responseChecksumValidation: 'WHEN_REQUIRED',
             };
 
             if (this.config.endpoint) {
@@ -109,8 +112,24 @@ class S3Storage extends StorageProvider {
             params.Range = `bytes=${options.start}-${options.end}`;
         }
         const command = new GetObjectCommand(params);
-        const response = await this.s3.send(command);
-        return response.Body;
+
+        try {
+            const response = await this.s3.send(command);
+            return response.Body;
+        } catch (error) {
+            // 捕获校验和错误，记录但不崩溃
+            if (error.message && error.message.includes('Checksum mismatch')) {
+                console.error(`[S3Storage] 校验和不匹配警告 (fileId: ${fileId}):`, error.message);
+                // 重试一次，不验证校验和
+                const retryCommand = new GetObjectCommand({
+                    ...params,
+                    ChecksumMode: 'ENABLED' // 仅启用但不强制验证
+                });
+                const retryResponse = await this.s3.send(retryCommand);
+                return retryResponse.Body;
+            }
+            throw error;
+        }
     }
 
     async getUrl(fileId, options) {

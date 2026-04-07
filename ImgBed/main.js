@@ -21,7 +21,26 @@ const handleServerError = (error) => {
   process.exit(1);
 };
 
-process.on('uncaughtException', handleServerError);
+// 捕获未处理的异常，避免因 S3 校验和错误导致服务崩溃
+process.on('uncaughtException', (error) => {
+  // S3 校验和不匹配错误：记录警告但不退出
+  if (error.message && error.message.includes('Checksum mismatch')) {
+    log.error({ err: error }, 'S3 校验和不匹配错误（已捕获，服务继续运行）');
+    return;
+  }
+  // 其他致命错误：按原逻辑处理
+  handleServerError(error);
+});
+
+// 捕获未处理的 Promise 拒绝
+process.on('unhandledRejection', (reason, promise) => {
+  log.error({ reason, promise }, '未处理的 Promise 拒绝');
+  // S3 校验和错误：仅记录，不退出
+  if (reason && reason.message && reason.message.includes('Checksum mismatch')) {
+    log.error('S3 校验和不匹配（Promise 拒绝，已捕获）');
+    return;
+  }
+});
 
 // 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
 try {

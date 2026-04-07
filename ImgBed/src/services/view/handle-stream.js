@@ -87,11 +87,29 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
   res.status(isPartial ? 206 : 200);
 
   if (fileStream instanceof Readable) {
+    // 监听流错误，避免未捕获的异常导致服务崩溃
+    fileStream.on('error', (err) => {
+      log.error({ storageKey, err }, '文件流传输错误');
+      if (!res.headersSent) {
+        res.status(500).end();
+      } else {
+        res.end();
+      }
+    });
     fileStream.pipe(res);
     return res;
   }
 
-  Readable.fromWeb(fileStream).pipe(res);
+  const webStream = Readable.fromWeb(fileStream);
+  webStream.on('error', (err) => {
+    log.error({ storageKey, err }, 'Web 流传输错误');
+    if (!res.headersSent) {
+      res.status(500).end();
+    } else {
+      res.end();
+    }
+  });
+  webStream.pipe(res);
   return res;
 }
 

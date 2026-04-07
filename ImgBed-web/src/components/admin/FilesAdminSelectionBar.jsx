@@ -1,10 +1,12 @@
 import { Divider, Paper, Button, Typography } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
 import { BORDER_RADIUS } from '../../utils/constants';
 
 export default function FilesAdminSelectionBar({
   selectedCount,
+  onOpenMove,
   onOpenMigrate,
   onDeleteSelected,
   onClearSelection,
@@ -31,11 +33,14 @@ export default function FilesAdminSelectionBar({
     >
       <Typography variant="body2" fontWeight="medium">已选 {selectedCount} 项</Typography>
       <Divider orientation="vertical" flexItem />
+      <Button size="small" color="primary" variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={onOpenMove}>
+        移动
+      </Button>
       <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />} onClick={onOpenMigrate}>
-        迁移渠道
+        迁移
       </Button>
       <Button size="small" color="error" variant="contained" startIcon={<DeleteIcon />} onClick={onDeleteSelected}>
-        批量删除
+        删除
       </Button>
       <Button size="small" onClick={onClearSelection}>取消选择</Button>
     </Paper>

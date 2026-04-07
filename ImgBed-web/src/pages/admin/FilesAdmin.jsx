@@ -4,6 +4,7 @@ import FilesAdminToolbar from '../../components/admin/FilesAdminToolbar';
 import FilesAdminSelectionBar from '../../components/admin/FilesAdminSelectionBar';
 import FilesAdminContent from '../../components/admin/FilesAdminContent';
 import FilesAdminMigrateDialog from '../../components/admin/FilesAdminMigrateDialog';
+import FilesAdminMoveDialog from '../../components/admin/FilesAdminMoveDialog';
 import ImageDetailLightbox from '../../components/admin/ImageDetailLightbox';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { useUserPreference } from '../../hooks/useUserPreference';
@@ -29,7 +30,7 @@ export default function FilesAdmin() {
 
   const {
     data, total, loading, hasMore, directories, currentDir, selected, error,
-    deleteDialog, deleting, migrateDialog, detailOpen, selectedItem,
+    deleteDialog, deleting, migrateDialog, moveDialog, detailOpen, selectedItem,
     handleOpenDetail, handleCloseDetail,
     clearSelection, selectAll,
     handleRefresh, refreshAfterMutation,
@@ -37,6 +38,7 @@ export default function FilesAdmin() {
     triggerDelete, closeDeleteDialog, confirmDelete,
     navigateToDir,
     openMigrate, closeMigrate,
+    openMove, closeMove,
   } = useFilesAdmin();
 
   const handleViewModeChange = (_, val) => {
@@ -63,6 +65,7 @@ export default function FilesAdmin() {
 
       <FilesAdminSelectionBar
         selectedCount={selected.size}
+        onOpenMove={openMove}
         onOpenMigrate={openMigrate}
         onDeleteSelected={() => triggerDelete([...selected], `${selected.size} 个文件`)}
         onClearSelection={clearSelection}
@@ -110,6 +113,14 @@ export default function FilesAdmin() {
         open={migrateDialog.open}
         ids={migrateDialog.ids}
         onClose={closeMigrate}
+        onSuccess={refreshAfterMutation}
+      />
+
+      <FilesAdminMoveDialog
+        open={moveDialog.open}
+        ids={moveDialog.ids}
+        currentDir={currentDir}
+        onClose={closeMove}
         onSuccess={refreshAfterMutation}
       />
     </Box>
