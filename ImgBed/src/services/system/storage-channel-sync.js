@@ -2,7 +2,7 @@
  * 在数据库中插入新的存储渠道元数据
  */
 async function insertStorageChannelMeta(storage, db) {
-  db.prepare(`INSERT INTO storage_channels (
+  db.prepare(`INSERT OR REPLACE INTO storage_channels (
     id, name, type, enabled, allow_upload, weight, quota_limit_gb
   ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(
@@ -43,6 +43,17 @@ async function deleteStorageChannelMeta(id, db) {
   db.prepare('DELETE FROM storage_quota_history WHERE storage_id = ?').run(id);
 }
 
+/**
+ * 同步配置文件中的所有存储渠道到数据库
+ */
+async function syncAllStorageChannels(config, db) {
+  const storages = config.storage?.storages || [];
+  for (const storage of storages) {
+    await insertStorageChannelMeta(storage, db);
+  }
+}
+
 export { insertStorageChannelMeta,
   updateStorageChannelMeta,
-  deleteStorageChannelMeta, };
+  deleteStorageChannelMeta,
+  syncAllStorageChannels, };

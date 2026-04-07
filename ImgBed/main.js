@@ -1,8 +1,9 @@
 import config from './src/config/index.js';
-import { initDb } from './src/database/index.js';
+import { initDb, sqlite } from './src/database/index.js';
 import { initResponseCache } from './src/services/cache/response-cache.js';
 import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
 import { initArchiveScheduler } from './src/services/archive/archive-scheduler.js';
+import { syncAllStorageChannels } from './src/services/system/storage-channel-sync.js';
 import { createLogger, flushLogs } from './src/utils/logger.js';
 
 const log = createLogger('main');
@@ -25,6 +26,9 @@ process.on('uncaughtException', handleServerError);
 // 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
 try {
   initDb();
+  // 同步配置文件中的存储渠道到数据库
+  await syncAllStorageChannels(config, sqlite);
+  log.info('存储渠道已同步到数据库');
 } catch (error) {
   log.fatal({ err: error }, '数据库初始化失败，应用终止启动');
   process.exit(1);
