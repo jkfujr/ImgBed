@@ -67,8 +67,6 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
   if (body.security !== undefined) {
     if (body.security.corsOrigin !== undefined)
       cfg.security.corsOrigin = String(body.security.corsOrigin);
-    if (body.security.maxFileSize !== undefined)
-      cfg.security.maxFileSize = Number(body.security.maxFileSize);
   }
   if (body.storage?.default !== undefined)
     cfg.storage.default = String(body.storage.default);

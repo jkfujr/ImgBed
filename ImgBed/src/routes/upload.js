@@ -36,11 +36,6 @@ function validateUploadFile(file) {
   if (!file || typeof file === 'string') {
     throw new ValidationError('未检测到文件上传或字段错误');
   }
-
-  const maxSize = config.security?.maxFileSize || 100 * 1024 * 1024;
-  if (file.size > maxSize) {
-    throw new ValidationError('文件体积超出服务器限制');
-  }
 }
 
 async function extractFileMetadata(file) {

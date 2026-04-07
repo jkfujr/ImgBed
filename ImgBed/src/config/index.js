@@ -44,8 +44,7 @@ const defaultConfig = {
     ]
   },
   security: {
-    corsOrigin: "*",
-    maxFileSize: 104857600
+    corsOrigin: "*"
   },
   // 默认上传配置
   upload: {
