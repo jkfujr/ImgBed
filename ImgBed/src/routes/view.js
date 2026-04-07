@@ -66,10 +66,13 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
             const userAgent = req.headers['user-agent'] || null;
             const referer = req.headers['referer'] || null;
 
+            // 检测是否为管理员访问（通过 Authorization header 或 referer 包含 /admin）
+            const isAdmin = !!(req.headers['authorization'] || (referer && referer.includes('/admin')));
+
             sqlite.prepare(`
-                INSERT INTO access_logs (file_id, ip, user_agent, referer)
-                VALUES (?, ?, ?, ?)
-            `).run(id, ip, userAgent, referer);
+                INSERT INTO access_logs (file_id, ip, user_agent, referer, is_admin)
+                VALUES (?, ?, ?, ?, ?)
+            `).run(id, ip, userAgent, referer, isAdmin ? 1 : 0);
         } catch (error) {
             // 日志记录失败不影响文件访问
             console.error('Failed to log access:', error);

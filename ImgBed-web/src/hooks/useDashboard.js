@@ -29,11 +29,9 @@ export function useDashboard() {
 
       // 更新状态
       setOverview(overviewRes.data || overviewRes);
-      console.log('Dashboard overview data:', overviewRes.data || overviewRes);
       setUploadTrend(trendRes.data?.trend || trendRes.trend || []);
       setAccessStats(accessRes.data || accessRes);
       setStorages(storagesRes.data?.list || storagesRes.list || []);
-      console.log('Storages data:', storagesRes.data?.list || storagesRes.list || []);
       setQuotaStats(quotaRes.data?.stats || quotaRes.stats || {});
       setCacheStats(cacheRes.data || cacheRes);
     } catch (err) {

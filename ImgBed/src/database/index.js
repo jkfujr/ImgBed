@@ -276,6 +276,7 @@ const initDb = () => {
                 ip TEXT NOT NULL,
                 user_agent TEXT,
                 referer TEXT,
+                is_admin BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
             );
@@ -283,6 +284,7 @@ const initDb = () => {
             CREATE INDEX IF NOT EXISTS idx_access_logs_file_id ON access_logs(file_id);
             CREATE INDEX IF NOT EXISTS idx_access_logs_created_at ON access_logs(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_access_logs_ip ON access_logs(ip);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_is_admin ON access_logs(is_admin);
 
             -- 存储容量缓存表（性能优化层）
             CREATE TABLE IF NOT EXISTS storage_quota_cache (

@@ -594,21 +594,21 @@ systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandl
  * GET /api/system/dashboard/access-stats
  */
 systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandler(async (_req, res) => {
-  // 今日访问次数
+  // 今日访问次数（排除管理员访问）
   const todayAccessResult = sqlite.prepare(`
     SELECT COUNT(*) as count FROM access_logs
-    WHERE DATE(created_at) = DATE('now')
+    WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
   `).get();
   const todayAccess = todayAccessResult?.count || 0;
 
-  // 今日独立访客数
+  // 今日独立访客数（排除管理员访问）
   const todayVisitorsResult = sqlite.prepare(`
     SELECT COUNT(DISTINCT ip) as count FROM access_logs
-    WHERE DATE(created_at) = DATE('now')
+    WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
   `).get();
   const todayVisitors = todayVisitorsResult?.count || 0;
 
-  // 热门文件 TOP 5
+  // 热门文件 TOP 5（排除管理员访问）
   const topFiles = sqlite.prepare(`
     SELECT
       access_logs.file_id as fileId,
@@ -618,18 +618,20 @@ systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandl
     FROM access_logs
     INNER JOIN files ON access_logs.file_id = files.id
     WHERE DATE(access_logs.created_at) >= DATE('now', '-7 days')
+      AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
     GROUP BY access_logs.file_id
     ORDER BY accessCount DESC
     LIMIT 5
   `).all();
 
-  // 近7天访问趋势
+  // 近7天访问趋势（排除管理员访问）
   const accessTrend = sqlite.prepare(`
     SELECT
       DATE(created_at) as date,
       COUNT(*) as accessCount
     FROM access_logs
     WHERE created_at >= datetime('now', '-7 days')
+      AND (is_admin = 0 OR is_admin IS NULL)
     GROUP BY DATE(created_at)
     ORDER BY date ASC
   `).all();
