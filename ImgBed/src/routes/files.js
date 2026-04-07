@@ -10,6 +10,7 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import { NotFoundError, ValidationError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { filesListCache, cacheInvalidation } from '../middleware/cache.js';
+import { success } from '../utils/response.js';
 
 const log = createLogger('files');
 const filesApp = express.Router();
@@ -62,19 +63,15 @@ filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandle
     const total = Number(countResult.total || 0);
     const totalPages = Math.ceil(total / pageSize);
 
-    return res.json({
-        code: 0,
-        message: 'success',
-        data: {
-            list,
-            pagination: {
-                page,
-                pageSize,
-                total,
-                totalPages
-            }
+    return res.json(success({
+        list,
+        pagination: {
+            page,
+            pageSize,
+            total,
+            totalPages
         }
-    });
+    }));
 }));
 
 /**
@@ -89,7 +86,7 @@ filesApp.get('/:id', requirePermission('files:read'), asyncHandler(async (req, r
         throw new NotFoundError('指定的文件未找到');
     }
 
-    return res.json({ code: 0, message: 'success', data: file });
+    return res.json(success(file));
 }));
 
 /**
@@ -122,7 +119,7 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
     // 使文件列表缓存失效
     cacheInvalidation.invalidateFiles();
 
-    return res.json({ code: 0, message: '文件信息更新已完成', data: { id, ...updateData } });
+    return res.json(success({ id, ...updateData }, '文件信息更新已完成'));
 }));
 
 /**
@@ -141,7 +138,7 @@ filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     // 使文件列表缓存失效
     cacheInvalidation.invalidateFiles();
 
-    return res.json({ code: 0, message: '文件删除成功', data: { id } });
+    return res.json(success({ id }, '文件删除成功'));
 }));
 
 /**

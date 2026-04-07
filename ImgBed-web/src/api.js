@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { ErrorResponse, ErrorCode, getErrorResponseByCode, createEnhancedError } from './utils/response.js';
 
 // 基础 Axios 实例
 export const api = axios.create({
@@ -20,7 +21,6 @@ api.interceptors.request.use(
 );
 
 // 响应拦截器：处理认证失效及全局错误
-// 响应拦截器
 api.interceptors.response.use(
   (response) => {
     return response.data;
@@ -32,6 +32,11 @@ api.interceptors.response.use(
       if (window.location.pathname.startsWith('/admin')) {
         window.location.href = '/login';
       }
+      // 确保 401 错误始终有正确的错误消息（防御性编程）
+      if (!error.response.data) {
+        error.response.data = ErrorResponse.UNAUTHORIZED;
+      }
+      return Promise.reject(error);
     }
 
     // 如果有后端响应，直接返回
@@ -40,26 +45,21 @@ api.interceptors.response.use(
     }
 
     // 处理网络错误：没有响应对象
-    let errorMessage = '网络错误';
+    let errorResponse;
 
-    if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-      errorMessage = '网络连接失败，请检查后端服务是否启动';
-    } else if (error.code === 'ECONNABORTED') {
-      errorMessage = '请求超时，请稍后重试';
-    } else if (error.message) {
-      errorMessage = error.message;
+    if (error.code === ErrorCode.ERR_NETWORK || error.message === 'Network Error') {
+      errorResponse = ErrorResponse.NETWORK_ERROR;
+    } else if (error.code === ErrorCode.ECONNABORTED || error.code === ErrorCode.ERR_CONNECTION_ABORTED) {
+      errorResponse = ErrorResponse.CONNECTION_ABORTED;
+    } else {
+      errorResponse = {
+        code: 0,
+        message: error.message || ErrorResponse.GENERIC_ERROR.message
+      };
     }
 
     // 构造统一的错误响应格式
-    const enhancedError = new Error(errorMessage);
-    enhancedError.response = {
-      data: {
-        code: error.response?.status || 0,
-        message: errorMessage
-      }
-    };
-
-    return Promise.reject(enhancedError);
+    return Promise.reject(createEnhancedError(errorResponse.message, errorResponse.code));
   }
 );
 

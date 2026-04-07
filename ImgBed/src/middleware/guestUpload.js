@@ -1,4 +1,5 @@
 import { readSystemConfig } from '../services/system/config-io.js';
+import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -24,10 +25,8 @@ export const guestUploadAuth = async (req, res, next) => {
 
   // 没有 Token，检查是否允许访客上传
   if (!guestUploadEnabled) {
-    return res.status(401).json({
-      code: 401,
-      message: '未授权：请登录后上传，或联系管理员开启访客上传功能'
-    });
+    send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_GUEST_DISABLED);
+    return;
   }
 
   // 开启了访客上传，检查是否设置了上传密码
@@ -36,17 +35,11 @@ export const guestUploadAuth = async (req, res, next) => {
     const providedPassword = req.get('X-Upload-Password') || req.body?.uploadPassword;
 
     if (!providedPassword) {
-      return res.status(401).json({
-        code: 401,
-        message: '未授权：需要上传密码'
-      });
+      return res.status(401).json(ErrorResponse.UNAUTHORIZED_PASSWORD_REQUIRED);
     }
 
     if (providedPassword !== uploadPassword) {
-      return res.status(401).json({
-        code: 401,
-        message: '未授权：上传密码错误'
-      });
+      return res.status(401).json(ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
     }
   }
 

@@ -28,6 +28,7 @@ import {
 import { getResponseCache } from '../services/cache/response-cache.js';
 import { getQuotaEventsArchive } from '../services/archive/quota-events-archive.js';
 import { getArchiveScheduler } from '../services/archive/archive-scheduler.js';
+import { success } from '../utils/response.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
@@ -53,7 +54,7 @@ systemApp.use(adminAuth);
 systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
   if (cfg.jwt) cfg.jwt.secret = '******';
-  return res.json({ code: 0, message: 'success', data: cfg });
+  return res.json(success(cfg));
 }));
 
 /**
@@ -97,7 +98,7 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
   // 使系统配置缓存失效
   cacheInvalidation.invalidateSystemConfig();
 
-  return res.json({ code: 0, message: '配置已保存，部分配置需重启服务后生效' });
+  return res.json(success(null, '配置已保存，部分配置需重启服务后生效'));
 }));
 
 /**
@@ -126,7 +127,7 @@ systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) =
     return maskStorage(merged);
   });
 
-  return res.json({ code: 0, message: 'success', data: { list, default: cfg.storage?.default } });
+  return res.json(success({ list, default: cfg.storage?.default }));
 }));
 
 /**
@@ -179,7 +180,7 @@ systemApp.post('/storages/test', asyncHandler(async (req, res) => {
 
   const result = await storageManager.testConnection(type, storageConfig || {});
   if (result.ok) {
-    return res.json({ code: 0, message: '连接成功', data: result });
+    return res.json(success(result, '连接成功'));
   } else {
     throw new ValidationError(result.message);
   }
@@ -191,18 +192,14 @@ systemApp.post('/storages/test', asyncHandler(async (req, res) => {
  */
 systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: {
-      strategy: cfg.storage?.loadBalanceStrategy || 'default',
-      scope: cfg.storage?.loadBalanceScope || 'global',
-      enabledTypes: cfg.storage?.loadBalanceEnabledTypes || [],
-      weights: cfg.storage?.loadBalanceWeights || {},
-      failoverEnabled: cfg.storage?.failoverEnabled !== false,
-      stats: storageManager.getUsageStats()
-    }
-  });
+  return res.json(success({
+    strategy: cfg.storage?.loadBalanceStrategy || 'default',
+    scope: cfg.storage?.loadBalanceScope || 'global',
+    enabledTypes: cfg.storage?.loadBalanceEnabledTypes || [],
+    weights: cfg.storage?.loadBalanceWeights || {},
+    failoverEnabled: cfg.storage?.failoverEnabled !== false,
+    stats: storageManager.getUsageStats()
+  }));
 }));
 
 /**
@@ -224,7 +221,7 @@ systemApp.put('/load-balance', asyncHandler(async (req, res) => {
   // 使负载均衡和存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({ code: 0, message: '负载均衡配置已更新' });
+  return res.json(success(null, '负载均衡配置已更新'));
 }));
 
 /**
@@ -254,7 +251,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({ code: 0, message: '存储渠道已新增', data: maskStorage(newStorage) });
+  return res.json(success(maskStorage(newStorage), '存储渠道已新增'));
 }));
 
 /**
@@ -274,7 +271,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   applyStorageFieldUpdates(existing, body);
 
   if (body.config !== undefined) {
-    existing.config = existing.config || {};
+    existing.config = existing.config || ;
     for (const [k, v] of Object.entries(body.config)) {
       if (SENSITIVE_KEYS.includes(k) && v === null) continue;
       if (existing.type === 's3' && k === 'pathStyle') {
@@ -291,7 +288,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({ code: 0, message: '存储渠道已更新', data: maskStorage(existing) });
+  return res.json(success(maskStorage(existing), '存储渠道已更新'));
 }));
 
 /**
@@ -316,7 +313,7 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({ code: 0, message: '存储渠道已删除' });
+  return res.json(success(null, '存储渠道已删除'));
 }));
 
 /**
@@ -336,7 +333,7 @@ systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({ code: 0, message: `已将 "${id}" 设为默认渠道` });
+  return res.json(success(null, `已将 "${id}" 设为默认渠道`));
 }));
 
 /**

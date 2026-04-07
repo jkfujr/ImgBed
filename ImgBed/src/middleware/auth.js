@@ -1,5 +1,6 @@
 import { verifyToken } from '../utils/jwt.js';
 import { verifyApiToken } from '../utils/apiToken.js';
+import { ErrorResponse } from '../utils/response.js';
 
 const extractBearerToken = (req) => {
   const authHeader = req.get('Authorization');
@@ -9,14 +10,20 @@ const extractBearerToken = (req) => {
   return authHeader.split(' ')[1];
 };
 
-const unauthorized = (message = '未授权：缺失有效的 Bearer Token') => {
+const unauthorized = (message) => {
+  if (!message) {
+    return ErrorResponse.UNAUTHORIZED;
+  }
   return {
     code: 401,
     message
   };
 };
 
-const forbidden = (message = '权限不足') => {
+const forbidden = (message) => {
+  if (!message) {
+    return ErrorResponse.FORBIDDEN;
+  }
   return {
     code: 403,
     message
@@ -82,7 +89,14 @@ const requireAuth = async (req, res, next) => {
 
 const requirePermission = (permission) => {
   return async (req, res, next) => {
-    const auth = await resolveAuth(req);
+    // 优先使用已存在的 req.auth（由 guestUploadAuth 设置）
+    let auth = req.auth;
+
+    // 如果 req.auth 不存在，尝试解析 Token
+    if (!auth) {
+      auth = await resolveAuth(req);
+    }
+
     if (!auth) {
       return res.status(401).json(unauthorized());
     }

@@ -4,6 +4,7 @@ import { adminAuth } from '../middleware/auth.js';
 import { resolveParentPath, checkPathConflict, buildPath, renameDirectory } from '../services/directories/directory-operations.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, ForbiddenError } from '../errors/AppError.js';
+import { success } from '../utils/response.js';
 
 const dirsApp = express.Router();
 
@@ -27,11 +28,11 @@ dirsApp.get('/', asyncHandler(async (req, res) => {
     const dirs = sqlite.prepare('SELECT * FROM directories ORDER BY path ASC').all();
 
     if (type === 'flat') {
-        return res.json({ code: 0, message: 'success', data: dirs });
+        return res.json(success(dirs));
     }
 
     const tree = buildTree(dirs, null);
-    return res.json({ code: 0, message: 'success', data: tree });
+    return res.json(success(tree));
 }));
 
 /**
@@ -57,7 +58,7 @@ dirsApp.post('/', asyncHandler(async (req, res) => {
 
     const inserted = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(Number(insertRes.lastInsertRowid));
 
-    return res.json({ code: 0, message: '创建成功', data: inserted });
+    return res.json(success(inserted, '创建成功'));
 }));
 
 /**
@@ -78,7 +79,7 @@ dirsApp.put('/:id', asyncHandler(async (req, res) => {
     }
 
     const result = await renameDirectory(id, name, sqlite);
-    return res.json({ code: 0, message: '变更已应用', data: result });
+    return res.json(success(result, '变更已应用'));
 }));
 
 /**
@@ -93,7 +94,7 @@ dirsApp.delete('/:id', asyncHandler(async (req, res) => {
 
     const targetDir = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(id);
     if (!targetDir) {
-       return res.json({ code: 0, message: '目录已不存在' });
+       return res.json(success(null, '目录已不存在'));
     }
 
     const fileCountRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM files WHERE directory LIKE ?').get(`${targetDir.path}%`);
@@ -109,7 +110,7 @@ dirsApp.delete('/:id', asyncHandler(async (req, res) => {
 
     sqlite.prepare('DELETE FROM directories WHERE id = ?').run(id);
 
-    return res.json({ code: 0, message: '目录删除完成', data: {} });
+    return res.json(success({}, '目录删除完成'));
 }));
 
 export default dirsApp;

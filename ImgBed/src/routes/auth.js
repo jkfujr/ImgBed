@@ -6,6 +6,7 @@ import { sqlite } from '../database/index.js';
 import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, AuthError } from '../errors/AppError.js';
+import { success } from '../utils/response.js';
 
 const authApp = express.Router();
 
@@ -36,15 +37,11 @@ authApp.post('/login', asyncHandler(async (req, res) => {
   };
   const token = await signToken(payload);
 
-  return res.json({
-    code: 0,
-    message: '登录成功',
-    data: {
-      token: token,
-      username: username,
-      role: 'admin'
-    }
-  });
+  return res.json(success({
+    token: token,
+    username: username,
+    role: 'admin'
+  }, '登录成功'));
 }));
 
 /**
@@ -54,14 +51,10 @@ authApp.post('/login', asyncHandler(async (req, res) => {
 authApp.get('/me', adminAuth, asyncHandler(async (req, res) => {
   const user = req.user;
 
-  return res.json({
-    code: 0,
-    message: '获取成功',
-    data: {
-      username: user.username,
-      role: user.role
-    }
-  });
+  return res.json(success({
+    username: user.username,
+    role: user.role
+  }, '获取成功'));
 }));
 
 /**
@@ -69,11 +62,7 @@ authApp.get('/me', adminAuth, asyncHandler(async (req, res) => {
  * POST /api/auth/logout
  */
 authApp.post('/logout', adminAuth, asyncHandler(async (_req, res) => {
-  return res.json({
-    code: 0,
-    message: '登出成功',
-    data: {}
-  });
+  return res.json(success({}, '登出成功'));
 }));
 
 /**
@@ -98,7 +87,7 @@ authApp.put('/password', adminAuth, asyncHandler(async (req, res) => {
     ).run('admin_password', newPassword, 'auth', '管理员密码（覆盖 config.json）');
   }
 
-  return res.json({ code: 0, message: '密码修改成功', data: {} });
+  return res.json(success({}, '密码修改成功'));
 }));
 
 export default authApp;

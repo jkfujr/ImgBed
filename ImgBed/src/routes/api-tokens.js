@@ -11,6 +11,7 @@ import { sqlite } from '../database/index.js';
 import { validateTokenInput, createTokenRecord } from '../services/api-tokens/create-token.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { NotFoundError } from '../errors/AppError.js';
+import { success } from '../utils/response.js';
 
 const apiTokensApp = express.Router();
 
@@ -36,15 +37,11 @@ apiTokensApp.get('/', asyncHandler(async (_req, res) => {
     'SELECT * FROM api_tokens ORDER BY created_at DESC'
   ).all();
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: list.map(toSafeToken)
-  });
+  return res.json(success(list.map(toSafeToken)));
 }));
 
 apiTokensApp.post('/', asyncHandler(async (req, res) => {
-  const body = req.body || {};
+  const body = req.body || ;
   const validated = validateTokenInput(body);
 
   const { plainToken, tokenPrefix } = generatePlainApiToken();
@@ -80,14 +77,10 @@ apiTokensApp.post('/', asyncHandler(async (req, res) => {
     'SELECT * FROM api_tokens WHERE id = ? LIMIT 1'
   ).get(tokenRow.id);
 
-  return res.json({
-    code: 0,
-    message: 'API Token 创建成功',
-    data: {
-      ...toSafeToken(created),
-      plainToken
-    }
-  });
+  return res.json(success({
+    ...toSafeToken(created),
+    plainToken
+  }, 'API Token 创建成功'));
 }));
 
 apiTokensApp.delete('/:id', asyncHandler(async (req, res) => {
@@ -99,7 +92,7 @@ apiTokensApp.delete('/:id', asyncHandler(async (req, res) => {
   }
 
   sqlite.prepare('DELETE FROM api_tokens WHERE id = ?').run(id);
-  return res.json({ code: 0, message: 'API Token 已删除', data: { id } });
+  return res.json(success({ id }, 'API Token 已删除'));
 }));
 
 export default apiTokensApp;
