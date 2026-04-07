@@ -53,7 +53,6 @@ export default function AdminSidebar({
           position: 'relative',
           height: '100%',
           overflow: 'hidden',
-          bgcolor: 'white',
           borderRight: '1px solid',
           borderColor: 'divider',
           zIndex: 1,
@@ -79,9 +78,7 @@ export default function AdminSidebar({
           const isSelected = currentPath.startsWith(item.path);
           const itemJustifyContent = collapsed ? 'center' : 'flex-start';
           const itemPaddingX = collapsed ? 1 : 2;
-          const itemBackgroundColor = isSelected ? 'primary.50' : 'transparent';
           const itemTextColor = isSelected ? 'primary.main' : 'inherit';
-          const itemHoverBackgroundColor = isSelected ? 'primary.100' : 'action.hover';
           const itemIconMinWidth = collapsed ? 0 : 40;
           return (
             <ListItem
@@ -96,9 +93,9 @@ export default function AdminSidebar({
                     borderRadius: BORDER_RADIUS.sm,
                     justifyContent: itemJustifyContent,
                     px: itemPaddingX,
-                    bgcolor: itemBackgroundColor,
                     color: itemTextColor,
-                    '&:hover': { bgcolor: itemHoverBackgroundColor },
+                    bgcolor: isSelected ? 'action.selected' : 'transparent',
+                    '&:hover': { bgcolor: 'action.hover' },
                   }}
                 >
                   <ListItemIcon sx={{ color: itemTextColor, minWidth: itemIconMinWidth }}>

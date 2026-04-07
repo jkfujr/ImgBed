@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { StrictMode, Suspense, lazy } from 'react';
+import { StrictMode, Suspense, lazy, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
@@ -7,6 +7,7 @@ import { Box, CircularProgress, ThemeProvider, createTheme, CssBaseline } from '
 import Layout from './layout/MainLayout';
 import { AuthProvider } from './contexts/AuthProvider';
 import { RefreshProvider } from './contexts/RefreshContext';
+import { ThemeProvider as CustomThemeProvider, useThemeMode } from './contexts/ThemeContext';
 import RequireAuth from './components/RequireAuth';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -24,10 +25,10 @@ const routeFallback = (
   </Box>
 );
 
-// 主题配置
-const theme = createTheme({
+// 主题配置工厂函数
+const createAppTheme = (mode) => createTheme({
     palette: {
-      mode: 'light',
+      mode,
       primary: {
         main: '#1976d2',
       },
@@ -35,7 +36,7 @@ const theme = createTheme({
         main: '#9c27b0',
       },
       background: {
-        default: '#f5f7fa',
+        default: mode === 'light' ? '#f5f7fa' : '#121212',
       }
     },
     typography: {
@@ -46,8 +47,12 @@ const theme = createTheme({
     },
 });
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <StrictMode>
+// 应用主题包装器
+function AppWithTheme() {
+  const { actualMode } = useThemeMode();
+  const theme = useMemo(() => createAppTheme(actualMode), [actualMode]);
+
+  return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
@@ -80,5 +85,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </RefreshProvider>
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <CustomThemeProvider>
+      <AppWithTheme />
+    </CustomThemeProvider>
   </StrictMode>
 );

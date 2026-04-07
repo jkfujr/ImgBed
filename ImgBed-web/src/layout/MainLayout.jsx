@@ -11,7 +11,8 @@ import {
   Divider,
   TextField,
   InputAdornment,
-  AppBar
+  AppBar,
+  Tooltip
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import AccountCircle from '@mui/icons-material/AccountCircle';
@@ -20,13 +21,18 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import SearchIcon from '@mui/icons-material/Search';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LoginIcon from '@mui/icons-material/Login';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useAuth } from '../hooks/useAuth';
+import { useThemeMode } from '../contexts/ThemeContext';
 import { BORDER_RADIUS } from '../utils/constants';
 import SearchDialog from '../components/common/SearchDialog';
 import CreateActionButton from '../components/layout/CreateActionButton';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
+  const { themeMode, setThemeMode } = useThemeMode();
   const navigate = useNavigate();
   const location = useLocation();
   const [anchorEl, setAnchorEl] = useState(null);
@@ -49,6 +55,40 @@ export default function MainLayout() {
     handleMenuClose();
     await logout();
     navigate('/');
+  };
+
+  const handleThemeToggle = () => {
+    // 循环切换: light -> dark -> auto -> light
+    const modes = ['light', 'dark', 'auto'];
+    const currentIndex = modes.indexOf(themeMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    setThemeMode(modes[nextIndex]);
+  };
+
+  const getThemeIcon = () => {
+    switch (themeMode) {
+      case 'light':
+        return <LightModeIcon />;
+      case 'dark':
+        return <DarkModeIcon />;
+      case 'auto':
+        return <SettingsBrightnessIcon />;
+      default:
+        return <LightModeIcon />;
+    }
+  };
+
+  const getThemeLabel = () => {
+    switch (themeMode) {
+      case 'light':
+        return '亮色模式';
+      case 'dark':
+        return '暗色模式';
+      case 'auto':
+        return '自动模式';
+      default:
+        return '亮色模式';
+    }
   };
 
   const isPublicArea = !location.pathname.startsWith('/admin');
@@ -98,6 +138,17 @@ export default function MainLayout() {
 
           {/* 右侧区域 */}
           <Box sx={{ flexGrow: 1 }} />
+
+          {/* 主题切换按钮 */}
+          <Tooltip title={getThemeLabel()}>
+            <IconButton
+              onClick={handleThemeToggle}
+              color="primary"
+              sx={{ mr: 1 }}
+            >
+              {getThemeIcon()}
+            </IconButton>
+          </Tooltip>
 
           {/* User / Authentication Dropdown Area */}
           <IconButton

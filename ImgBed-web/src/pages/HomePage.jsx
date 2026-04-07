@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
-  List, Divider
+  List, Divider, useTheme
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { BORDER_RADIUS } from '../utils/constants';
@@ -9,6 +9,7 @@ import HomeFileItem from '../components/home/HomeFileItem';
 import { useHomeUpload } from '../hooks/useHomeUpload';
 
 export default function HomePage() {
+  const theme = useTheme();
   const {
     entries, uploading, toast, inputRef,
     pendingCount, doneCount,
@@ -41,8 +42,13 @@ export default function HomePage() {
             p: 4,
             textAlign: 'center',
             cursor: uploading ? 'not-allowed' : 'pointer',
-            bgcolor: 'grey.50',
-            '&:hover': { bgcolor: uploading ? 'grey.50' : 'primary.50', borderColor: 'primary.main' },
+            bgcolor: theme.palette.mode === 'dark' ? 'background.paper' : 'grey.50',
+            '&:hover': {
+              bgcolor: uploading
+                ? (theme.palette.mode === 'dark' ? 'background.paper' : 'grey.50')
+                : (theme.palette.mode === 'dark' ? 'action.hover' : 'primary.50'),
+              borderColor: 'primary.main'
+            },
             transition: 'background 0.2s',
           }}
         >

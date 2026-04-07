@@ -83,11 +83,15 @@ const MasonryImageItem = memo(({
           checked={isSelected}
           onChange={() => toggleSelect(item.id)}
           sx={{
-            bgcolor: 'rgba(255,255,255,0.9)',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
             borderRadius: BORDER_RADIUS.sm,
             p: 0.5,
-            '&.Mui-checked': { bgcolor: 'white' },
-            '&:hover': { bgcolor: 'white' }
+            '&.Mui-checked': {
+              bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.85)' : 'white'
+            },
+            '&:hover': {
+              bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.85)' : 'white'
+            }
           }}
         />
       </Box>

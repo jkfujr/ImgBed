@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { areaElementClasses } from '@mui/x-charts/LineChart';
+import { fmtSize } from '../../../utils/formatters';
 
 function getDaysInMonth(month, year) {
   const date = new Date(year, month, 0);
@@ -69,6 +70,29 @@ export default function StatCard({
   const chartColor = trendColors[trend];
   const trendValues = { up: '+25%', down: '-25%', neutral: '+5%' };
 
+  // 判断数据类型
+  const isStorageData = title.includes('存储');
+  const isCountData = title.includes('文件数') || title.includes('上传');
+
+  // 自定义 tooltip 格式化函数
+  const valueFormatter = (value) => {
+    if (value == null) return '-';
+
+    if (isStorageData) {
+      // 存储量数据：将 MB 转换为字节后格式化
+      const bytes = value * 1024 * 1024;
+      return fmtSize(bytes);
+    }
+
+    if (isCountData) {
+      // 文件数量数据：整数显示
+      return Math.round(value).toString();
+    }
+
+    // 其他数据：保留两位小数
+    return value.toFixed(2);
+  };
+
   return (
     <Card variant="outlined" sx={{ height: '100%', flexGrow: 1 }}>
       <CardContent>
@@ -100,6 +124,7 @@ export default function StatCard({
               area
               showHighlight
               showTooltip
+              valueFormatter={valueFormatter}
               xAxis={{
                 scaleType: 'band',
                 data: daysInWeek,

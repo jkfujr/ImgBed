@@ -105,14 +105,16 @@ export default function UploadTrendChart({ data, days, onDaysChange }) {
               curve: 'linear',
               area: true,
               data: fileCounts,
+              valueFormatter: (value) => value != null ? Math.round(value).toString() : '-',
             },
             {
               id: 'totalSize',
-              label: '存储大小 (MB)',
+              label: '存储大小',
               yAxisId: 'totalSize',
               showMark: false,
               curve: 'linear',
               data: totalSizes,
+              valueFormatter: (value) => value != null ? fmtSize(value * 1024 * 1024) : '-',
             },
           ]}
           height={250}

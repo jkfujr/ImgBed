@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, Box, Typography, Alert, LinearProgress, ImageList, ImageListItem, IconButton,
-  FormControl, InputLabel, Select, MenuItem
+  FormControl, InputLabel, Select, MenuItem, useTheme
 } from '@mui/material';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import CloseIcon from '@mui/icons-material/Close';
@@ -13,6 +13,7 @@ import logger from '../../utils/logger';
 const DEFAULT_CHANNEL = '__system_default__';
 
 export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder = false }) {
+  const theme = useTheme();
   const [files, setFiles] = useState([]);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -161,10 +162,13 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
             borderRadius: BORDER_RADIUS.md,
             p: 4,
             textAlign: 'center',
-            bgcolor: 'grey.50',
+            bgcolor: theme.palette.mode === 'dark' ? 'background.paper' : 'grey.50',
             cursor: 'pointer',
             transition: 'all 0.2s',
-            '&:hover': { borderColor: 'primary.main', bgcolor: 'grey.100' },
+            '&:hover': {
+              borderColor: 'primary.main',
+              bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : 'grey.100'
+            },
             '&:focus': { outline: 'none', borderColor: 'primary.main' }
           }}
         >
