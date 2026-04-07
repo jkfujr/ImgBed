@@ -271,7 +271,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   applyStorageFieldUpdates(existing, body);
 
   if (body.config !== undefined) {
-    existing.config = existing.config || ;
+    existing.config = existing.config || {};
     for (const [k, v] of Object.entries(body.config)) {
       if (SENSITIVE_KEYS.includes(k) && v === null) continue;
       if (existing.type === 's3' && k === 'pathStyle') {

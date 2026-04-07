@@ -41,7 +41,7 @@ apiTokensApp.get('/', asyncHandler(async (_req, res) => {
 }));
 
 apiTokensApp.post('/', asyncHandler(async (req, res) => {
-  const body = req.body || ;
+  const body = req.body || {};
   const validated = validateTokenInput(body);
 
   const { plainToken, tokenPrefix } = generatePlainApiToken();

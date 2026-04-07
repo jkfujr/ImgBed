@@ -93,39 +93,37 @@ export function useHomeUpload() {
     showToast('已复制到剪贴板', 'success');
   }, [showToast]);
 
-  const uploadOne = useCallback(async (entry) => {
-    patchEntry(entry.id, { status: 'uploading' });
-    try {
-      const result = await upload(entry.file);
-      if (result.success) {
-        const fullUrl = window.location.origin + result.data.url;
-        patchEntry(entry.id, { status: 'done', result: { ...result.data, fullUrl } });
-      } else {
-        patchEntry(entry.id, { status: 'error', errorMsg: result.error });
-      }
-    } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || '网络错误';
-      patchEntry(entry.id, {
-        status: 'error',
-        errorMsg,
-      });
-    }
-  }, [upload]);
-
   const handleUploadAll = useCallback(async () => {
     const pending = entries.filter((e) => e.status === 'idle' || e.status === 'error');
     if (pending.length === 0) return;
     setUploading(true);
+
+    // 在上传过程中同步统计结果
+    let successCount = 0;
+    let errorCount = 0;
+
     for (const entry of pending) {
-      await uploadOne(entry);
+      patchEntry(entry.id, { status: 'uploading' });
+      try {
+        const result = await upload(entry.file);
+        if (result.success) {
+          const fullUrl = window.location.origin + result.data.url;
+          patchEntry(entry.id, { status: 'done', result: { ...result.data, fullUrl } });
+          successCount++;
+        } else {
+          patchEntry(entry.id, { status: 'error', errorMsg: result.error });
+          errorCount++;
+        }
+      } catch (err) {
+        const errorMsg = err.response?.data?.message || err.message || '网络错误';
+        patchEntry(entry.id, { status: 'error', errorMsg });
+        errorCount++;
+      }
     }
+
     setUploading(false);
 
-    // 统计上传结果
-    const finalEntries = entriesRef.current;
-    const successCount = finalEntries.filter((e) => e.status === 'done').length;
-    const errorCount = finalEntries.filter((e) => e.status === 'error').length;
-
+    // 根据统计结果显示提示
     if (errorCount === 0) {
       showToast('全部上传完成', 'success');
     } else if (successCount === 0) {
@@ -133,7 +131,7 @@ export function useHomeUpload() {
     } else {
       showToast(`上传完成：成功 ${successCount} 个，失败 ${errorCount} 个`, 'warning');
     }
-  }, [entries, showToast, uploadOne]);
+  }, [entries, showToast, upload]);
 
   const pendingCount = entries.filter((e) => e.status === 'idle' || e.status === 'error').length;
   const doneCount = entries.filter((e) => e.status === 'done').length;
