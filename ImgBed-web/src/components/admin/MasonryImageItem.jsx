@@ -10,7 +10,7 @@ const getImageSrc = (item) => `/${item.id}`;
 /**
  * 瀑布流图片展示核心 - 仅在 id 改变时重渲染
  */
-const MasonryImage = memo(({ item, onOpenDetail }) => {
+const MasonryImage = memo(({ item, onOpenDetail, hasSelection }) => {
   useEffect(() => {
     // 图片加载成功后标记为已缓存
     imageCacheManager.markAsLoaded(item.id);
@@ -20,7 +20,7 @@ const MasonryImage = memo(({ item, onOpenDetail }) => {
     <Box
       component="img"
       src={getImageSrc(item)}
-      onClick={() => onOpenDetail?.(item)}
+      onClick={() => !hasSelection && onOpenDetail?.(item)}
       loading="lazy"
       sx={{
         display: 'block',
@@ -29,13 +29,13 @@ const MasonryImage = memo(({ item, onOpenDetail }) => {
         minHeight: item.width && item.height ? 'auto' : '200px',
         height: 'auto',
         borderRadius: BORDER_RADIUS.md,
-        cursor: 'pointer',
+        cursor: hasSelection ? 'pointer' : 'pointer',
         transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s',
         bgcolor: 'action.hover'
       }}
     />
   );
-}, (prev, next) => prev.item.id === next.item.id);
+}, (prev, next) => prev.item.id === next.item.id && prev.hasSelection === next.hasSelection);
 MasonryImage.displayName = 'MasonryImage';
 
 /**
@@ -47,12 +47,23 @@ const MasonryImageItem = memo(({
   toggleSelect,
   triggerDelete,
   onOpenDetail,
+  hasSelection,
 }) => {
   const theme = useTheme();
   const [hovered, setHovered] = useState(false);
-  const selectedOutlineColor = `${theme.palette.primary.main}80`;
   const deleteHoverColor = theme.palette.error.main;
   const showOverlay = hovered || isSelected;
+
+  // 点击图片区域的处理逻辑
+  const handleImageClick = () => {
+    if (hasSelection) {
+      // 如果有选中项，点击图片任意位置都是切换选中状态
+      toggleSelect(item.id);
+    } else {
+      // 如果没有选中项，点击图片打开详情
+      onOpenDetail?.(item);
+    }
+  };
 
   return (
     <Box
@@ -63,7 +74,6 @@ const MasonryImageItem = memo(({
         borderRadius: BORDER_RADIUS.md,
         overflow: 'hidden',
         lineHeight: 0,
-        boxShadow: isSelected ? `0 0 0 3px ${selectedOutlineColor}` : 'none',
         transition: 'box-shadow 0.2s',
         '&:hover img': {
           transform: 'scale(1.02)',
@@ -71,17 +81,43 @@ const MasonryImageItem = memo(({
         }
       }}
     >
-      <MasonryImage item={item} onOpenDetail={onOpenDetail} />
+      {/* 选中状态描边层 */}
+      {isSelected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            border: `2px solid ${theme.palette.mode === 'dark' ? theme.palette.primary.light : theme.palette.primary.main}`,
+            borderRadius: BORDER_RADIUS.md,
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        />
+      )}
 
-      <Box sx={{
-        position: 'absolute', top: 8, left: 8,
-        opacity: showOverlay ? 1 : 0, transition: 'opacity 0.2s',
-        zIndex: 2
-      }}>
+      <Box onClick={handleImageClick} sx={{ cursor: 'pointer' }}>
+        <MasonryImage item={item} onOpenDetail={onOpenDetail} hasSelection={hasSelection} />
+      </Box>
+
+      <Box
+        sx={{
+          position: 'absolute', top: 8, left: 8,
+          opacity: showOverlay ? 1 : 0, transition: 'opacity 0.2s',
+          zIndex: 2
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleSelect(item.id);
+        }}
+      >
         <Checkbox
           size="small"
           checked={isSelected}
-          onChange={() => toggleSelect(item.id)}
+          onChange={() => {}}
+          disableRipple
           sx={{
             bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
             borderRadius: BORDER_RADIUS.sm,
@@ -91,18 +127,28 @@ const MasonryImageItem = memo(({
             },
             '&:hover': {
               bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.85)' : 'white'
+            },
+            '&:focus': {
+              outline: 'none'
+            },
+            '& .MuiTouchRipple-root': {
+              display: 'none'
             }
           }}
         />
       </Box>
 
       {showOverlay && (
-        <Box sx={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
-          color: 'white', px: 1.5, pt: 3, pb: 1,
-          display: 'flex', alignItems: 'flex-end'
-        }}>
+        <Box
+          onClick={handleImageClick}
+          sx={{
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+            color: 'white', px: 1.5, pt: 3, pb: 1,
+            display: 'flex', alignItems: 'flex-end',
+            cursor: 'pointer'
+          }}
+        >
           <Box sx={{ flex: 1, overflow: 'hidden', mb: 0.5 }}>
             <Typography variant="caption" noWrap sx={{ display: 'block', fontWeight: 'bold', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
               {item.original_name || item.file_name}
@@ -115,7 +161,10 @@ const MasonryImageItem = memo(({
             size="small"
             title="删除"
             sx={{ color: 'white', '&:hover': { color: deleteHoverColor, bgcolor: 'rgba(255,255,255,0.1)' } }}
-            onClick={() => triggerDelete([item.id], item.original_name || item.file_name)}
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerDelete([item.id], item.original_name || item.file_name);
+            }}
           >
             <DeleteIcon fontSize="small" />
           </IconButton>
@@ -123,7 +172,7 @@ const MasonryImageItem = memo(({
       )}
     </Box>
   );
-}, (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected);
+}, (prev, next) => prev.item.id === next.item.id && prev.isSelected === next.isSelected && prev.hasSelection === next.hasSelection);
 MasonryImageItem.displayName = 'MasonryImageItem';
 
 export { MasonryImageItem as default };

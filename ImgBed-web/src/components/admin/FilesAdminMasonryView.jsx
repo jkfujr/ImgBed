@@ -42,6 +42,8 @@ export default function FilesAdminMasonryView({
   onTriggerDelete,
   onOpenDetail,
 }) {
+  const hasSelection = selected.size > 0;
+
   return (
     <Masonry columns={cols} spacing={1.5} defaultColumns={cols} defaultHeight={800} sx={{ alignContent: 'flex-start' }}>
       {directories.map((dir) => (
@@ -55,6 +57,7 @@ export default function FilesAdminMasonryView({
           toggleSelect={onToggleSelect}
           triggerDelete={onTriggerDelete}
           onOpenDetail={onOpenDetail}
+          hasSelection={hasSelection}
         />
       ))}
     </Masonry>
