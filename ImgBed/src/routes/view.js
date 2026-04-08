@@ -83,6 +83,20 @@ const checkReferer = (req) => {
  */
 viewApp.get('/:id', asyncHandler(async (req, res) => {
     const id = req.params.id;
+    const startTime = Date.now();
+
+    // 设置请求超时（15秒）
+    req.setTimeout(15000, () => {
+        log.warn({ id }, '图片请求超时');
+        if (!res.headersSent) {
+            res.status(504).json({ code: 504, message: '请求超时' });
+        }
+    });
+
+    // 设置响应超时
+    res.setTimeout(15000, () => {
+        log.warn({ id }, '响应超时');
+    });
 
     if (!checkReferer(req)) {
         throw new ForbiddenError('禁止访问');
@@ -120,19 +134,28 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
             `).run(id, ip, userAgent, referer, isAdmin ? 1 : 0);
         } catch (error) {
             // 日志记录失败不影响文件访问
-            console.error('Failed to log access:', error);
+            log.error({ err: error }, '访问日志记录失败');
         }
     });
 
-    const { storage, storageKey } = resolveFileStorage(fileRecord, { storageManager });
+    try {
+        const { storage, storageKey } = resolveFileStorage(fileRecord, { storageManager });
 
-    const requestRange = req.get('Range');
-    const { start, end, isPartial } = parseRangeHeader(requestRange, fileRecord.size);
+        const requestRange = req.get('Range');
+        const { start, end, isPartial } = parseRangeHeader(requestRange, fileRecord.size);
 
-    if (fileRecord.is_chunked) {
-        return await handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager, etag, lastModified });
-    } else {
-        return await handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial, etag, lastModified });
+        if (fileRecord.is_chunked) {
+            await handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager, etag, lastModified });
+        } else {
+            await handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial, etag, lastModified });
+        }
+
+        const duration = Date.now() - startTime;
+        log.debug({ id, duration }, '图片请求完成');
+    } catch (err) {
+        const duration = Date.now() - startTime;
+        log.error({ id, duration, err }, '图片请求失败');
+        throw err;
     }
 }));
 

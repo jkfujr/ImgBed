@@ -21,25 +21,55 @@ const handleServerError = (error) => {
   process.exit(1);
 };
 
-// 捕获未处理的异常，避免因 S3 校验和错误导致服务崩溃
+// 可恢复错误模式列表
+const RECOVERABLE_ERROR_PATTERNS = [
+  'Checksum mismatch',           // S3 校验和错误
+  'ECONNRESET',                  // 连接重置
+  'ETIMEDOUT',                   // 超时
+  'ENOTFOUND',                   // DNS 解析失败
+  'ECONNREFUSED',                // 连接被拒绝（外部服务）
+  'socket hang up',              // Socket 挂起
+  'premature close',             // 连接提前关闭
+  'aborted',                     // 请求中止
+  'Client network socket disconnected', // 客户端断开
+  'write EPIPE',                 // 管道写入错误
+  'read ECONNRESET',             // 读取连接重置
+];
+
+/**
+ * 判断是否为可恢复错误
+ */
+const isRecoverableError = (error) => {
+  const message = error.message || '';
+  const code = error.code || '';
+
+  return RECOVERABLE_ERROR_PATTERNS.some(pattern =>
+    message.includes(pattern) || code.includes(pattern)
+  );
+};
+
+// 捕获未处理的异常，区分可恢复错误和致命错误
 process.on('uncaughtException', (error) => {
-  // S3 校验和不匹配错误：记录警告但不退出
-  if (error.message && error.message.includes('Checksum mismatch')) {
-    log.error({ err: error }, 'S3 校验和不匹配错误（已捕获，服务继续运行）');
+  if (isRecoverableError(error)) {
+    log.error({ err: error }, '可恢复错误（已捕获，服务继续运行）');
     return;
   }
-  // 其他致命错误：按原逻辑处理
+
+  // 致命错误：记录并退出
+  log.fatal({ err: error }, '致命错误，服务即将退出');
   handleServerError(error);
 });
 
 // 捕获未处理的 Promise 拒绝
 process.on('unhandledRejection', (reason, promise) => {
-  log.error({ reason, promise }, '未处理的 Promise 拒绝');
-  // S3 校验和错误：仅记录，不退出
-  if (reason && reason.message && reason.message.includes('Checksum mismatch')) {
-    log.error('S3 校验和不匹配（Promise 拒绝，已捕获）');
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+
+  if (isRecoverableError(error)) {
+    log.error({ reason, promise }, '可恢复的 Promise 拒绝（已捕获）');
     return;
   }
+
+  log.error({ reason, promise }, '未处理的 Promise 拒绝');
 });
 
 // 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
