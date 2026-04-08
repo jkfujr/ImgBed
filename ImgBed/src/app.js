@@ -10,6 +10,7 @@ import filesRouter from './routes/files.js';
 import dirsRouter from './routes/directories.js';
 import systemRouter from './routes/system.js';
 import viewRouter from './routes/view.js';
+import publicRouter from './routes/public.js';
 
 const logger = createLogger('app');
 const app = express();
@@ -26,7 +27,7 @@ app.use((req, res, next) => {
   const origin = config.security?.corsOrigin || '*';
   res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Upload-Password');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
@@ -54,6 +55,9 @@ app.use('/api/directories', dirsRouter);
 
 // 挂载系统配置路由
 app.use('/api/system', systemRouter);
+
+// 挂载公开接口路由
+app.use('/api/public', publicRouter);
 
 // 挂载图片直读路由到根路径 (放在 API 路由之后，避免冲突)
 app.use('/', viewRouter);

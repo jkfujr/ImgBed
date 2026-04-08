@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
   List, Divider, useTheme, Dialog, DialogTitle, DialogContent,
@@ -8,9 +8,14 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { BORDER_RADIUS } from '../utils/constants';
 import HomeFileItem from '../components/home/HomeFileItem';
 import { useHomeUpload } from '../hooks/useHomeUpload';
+import { PublicAPI } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 
 export default function HomePage() {
   const theme = useTheme();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     entries, uploading, toast, inputRef,
     pendingCount, doneCount,
@@ -20,6 +25,51 @@ export default function HomePage() {
   } = useHomeUpload();
 
   const [passwordInput, setPasswordInput] = useState('');
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // 检查访客上传配置
+  useEffect(() => {
+    const checkGuestUploadConfig = async () => {
+      try {
+        // 如果用户已登录，跳过检查
+        if (user) {
+          setCheckingAuth(false);
+          return;
+        }
+
+        // 检查是否已有访客密码
+        const savedPassword = sessionStorage.getItem('uploadPassword');
+        if (savedPassword) {
+          setCheckingAuth(false);
+          return;
+        }
+
+        // 获取访客上传配置
+        const res = await PublicAPI.getGuestUploadConfig();
+        if (res.code === 0 && res.data.requirePassword) {
+          // 需要访客密码且未输入，重定向到登录页
+          navigate('/login?tab=guest');
+          return;
+        }
+
+        setCheckingAuth(false);
+      } catch (err) {
+        console.error('检查访客上传配置失败:', err);
+        setCheckingAuth(false);
+      }
+    };
+
+    checkGuestUploadConfig();
+  }, [user, navigate]);
+
+  // 如果正在检查权限，显示加载状态
+  if (checkingAuth) {
+    return (
+      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>

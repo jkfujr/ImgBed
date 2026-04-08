@@ -158,5 +158,9 @@ export const DashboardAPI = {
   getAccessStats: () => api.get('/api/system/dashboard/access-stats'),
 };
 
+export const PublicAPI = {
+  getGuestUploadConfig: () => api.get('/api/public/guest-upload-config'),
+};
+
 // 导出默认实例
 export default api;
