@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Box, Alert, useTheme, useMediaQuery } from '@mui/material';
 import FilesAdminToolbar from '../../components/admin/FilesAdminToolbar';
 import FilesAdminSelectionBar from '../../components/admin/FilesAdminSelectionBar';
@@ -46,16 +45,10 @@ export default function FilesAdmin() {
     setViewMode(val);
   };
 
-  const breadcrumbs = useMemo(
-    () => (currentDir ? currentDir.split('/').filter(Boolean) : []),
-    [currentDir]
-  );
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
       <FilesAdminToolbar
         currentDir={currentDir}
-        breadcrumbs={breadcrumbs}
         loading={loading}
         viewMode={viewMode}
         onNavigateToDir={navigateToDir}
