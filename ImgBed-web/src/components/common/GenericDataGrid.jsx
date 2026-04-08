@@ -50,6 +50,13 @@ export default function GenericDataGrid({
   disableColumnMenu = true,
   checkboxSelection = false,
   onRowSelectionModelChange,
+  // 文件管理场景扩展
+  onRowClick,
+  onCellClick,
+  getRowClassName,
+  sortModel,
+  onSortModelChange,
+  sortingMode,
   sx = {},
   rowSx = {},
 }) {
@@ -109,7 +116,11 @@ export default function GenericDataGrid({
       variant={variant}
       sx={{
         flexGrow: 1,
+        height: '100%',
+        overflow: 'hidden',
         borderRadius: BORDER_RADIUS.md,
+        display: 'flex',
+        flexDirection: 'column',
         ...sx,
       }}
     >
@@ -127,13 +138,23 @@ export default function GenericDataGrid({
         getRowHeight={getRowHeight}
         density={density}
         autoHeight={autoHeight}
+        onRowClick={onRowClick}
+        onCellClick={onCellClick}
+        getRowClassName={getRowClassName}
+        sortModel={sortModel}
+        onSortModelChange={onSortModelChange}
+        sortingMode={sortingMode}
         sx={{
           border: 0,
+          flexGrow: 1,
           '& .MuiDataGrid-cell': {
             py: 1.5,
           },
           '& .MuiDataGrid-row:hover': {
             backgroundColor: 'action.hover',
+          },
+          '& .MuiDataGrid-footer': {
+            display: 'none',
           },
           ...rowSx,
         }}

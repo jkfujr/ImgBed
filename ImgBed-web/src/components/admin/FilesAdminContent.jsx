@@ -64,7 +64,7 @@ export default function FilesAdminContent({
   }, [data.length, hasMoreVisible, renderStep]);
 
   return (
-    <Box sx={{ flexGrow: 1, overflow: 'auto', overflowX: 'hidden', minHeight: 0 }}>
+    <Box sx={{ flexGrow: 1, minHeight: 0, height: '100%', overflow: viewMode === 'list' ? 'hidden' : 'auto' }}>
       {loading && data.length === 0 && <LoadingSpinner />}
 
       {!loading && data.length === 0 && directories.length === 0 && (
@@ -89,7 +89,7 @@ export default function FilesAdminContent({
       {hasItems && viewMode === 'list' && (
         <FilesAdminListView
           directories={directories}
-          data={visibleData}
+          data={data}
           selected={selected}
           onToggleSelect={onToggleSelect}
           onSelectAll={onSelectAll}
