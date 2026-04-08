@@ -1,4 +1,4 @@
-import { Paper, Typography } from '@mui/material';
+import { Box, Paper, Typography } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import Masonry from '@mui/lab/Masonry';
 import MasonryImageItem from './MasonryImageItem';
@@ -45,7 +45,8 @@ export default function FilesAdminMasonryView({
   const hasSelection = selected.size > 0;
 
   return (
-    <Masonry columns={cols} spacing={1.5} defaultColumns={cols} defaultHeight={800} sx={{ alignContent: 'flex-start' }}>
+    <Box sx={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
+      <Masonry columns={cols} spacing={1.5} defaultColumns={cols} defaultHeight={800} sx={{ alignContent: 'flex-start', width: '100%', boxSizing: 'border-box' }}>
       {directories.map((dir) => (
         <DirectoryCard key={`dir-${dir.path}`} dir={dir} onNavigateToDir={onNavigateToDir} />
       ))}
@@ -60,6 +61,7 @@ export default function FilesAdminMasonryView({
           hasSelection={hasSelection}
         />
       ))}
-    </Masonry>
+      </Masonry>
+    </Box>
   );
 }
