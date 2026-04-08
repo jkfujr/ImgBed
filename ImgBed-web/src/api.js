@@ -106,6 +106,7 @@ export const UploadDocs = {
    * @param {string} options.channel - 指定渠道
    * @param {string} options.tags - 标签（逗号分隔）
    * @param {boolean} options.is_public - 是否公开
+   * @param {string} options.uploadPassword - 访客上传密码
    * @param {Function} options.onUploadProgress - 上传进度回调
    */
   upload: (file, options = {}) => {
@@ -117,8 +118,15 @@ export const UploadDocs = {
     if (options.tags) formData.append('tags', options.tags);
     if (options.is_public !== undefined) formData.append('is_public', options.is_public);
 
+    const headers = { 'Content-Type': 'multipart/form-data' };
+
+    // 如果提供了上传密码，添加到请求头
+    if (options.uploadPassword) {
+      headers['X-Upload-Password'] = options.uploadPassword;
+    }
+
     return api.post('/api/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers,
       onUploadProgress: options.onUploadProgress
     });
   }

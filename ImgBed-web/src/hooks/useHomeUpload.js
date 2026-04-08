@@ -19,6 +19,7 @@ export function useHomeUpload() {
   const [uploading, setUploading] = useState(false);
   const { upload } = useUpload({ refreshMode: 'none' });
   const [toast, setToast] = useState({ open: false, msg: '', type: 'info' });
+  const [passwordDialog, setPasswordDialog] = useState({ open: false, onSubmit: null });
   const inputRef = useRef(null);
   const entriesRef = useRef([]);
 
@@ -34,6 +35,27 @@ export function useHomeUpload() {
 
   const showToast = useCallback((msg, type = 'info') => setToast({ open: true, msg, type }), []);
   const closeToast = useCallback(() => setToast((prev) => ({ ...prev, open: false })), []);
+
+  const showPasswordDialog = useCallback(() => {
+    return new Promise((resolve) => {
+      setPasswordDialog({
+        open: true,
+        onSubmit: (password) => {
+          setPasswordDialog({ open: false, onSubmit: null });
+          if (password) {
+            sessionStorage.setItem('uploadPassword', password);
+            resolve(password);
+          } else {
+            resolve(null);
+          }
+        }
+      });
+    });
+  }, []);
+
+  const closePasswordDialog = useCallback(() => {
+    setPasswordDialog({ open: false, onSubmit: null });
+  }, []);
 
   const patchEntry = (id, patch) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -101,15 +123,38 @@ export function useHomeUpload() {
     // 在上传过程中同步统计结果
     let successCount = 0;
     let errorCount = 0;
+    let uploadPassword = null;
 
     for (const entry of pending) {
       patchEntry(entry.id, { status: 'uploading' });
       try {
-        const result = await upload(entry.file);
+        const result = await upload(entry.file, { uploadPassword });
+
         if (result.success) {
           const fullUrl = window.location.origin + result.data.url;
           patchEntry(entry.id, { status: 'done', result: { ...result.data, fullUrl } });
           successCount++;
+        } else if (result.needPassword && !uploadPassword) {
+          // 需要密码且尚未输入
+          const password = await showPasswordDialog();
+          if (password) {
+            uploadPassword = password;
+            // 使用密码重试当前文件
+            const retryResult = await upload(entry.file, { uploadPassword });
+            if (retryResult.success) {
+              const fullUrl = window.location.origin + retryResult.data.url;
+              patchEntry(entry.id, { status: 'done', result: { ...retryResult.data, fullUrl } });
+              successCount++;
+            } else {
+              patchEntry(entry.id, { status: 'error', errorMsg: retryResult.error });
+              errorCount++;
+            }
+          } else {
+            // 用户取消输入密码
+            patchEntry(entry.id, { status: 'error', errorMsg: '已取消上传' });
+            errorCount++;
+            break; // 停止后续上传
+          }
         } else {
           patchEntry(entry.id, { status: 'error', errorMsg: result.error });
           errorCount++;
@@ -131,7 +176,7 @@ export function useHomeUpload() {
     } else {
       showToast(`上传完成：成功 ${successCount} 个，失败 ${errorCount} 个`, 'warning');
     }
-  }, [entries, showToast, upload]);
+  }, [entries, showToast, upload, showPasswordDialog]);
 
   const pendingCount = entries.filter((e) => e.status === 'idle' || e.status === 'error').length;
   const doneCount = entries.filter((e) => e.status === 'done').length;
@@ -139,6 +184,7 @@ export function useHomeUpload() {
   return {
     entries, uploading, toast, inputRef,
     pendingCount, doneCount,
+    passwordDialog, closePasswordDialog,
     handleFileChange, appendFiles, handleRemove, handleClearDone,
     handleCopy, handleUploadAll, closeToast,
   };

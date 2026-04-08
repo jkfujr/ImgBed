@@ -1,7 +1,8 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Box, Card, Typography, Button, Snackbar, Alert, CircularProgress,
-  List, Divider, useTheme
+  List, Divider, useTheme, Dialog, DialogTitle, DialogContent,
+  DialogActions, TextField
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { BORDER_RADIUS } from '../utils/constants';
@@ -13,9 +14,12 @@ export default function HomePage() {
   const {
     entries, uploading, toast, inputRef,
     pendingCount, doneCount,
+    passwordDialog, closePasswordDialog,
     handleFileChange, appendFiles, handleRemove, handleClearDone,
     handleCopy, handleUploadAll, closeToast,
   } = useHomeUpload();
+
+  const [passwordInput, setPasswordInput] = useState('');
 
   return (
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
@@ -122,6 +126,58 @@ export default function HomePage() {
           {toast.msg}
         </Alert>
       </Snackbar>
+
+      {/* 上传密码对话框 */}
+      <Dialog
+        open={passwordDialog.open}
+        onClose={() => {
+          setPasswordInput('');
+          closePasswordDialog();
+          passwordDialog.onSubmit?.(null);
+        }}
+      >
+        <DialogTitle>需要上传密码</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            管理员已开启访客上传密码保护，请输入密码后继续上传
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            type="password"
+            label="上传密码"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && passwordInput.trim()) {
+                passwordDialog.onSubmit?.(passwordInput.trim());
+                setPasswordInput('');
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setPasswordInput('');
+              closePasswordDialog();
+              passwordDialog.onSubmit?.(null);
+            }}
+          >
+            取消
+          </Button>
+          <Button
+            variant="contained"
+            disabled={!passwordInput.trim()}
+            onClick={() => {
+              passwordDialog.onSubmit?.(passwordInput.trim());
+              setPasswordInput('');
+            }}
+          >
+            确认
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

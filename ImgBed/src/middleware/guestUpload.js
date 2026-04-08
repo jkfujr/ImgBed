@@ -31,15 +31,17 @@ export const guestUploadAuth = async (req, res, next) => {
 
   // 开启了访客上传，检查是否设置了上传密码
   if (uploadPassword) {
-    // 从请求头或请求体中获取密码
-    const providedPassword = req.get('X-Upload-Password') || req.body?.uploadPassword;
+    // 只从请求头获取密码（multipart/form-data 的 body 需要 multer 解析，此时还未解析）
+    const providedPassword = req.get('X-Upload-Password');
 
     if (!providedPassword) {
-      return res.status(401).json(ErrorResponse.UNAUTHORIZED_PASSWORD_REQUIRED);
+      send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_REQUIRED);
+      return;
     }
 
     if (providedPassword !== uploadPassword) {
-      return res.status(401).json(ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
+      send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
+      return;
     }
   }
 

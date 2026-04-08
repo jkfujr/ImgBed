@@ -31,8 +31,12 @@ export function useUpload(config = {}) {
     setResult(null);
 
     try {
+      // 从 sessionStorage 获取已保存的上传密码
+      const savedPassword = sessionStorage.getItem('uploadPassword');
+
       const res = await UploadDocs.upload(file, {
         ...options,
+        uploadPassword: options.uploadPassword || savedPassword,
         onUploadProgress: (progressEvent) => {
           const total = progressEvent.total || progressEvent.loaded || 1;
           const percentCompleted = Math.min(100, Math.round((progressEvent.loaded * 100) / total));
@@ -58,9 +62,18 @@ export function useUpload(config = {}) {
       throw new Error(res.message || '上传失败');
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message || '上传失败';
+      const errorCode = err.response?.data?.code;
+
       setError(errorMsg);
       onError?.(errorMsg);
-      return { success: false, error: errorMsg };
+
+      // 返回错误信息，包含错误码用于判断是否需要密码
+      return {
+        success: false,
+        error: errorMsg,
+        code: errorCode,
+        needPassword: errorCode === 401 && errorMsg.includes('上传密码')
+      };
     } finally {
       setUploading(false);
     }
