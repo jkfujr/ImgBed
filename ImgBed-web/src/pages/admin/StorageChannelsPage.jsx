@@ -1,10 +1,8 @@
 import { useState, useMemo } from 'react';
 import {
-  Box, Paper, IconButton, Tooltip, Chip,
-  Stack, Select, MenuItem, FormControl, InputLabel,
-  Alert, Typography,
+  Box, IconButton, Tooltip, Chip,
+  Stack, Alert, Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -16,6 +14,8 @@ import LinearProgress from '@mui/material/LinearProgress';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import GenericToolbar from '../../components/common/GenericToolbar';
+import GenericDataGrid from '../../components/common/GenericDataGrid';
 import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
 import { useStorageChannels } from '../../hooks/useStorageChannels';
@@ -220,44 +220,39 @@ export default function StorageChannelsPage() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
       {/* 工具栏 */}
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: BORDER_RADIUS.md }}>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-          {/* 统计信息 */}
-          {stats && (
-            <Box sx={{ flex: 1, minWidth: 200 }}>
-              <Typography variant="body2" color="text.secondary">
-                共 <Typography component="span" fontWeight="bold" color="text.primary">{stats.total}</Typography> 个渠道
-                {' · '}
-                已启用 <Typography component="span" fontWeight="bold" color="success.main">{stats.enabled}</Typography>
-                {' · '}
-                可上传 <Typography component="span" fontWeight="bold" color="primary.main">{stats.allowUpload}</Typography>
-              </Typography>
-            </Box>
-          )}
-
-          {/* 类型筛选 */}
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>类型筛选</InputLabel>
-            <Select
-              value={typeFilter}
-              label="类型筛选"
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <MenuItem value="all">全部类型</MenuItem>
-              {VALID_TYPES.map(type => (
-                <MenuItem key={type} value={type}>{type}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* 刷新按钮 */}
-          <Tooltip title="刷新列表">
-            <IconButton size="small" onClick={loadStorages} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      </Paper>
+      <GenericToolbar
+        stats={stats ? {
+          items: [
+            { label: '共', value: stats.total, bold: true },
+            { label: '已启用', value: stats.enabled, color: 'success.main', bold: true },
+            { label: '可上传', value: stats.allowUpload, color: 'primary.main', bold: true },
+          ],
+          separator: ' · ',
+        } : undefined}
+        filters={[
+          {
+            type: 'select',
+            label: '类型筛选',
+            value: typeFilter,
+            onChange: setTypeFilter,
+            options: [
+              { value: 'all', label: '全部类型' },
+              ...VALID_TYPES.map(type => ({ value: type, label: type })),
+            ],
+            minWidth: 120,
+          },
+        ]}
+        actions={[
+          {
+            type: 'iconButton',
+            icon: <RefreshIcon />,
+            tooltip: '刷新列表',
+            onClick: loadStorages,
+            disabled: loading,
+          },
+        ]}
+        loading={loading}
+      />
 
       {/* 错误提示 */}
       {error && (
@@ -267,36 +262,21 @@ export default function StorageChannelsPage() {
       )}
 
       {/* 数据表格 */}
-      <Paper variant="outlined" sx={{ flexGrow: 1, borderRadius: BORDER_RADIUS.md }}>
-        <DataGrid
-          rows={rows}
-          columns={columns}
-          loading={loading}
-          paginationModel={paginationModel}
-          onPaginationModelChange={setPaginationModel}
-          pageSizeOptions={[5, 10, 20, 50]}
-          disableRowSelectionOnClick
-          disableColumnMenu
-          getRowHeight={() => 'auto'}
-          sx={{
-            border: 0,
-            '& .MuiDataGrid-cell': {
-              py: 1.5,
-            },
-            '& .MuiDataGrid-row:hover': {
-              backgroundColor: 'action.hover',
-            },
-          }}
-          localeText={{
-            noRowsLabel: '暂无存储渠道',
-            MuiTablePagination: {
-              labelRowsPerPage: '每页行数',
-              labelDisplayedRows: ({ from, to, count }) =>
-                `${from}-${to} / 共 ${count}`,
-            },
-          }}
-        />
-      </Paper>
+      <GenericDataGrid
+        rows={rows}
+        columns={columns}
+        loading={loading}
+        pagination={{
+          controlled: true,
+          page: paginationModel.page,
+          pageSize: paginationModel.pageSize,
+          onPageChange: (page) => setPaginationModel(prev => ({ ...prev, page })),
+          onPageSizeChange: (pageSize) => setPaginationModel(prev => ({ ...prev, pageSize })),
+        }}
+        localeText={{
+          noRowsLabel: '暂无存储渠道',
+        }}
+      />
 
       {/* 编辑对话框 */}
       <ChannelDialog
