@@ -1,15 +1,20 @@
+import { useState, useMemo } from 'react';
 import {
-  Box, Typography, Grid, Card, CardContent, CardActions,
-  IconButton, Chip, Tooltip, Alert,
-  Divider, LinearProgress,
+  Box, Paper, TextField, InputAdornment, IconButton, Tooltip,
+  Chip, Stack, Button, Select, MenuItem, FormControl, InputLabel,
+  Alert, Typography,
 } from '@mui/material';
+import { DataGrid } from '@mui/x-data-grid';
+import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ToggleOnIcon from '@mui/icons-material/ToggleOn';
+import ToggleOffIcon from '@mui/icons-material/ToggleOff';
+import LinearProgress from '@mui/material/LinearProgress';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -17,42 +22,38 @@ import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
 import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
 import { useStorageChannels } from '../../hooks/useStorageChannels';
 
-/** 渠道卡片内的容量进度条 */
-function QuotaBar({ storage, quotaStats }) {
+/** 容量使用进度条组件 */
+function UsageProgressBar({ storage, quotaStats }) {
   const quotaLimitGB = storage.quotaLimitGB;
-  if (!quotaLimitGB || quotaLimitGB <= 0) return null;
+  if (!quotaLimitGB || quotaLimitGB <= 0) {
+    return <Typography variant="body2" color="text.secondary">无限制</Typography>;
+  }
 
   const usedBytes = quotaStats[storage.id] || 0;
   const usedGB = bytesToGB(usedBytes);
   const percent = calculateQuotaPercent(usedBytes, quotaLimitGB);
   const thresholdPercent = storage.disableThresholdPercent ?? 95;
-  const isOverThreshold = percent >= thresholdPercent;
 
   let color = 'primary';
   if (percent >= thresholdPercent) color = 'error';
   else if (percent > 70) color = 'warning';
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
-        </Typography>
-        <Typography variant="caption" color={isOverThreshold ? 'error' : 'text.secondary'}>
+    <Box sx={{ width: '100%', minWidth: 180 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography variant="body2" sx={{ minWidth: 45 }}>
           {percent.toFixed(1)}%
         </Typography>
+        <LinearProgress
+          variant="determinate"
+          value={Math.min(percent, 100)}
+          color={color}
+          sx={{ flexGrow: 1, height: 6, borderRadius: BORDER_RADIUS.sm }}
+        />
       </Box>
-      <LinearProgress
-        variant="determinate"
-        value={percent}
-        color={color}
-        sx={{ height: 8, borderRadius: BORDER_RADIUS.sm }}
-      />
-      {isOverThreshold && (
-        <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-          已达到停用阈值，上传将被自动禁用
-        </Typography>
-      )}
+      <Typography variant="caption" color="text.secondary">
+        {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
+      </Typography>
     </Box>
   );
 }
@@ -66,106 +67,272 @@ export default function StorageChannelsPage() {
     setDeleteTarget, clearError, onDialogSuccess,
   } = useStorageChannels();
 
-  return (
-    <Box>
-      {/* 统计信息栏 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {stats && (
-            <>
-              <Chip label={`共 ${stats.total} 个渠道`} size="small" variant="outlined" />
-              <Chip label={`${stats.enabled} 个已启用`} size="small" color="success" />
-              <Chip label={`${stats.allowUpload} 个允许上传`} size="small" color="primary" />
-            </>
+  const [searchText, setSearchText] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 10 });
+
+  // 筛选和搜索逻辑
+  const filteredStorages = useMemo(() => {
+    let result = storages;
+
+    // 类型筛选
+    if (typeFilter !== 'all') {
+      result = result.filter(s => s.type === typeFilter);
+    }
+
+    // 搜索筛选
+    if (searchText.trim()) {
+      const search = searchText.toLowerCase();
+      result = result.filter(s =>
+        s.name.toLowerCase().includes(search) ||
+        s.id.toLowerCase().includes(search)
+      );
+    }
+
+    return result;
+  }, [storages, typeFilter, searchText]);
+
+  // DataGrid 列定义
+  const columns = [
+    {
+      field: 'name',
+      headerName: '渠道名称',
+      flex: 1.5,
+      minWidth: 180,
+      renderCell: (params) => (
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight="medium" noWrap>
+              {params.row.name}
+            </Typography>
+            {params.row.id === defaultId && (
+              <StarIcon fontSize="small" sx={{ color: 'warning.main' }} />
+            )}
+          </Box>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            ID: {params.row.id}
+          </Typography>
+        </Box>
+      ),
+    },
+    {
+      field: 'type',
+      headerName: '类型',
+      width: 120,
+      renderCell: (params) => (
+        <Chip
+          label={params.value}
+          size="small"
+          color={TYPE_COLORS[params.value] || 'default'}
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      field: 'status',
+      headerName: '状态',
+      width: 140,
+      renderCell: (params) => (
+        <Stack direction="row" spacing={0.5}>
+          <Chip
+            label={params.row.enabled ? '已启用' : '已禁用'}
+            size="small"
+            color={params.row.enabled ? 'success' : 'default'}
+            variant="outlined"
+          />
+          {params.row.allowUpload && (
+            <Chip label="可上传" size="small" color="primary" variant="outlined" />
           )}
-        </Box>
-        <Tooltip title="刷新列表">
-          <span>
-            <IconButton size="small" onClick={loadStorages} disabled={loading}>
-              <RefreshIcon fontSize="small" />
+        </Stack>
+      ),
+    },
+    {
+      field: 'usage',
+      headerName: '容量使用',
+      flex: 2,
+      minWidth: 220,
+      sortable: false,
+      renderCell: (params) => (
+        <UsageProgressBar storage={params.row} quotaStats={quotaStats} />
+      ),
+    },
+    {
+      field: 'actions',
+      headerName: '操作',
+      width: 160,
+      sortable: false,
+      renderCell: (params) => (
+        <Stack direction="row" spacing={0.5}>
+          <Tooltip title={params.row.id === defaultId ? '当前默认' : '设为默认'}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => handleSetDefault(params.row.id)}
+                disabled={params.row.id === defaultId}
+                color={params.row.id === defaultId ? 'warning' : 'default'}
+              >
+                {params.row.id === defaultId ? (
+                  <StarIcon fontSize="small" />
+                ) : (
+                  <StarBorderIcon fontSize="small" />
+                )}
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="编辑">
+            <IconButton size="small" onClick={() => openEdit(params.row)}>
+              <EditIcon fontSize="small" />
             </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
+          </Tooltip>
+          <Tooltip title={params.row.enabled ? '禁用' : '启用'}>
+            <IconButton
+              size="small"
+              onClick={() => handleToggle(params.row)}
+              color={params.row.enabled ? 'success' : 'default'}
+            >
+              {params.row.enabled ? (
+                <ToggleOnIcon fontSize="small" />
+              ) : (
+                <ToggleOffIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={params.row.id === defaultId ? '默认渠道不可删除' : '删除'}>
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                disabled={params.row.id === defaultId}
+                onClick={() => setDeleteTarget(params.row)}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      ),
+    },
+  ];
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={clearError}>{error}</Alert>}
+  // 转换数据格式
+  const rows = filteredStorages.map(s => ({
+    id: s.id,
+    name: s.name,
+    type: s.type,
+    enabled: s.enabled,
+    allowUpload: s.allowUpload,
+    quotaLimitGB: s.quotaLimitGB,
+    disableThresholdPercent: s.disableThresholdPercent,
+  }));
 
-      {loading ? (
-        <LoadingSpinner fullHeight={false} />
-      ) : storages.length === 0 ? (
-        <Typography color="text.secondary" textAlign="center" pt={6}>暂无存储渠道，点击「新增渠道」添加</Typography>
-      ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {VALID_TYPES.filter((type) => storages.some((s) => s.type === type)).map((type) => {
-            const group = storages.filter((s) => s.type === type);
-            return (
-              <Box key={type}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <Chip label={type} size="small" color={TYPE_COLORS[type] || 'default'} />
-                  <Typography variant="body2" color="text.secondary">{group.length} 个渠道</Typography>
-                  <Divider sx={{ flex: 1 }} />
-                </Box>
-                <Grid container spacing={2}>
-                  {group.map((s) => (
-                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={s.id}>
-                      <Card variant="outlined" sx={{ borderRadius: BORDER_RADIUS.md, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                        <CardContent sx={{ flexGrow: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-                            {s.id === defaultId && (
-                              <Chip label="默认" size="small" color="warning" variant="outlined" />
-                            )}
-                            <Box sx={{ ml: 'auto', width: 10, height: 10, borderRadius: BORDER_RADIUS.circle,
-                              bgcolor: s.enabled ? 'success.main' : 'action.disabled' }} />
-                          </Box>
-                          <Typography variant="subtitle1" fontWeight="bold" noWrap>{s.name}</Typography>
-                          <Typography variant="body2" color="text.secondary" noWrap>ID：{s.id}</Typography>
-                          <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                            <Chip label={s.enabled ? '已启用' : '已禁用'} size="small"
-                              color={s.enabled ? 'success' : 'default'} variant="outlined" />
-                            {s.allowUpload && <Chip label="允许上传" size="small" color="primary" variant="outlined" />}
-                          </Box>
-                          <QuotaBar storage={s} quotaStats={quotaStats} />
-                        </CardContent>
-                        <Divider />
-                        <CardActions sx={{ px: 1.5, py: 0.5 }}>
-                          <Tooltip title={s.id === defaultId ? '当前默认渠道' : '设为默认渠道'}>
-                            <span>
-                              <IconButton size="small" onClick={() => handleSetDefault(s.id)}
-                                color={s.id === defaultId ? 'warning' : 'default'}
-                                disabled={s.id === defaultId}>
-                                {s.id === defaultId ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title="编辑">
-                            <IconButton size="small" onClick={() => openEdit(s)}><EditIcon fontSize="small" /></IconButton>
-                          </Tooltip>
-                          <Tooltip title={s.enabled ? '禁用' : '启用'}>
-                            <IconButton size="small" onClick={() => handleToggle(s)}
-                              color={s.enabled ? 'warning' : 'success'}>
-                              {s.enabled ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title={s.id === defaultId ? '默认渠道不可删除' : '删除'}>
-                            <span>
-                              <IconButton size="small" color="error"
-                                disabled={s.id === defaultId}
-                                onClick={() => setDeleteTarget(s)}>
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        </CardActions>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              </Box>
-            );
-          })}
-        </Box>
+  if (loading && storages.length === 0) {
+    return <LoadingSpinner fullHeight={false} />;
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
+      {/* 工具栏 */}
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: BORDER_RADIUS.md }}>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          {/* 统计信息 */}
+          <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 200 }}>
+            {stats && (
+              <>
+                <Chip label={`共 ${stats.total} 个`} size="small" variant="outlined" />
+                <Chip label={`${stats.enabled} 个启用`} size="small" color="success" />
+                <Chip label={`${stats.allowUpload} 个可上传`} size="small" color="primary" />
+              </>
+            )}
+          </Stack>
+
+          {/* 搜索框 */}
+          <TextField
+            size="small"
+            placeholder="搜索名称或 ID"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ minWidth: 200 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          {/* 类型筛选 */}
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>类型筛选</InputLabel>
+            <Select
+              value={typeFilter}
+              label="类型筛选"
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <MenuItem value="all">全部类型</MenuItem>
+              {VALID_TYPES.map(type => (
+                <MenuItem key={type} value={type}>{type}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* 操作按钮 */}
+          <Tooltip title="刷新列表">
+            <IconButton size="small" onClick={loadStorages} disabled={loading}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={() => openEdit(null)}
+          >
+            新增渠道
+          </Button>
+        </Stack>
+      </Paper>
+
+      {/* 错误提示 */}
+      {error && (
+        <Alert severity="error" onClose={clearError}>
+          {error}
+        </Alert>
       )}
 
+      {/* 数据表格 */}
+      <Paper variant="outlined" sx={{ flexGrow: 1, borderRadius: BORDER_RADIUS.md }}>
+        <DataGrid
+          rows={rows}
+          columns={columns}
+          loading={loading}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          pageSizeOptions={[5, 10, 20, 50]}
+          disableRowSelectionOnClick
+          disableColumnMenu
+          getRowHeight={() => 'auto'}
+          sx={{
+            border: 0,
+            '& .MuiDataGrid-cell': {
+              py: 1.5,
+            },
+            '& .MuiDataGrid-row:hover': {
+              backgroundColor: 'action.hover',
+            },
+          }}
+          localeText={{
+            noRowsLabel: '暂无存储渠道',
+            MuiTablePagination: {
+              labelRowsPerPage: '每页行数',
+              labelDisplayedRows: ({ from, to, count }) =>
+                `${from}-${to} / 共 ${count}`,
+            },
+          }}
+        />
+      </Paper>
+
+      {/* 编辑对话框 */}
       <ChannelDialog
         open={dialogOpen}
         onClose={closeDialog}
@@ -173,6 +340,7 @@ export default function StorageChannelsPage() {
         onSuccess={onDialogSuccess}
       />
 
+      {/* 删除确认对话框 */}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="确认删除"
