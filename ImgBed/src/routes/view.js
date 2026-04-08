@@ -8,7 +8,9 @@ import { resolveFileStorage, parseRangeHeader } from '../services/view/resolve-f
 import { handleChunkedStream, handleRegularStream } from '../services/view/handle-stream.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ForbiddenError, NotFoundError } from '../errors/AppError.js';
+import { createLogger } from '../utils/logger.js';
 
+const log = createLogger('view');
 const viewApp = express.Router();
 
 /**

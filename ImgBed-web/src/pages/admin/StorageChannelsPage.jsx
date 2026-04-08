@@ -1,13 +1,11 @@
 import { useState, useMemo } from 'react';
 import {
-  Box, Paper, TextField, InputAdornment, IconButton, Tooltip,
-  Chip, Stack, Button, Select, MenuItem, FormControl, InputLabel,
+  Box, Paper, IconButton, Tooltip, Chip,
+  Stack, Select, MenuItem, FormControl, InputLabel,
   Alert, Typography,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
-import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
@@ -67,11 +65,10 @@ export default function StorageChannelsPage() {
     setDeleteTarget, clearError, onDialogSuccess,
   } = useStorageChannels();
 
-  const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 10 });
 
-  // 筛选和搜索逻辑
+  // 筛选逻辑
   const filteredStorages = useMemo(() => {
     let result = storages;
 
@@ -80,17 +77,8 @@ export default function StorageChannelsPage() {
       result = result.filter(s => s.type === typeFilter);
     }
 
-    // 搜索筛选
-    if (searchText.trim()) {
-      const search = searchText.toLowerCase();
-      result = result.filter(s =>
-        s.name.toLowerCase().includes(search) ||
-        s.id.toLowerCase().includes(search)
-      );
-    }
-
     return result;
-  }, [storages, typeFilter, searchText]);
+  }, [storages, typeFilter]);
 
   // DataGrid 列定义
   const columns = [
@@ -235,31 +223,17 @@ export default function StorageChannelsPage() {
       <Paper variant="outlined" sx={{ p: 2, borderRadius: BORDER_RADIUS.md }}>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           {/* 统计信息 */}
-          <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 200 }}>
-            {stats && (
-              <>
-                <Chip label={`共 ${stats.total} 个`} size="small" variant="outlined" />
-                <Chip label={`${stats.enabled} 个启用`} size="small" color="success" />
-                <Chip label={`${stats.allowUpload} 个可上传`} size="small" color="primary" />
-              </>
-            )}
-          </Stack>
-
-          {/* 搜索框 */}
-          <TextField
-            size="small"
-            placeholder="搜索名称或 ID"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            sx={{ minWidth: 200 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-          />
+          {stats && (
+            <Box sx={{ flex: 1, minWidth: 200 }}>
+              <Typography variant="body2" color="text.secondary">
+                共 <Typography component="span" fontWeight="bold" color="text.primary">{stats.total}</Typography> 个渠道
+                {' · '}
+                已启用 <Typography component="span" fontWeight="bold" color="success.main">{stats.enabled}</Typography>
+                {' · '}
+                可上传 <Typography component="span" fontWeight="bold" color="primary.main">{stats.allowUpload}</Typography>
+              </Typography>
+            </Box>
+          )}
 
           {/* 类型筛选 */}
           <FormControl size="small" sx={{ minWidth: 120 }}>
@@ -276,20 +250,12 @@ export default function StorageChannelsPage() {
             </Select>
           </FormControl>
 
-          {/* 操作按钮 */}
+          {/* 刷新按钮 */}
           <Tooltip title="刷新列表">
             <IconButton size="small" onClick={loadStorages} disabled={loading}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddIcon />}
-            onClick={() => openEdit(null)}
-          >
-            新增渠道
-          </Button>
         </Stack>
       </Paper>
 
