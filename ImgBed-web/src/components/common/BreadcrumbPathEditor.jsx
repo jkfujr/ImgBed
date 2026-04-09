@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Breadcrumbs, Link, TextField, Typography } from '@mui/material';
+import { Box, Breadcrumbs, Link, Typography } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { BORDER_RADIUS } from '../../utils/constants';
 
@@ -57,21 +57,61 @@ export default function BreadcrumbPathEditor({
     ? currentDir.split('/').filter(Boolean)
     : [];
 
+  // 路径分段悬浮高亮样式
+  const segmentHoverSx = {
+    cursor: 'pointer',
+    fontSize: 14,
+    border: 'none',
+    background: 'none',
+    p: 0,
+    borderRadius: 1,
+    px: 0.5,
+    py: 0.25,
+    transition: 'background-color 0.15s',
+    '&:hover': { bgcolor: 'action.hover' },
+  };
+
   return (
     <>
       {pathEditing ? (
-        <TextField
-          inputRef={pathInputRef}
-          size="small"
-          defaultValue={currentDir || '/'}
-          onBlur={commitPathEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitPathEdit();
-            if (e.key === 'Escape') cancelPathEdit();
+        /* 编辑态：原生 input + 外层 Box 统一视觉样式 */
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            alignItems: 'center',
+            px: 1.5,
+            borderRadius: BORDER_RADIUS.sm,
+            border: '1px solid',
+            borderColor: 'primary.main',
+            bgcolor: 'background.paper',
+            height: '100%',
           }}
-          sx={{ flex: 1, minWidth: 0 }}
-          autoFocus
-        />
+        >
+          <input
+            ref={pathInputRef}
+            defaultValue={currentDir || '/'}
+            onBlur={commitPathEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitPathEdit();
+              if (e.key === 'Escape') cancelPathEdit();
+            }}
+            autoFocus
+            style={{
+              flex: 1,
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontSize: 14,
+              fontFamily: 'inherit',
+              color: 'inherit',
+              padding: '6px 0',
+              boxSizing: 'border-box',
+              minWidth: 0,
+            }}
+          />
+        </Box>
       ) : (
         <Box
           onClick={() => setPathEditing(true)}
@@ -82,16 +122,10 @@ export default function BreadcrumbPathEditor({
             display: 'flex',
             alignItems: 'center',
             px: 1.5,
-            py: 1,
-            border: 1,
-            borderColor: 'divider',
+            py: 0,
             borderRadius: BORDER_RADIUS.sm,
             bgcolor: 'background.paper',
-            transition: 'border-color 0.15s, box-shadow 0.15s',
-            '&:hover': {
-              borderColor: 'primary.main',
-              boxShadow: '0 0 0 1px theme.palette.primary.main',
-            },
+            border: '1px solid transparent',
           }}
         >
           <Breadcrumbs
@@ -113,6 +147,11 @@ export default function BreadcrumbPathEditor({
                 border: 'none',
                 background: 'none',
                 p: 0,
+                borderRadius: 1,
+                px: 0.5,
+                py: 0.25,
+                transition: 'background-color 0.15s',
+                '&:hover': { bgcolor: 'action.hover' },
               }}
             >
               {rootLabel}
@@ -127,6 +166,13 @@ export default function BreadcrumbPathEditor({
                   fontWeight="bold"
                   color="text.primary"
                   noWrap
+                  sx={{
+                    borderRadius: 1,
+                    px: 0.5,
+                    py: 0.25,
+                    transition: 'background-color 0.15s',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
                 >
                   {seg}
                 </Typography>
@@ -140,13 +186,7 @@ export default function BreadcrumbPathEditor({
                     e.stopPropagation();
                     onNavigate(path);
                   }}
-                  sx={{
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    border: 'none',
-                    background: 'none',
-                    p: 0,
-                  }}
+                  sx={segmentHoverSx}
                 >
                   {seg}
                 </Link>
