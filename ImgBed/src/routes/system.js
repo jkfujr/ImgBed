@@ -32,7 +32,10 @@ import { success } from '../utils/response.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
-const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
+const configPath = (() => {
+  const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  return path.join(appRoot, 'data', 'config.json');
+})();
 
 const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
 const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
