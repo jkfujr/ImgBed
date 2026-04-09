@@ -23,6 +23,7 @@ import {
     markOperationFailed,
 } from '../services/system/storage-operations.js';
 import { parseStorageConfig, removeStoredArtifacts } from '../services/files/storage-artifacts.js';
+import { getSystemConfigPath } from '../services/system/config-io.js';
 
 class StorageManager {
     constructor({ db = sqlite, autoInit = true } = {}) {
@@ -387,7 +388,7 @@ class StorageManager {
 
     async reload() {
         try {
-            const cfgPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
+            const cfgPath = getSystemConfigPath();
             const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
             const storagesInFile = fileCfg.storage?.storages || [];
             const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();

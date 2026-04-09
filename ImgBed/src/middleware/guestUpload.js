@@ -1,9 +1,7 @@
-import { readSystemConfig } from '../services/system/config-io.js';
+import { readSystemConfig, getSystemConfigPath } from '../services/system/config-io.js';
 import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
+const configPath = getSystemConfigPath();
 
 /**
  * 访客上传中间件

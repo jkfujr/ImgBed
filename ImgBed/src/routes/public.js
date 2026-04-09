@@ -1,11 +1,9 @@
 import express from 'express';
-import { readSystemConfig } from '../services/system/config-io.js';
-import { fileURLToPath } from 'url';
-import path from 'path';
+import { readSystemConfig, getSystemConfigPath } from '../services/system/config-io.js';
 import { success } from '../utils/response.js';
 
 const publicApp = express.Router();
-const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
+const configPath = getSystemConfigPath();
 
 /**
  * 获取访客上传配置（公开接口，无需认证）
