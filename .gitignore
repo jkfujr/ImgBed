@@ -32,3 +32,4 @@ data/
 ImgBed-test/reports
 entities.json
 mempalace.yaml
+ImgBed/static/*

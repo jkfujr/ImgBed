@@ -11,7 +11,7 @@ const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 // 默认系统配置模板
 const defaultConfig = {
   server: {
-    port: 3000,
+    port: 13000,
     host: "0.0.0.0"
   },
   database: {

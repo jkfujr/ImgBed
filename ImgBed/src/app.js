@@ -1,5 +1,7 @@
 import express from 'express';
 import pinoHttp from 'pino-http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import config from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
 import { createLogger } from './utils/logger.js';
@@ -11,6 +13,9 @@ import dirsRouter from './routes/directories.js';
 import systemRouter from './routes/system.js';
 import viewRouter from './routes/view.js';
 import publicRouter from './routes/public.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const logger = createLogger('app');
 const app = express();
@@ -36,12 +41,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 基础测试路由
-app.get('/', (_req, res) => {
-  return res.send('ImgBed 后端 API 正在运行！');
-});
-
-// 挂载 API 子路由模块
+// 挂载 API 子路由模块（优先处理 API 请求）
 app.use('/api/auth', authRouter);
 
 app.use('/api/api-tokens', apiTokensRouter);
@@ -59,8 +59,26 @@ app.use('/api/system', systemRouter);
 // 挂载公开接口路由
 app.use('/api/public', publicRouter);
 
-// 挂载图片直读路由到根路径 (放在 API 路由之后，避免冲突)
+// 挂载图片直读路由到根路径
 app.use('/', viewRouter);
+
+// 静态文件服务（前端资源）
+const staticPath = path.join(__dirname, '..', 'static');
+app.use(express.static(staticPath));
+
+// SPA 回退：所有未匹配的路由返回 index.html（如果存在）
+app.get('*', (_req, res) => {
+  const indexPath = path.join(staticPath, 'index.html');
+
+  // 检查 index.html 是否存在
+  import('fs').then(fs => {
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.send('ImgBed 后端 API 正在运行！前端文件未找到，请先构建前端。');
+    }
+  });
+});
 
 app.use(notFoundHandler);
 registerErrorHandlers(app);
