@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StorageDocs } from '../api';
+import { StorageDocs, SystemConfigDocs } from '../api';
 
 /**
  * 负载均衡配置 Hook — 封装 LoadBalancePanel 的全部状态与操作
@@ -16,14 +16,15 @@ export function useLoadBalance() {
     lbScope: 'global',
     lbEnabledTypes: [],
     lbWeights: {},
-    failoverEnabled: true,
+    enableFullCheckInterval: true,
+    fullCheckIntervalHours: 6,
   });
 
   useEffect(() => {
     const loadConfig = async () => {
       setLoading(true);
       try {
-        const [lbRes, channelsRes] = await Promise.all([
+        const [lbRes, channelsRes, configRes] = await Promise.all([
           StorageDocs.getLoadBalance().catch(() => ({
             code: -1,
             data: { strategy: 'default' }
@@ -31,19 +32,29 @@ export function useLoadBalance() {
           StorageDocs.list().catch(() => ({
             code: -1,
             data: { list: [] }
-          }))
+          })),
+          SystemConfigDocs.get().catch(() => ({ code: -1, data: {} })),
         ]);
 
         if (lbRes.code === 0) {
           const strategy = lbRes.data.strategy || 'default';
-          setConfig({
+          setConfig(prev => ({
+            ...prev,
             lbStrategy: strategy === 'default' ? 'round-robin' : strategy,
             lbWeights: lbRes.data.weights || {},
             lbScope: lbRes.data.scope || 'global',
             lbEnabledTypes: lbRes.data.enabledTypes || [],
-            failoverEnabled: lbRes.data.failoverEnabled !== false,
             uploadStrategy: strategy === 'default' ? 'default' : 'load-balance',
-          });
+          }));
+        }
+
+        if (configRes.code === 0) {
+          const u = configRes.data.upload || {};
+          setConfig(prev => ({
+            ...prev,
+            enableFullCheckInterval: (u.fullCheckIntervalHours ?? 0) > 0,
+            fullCheckIntervalHours: u.fullCheckIntervalHours || 6,
+          }));
         }
 
         if (channelsRes.code === 0) {
@@ -64,17 +75,23 @@ export function useLoadBalance() {
     setSaving(true);
     try {
       const finalStrategy = config.uploadStrategy === 'default' ? 'default' : config.lbStrategy;
-      const res = await StorageDocs.updateLoadBalance({
-        strategy: finalStrategy,
-        scope: config.lbScope,
-        enabledTypes: config.lbEnabledTypes,
-        weights: config.lbWeights,
-        failoverEnabled: config.failoverEnabled,
-      });
-      if (res.code === 0) {
-        setResult({ type: 'success', msg: '负载均衡配置已保存' });
+      const [lbRes, sysRes] = await Promise.all([
+        StorageDocs.updateLoadBalance({
+          strategy: finalStrategy,
+          scope: config.lbScope,
+          enabledTypes: config.lbEnabledTypes,
+          weights: config.lbWeights,
+        }),
+        SystemConfigDocs.update({
+          upload: {
+            fullCheckIntervalHours: config.enableFullCheckInterval ? config.fullCheckIntervalHours : 0,
+          },
+        }),
+      ]);
+      if (lbRes.code === 0 && (sysRes.code === 0 || sysRes.response?.status === 200)) {
+        setResult({ type: 'success', msg: '存储策略配置已保存' });
       } else {
-        setResult({ type: 'error', msg: res.message || '保存失败' });
+        setResult({ type: 'error', msg: lbRes.message || sysRes.message || '保存失败' });
       }
     } catch (err) {
       setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });

@@ -1,6 +1,6 @@
 import {
   Box, Typography, TextField, Button, CircularProgress, Alert, Divider,
-  FormControlLabel, Switch
+  FormControlLabel, Switch, Checkbox
 } from '@mui/material';
 import { useUploadConfig } from '../../hooks/useUploadConfig';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -26,28 +26,25 @@ export default function UploadConfigPanel() {
         <Alert severity={result.type} onClose={clearResult}>{result.msg}</Alert>
       )}
 
-      <Typography variant="subtitle1" fontWeight="bold" mb={1}>容量检查</Typography>
+      <Typography variant="subtitle1" fontWeight="bold" mb={1}>故障转移</Typography>
 
         <FormControlLabel
-          control={<Switch
-            checked={config.enableFullCheckInterval}
-            onChange={switchHandler('enableFullCheckInterval')}
-          />}
-          label="定时全量校正"
+          control={
+            <Checkbox
+              checked={config.failoverEnabled}
+              onChange={(e) => update('failoverEnabled', e.target.checked)}
+            />
+          }
+          label={
+            <Box>
+              <Typography>上传失败自动切换渠道</Typography>
+              <Typography variant="body2" color="text.secondary">
+                上传失败时自动尝试其他可用渠道（最多重试 3 次）
+              </Typography>
+            </Box>
+          }
+          sx={{ alignItems: 'flex-start', ml: 0 }}
         />
-
-        {config.enableFullCheckInterval && (
-          <TextField
-            label="定时全量校正间隔（小时）"
-            size="small"
-            type="number"
-            value={config.fullCheckIntervalHours}
-            onChange={(e) => update('fullCheckIntervalHours', Math.max(1, Number(e.target.value) || 6))}
-            helperText="定期从数据库全量校正，防止缓存与实际不一致。默认 6 小时"
-            slotProps={{ htmlInput: { min: 1, max: 168, step: 1 } }}
-            sx={{ maxWidth: 300, ml: 4 }}
-          />
-        )}
 
         <Divider sx={{ my: 1 }} />
 

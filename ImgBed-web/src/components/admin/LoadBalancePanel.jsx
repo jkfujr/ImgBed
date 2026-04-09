@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   Box, Typography, Button, CircularProgress, Alert, Divider,
   FormControl, InputLabel, Select, MenuItem, Grid, Radio, RadioGroup,
-  FormGroup, Checkbox, FormControlLabel, TextField
+  FormGroup, Checkbox, FormControlLabel, TextField, Switch
 } from '@mui/material';
 import { useLoadBalance } from '../../hooks/useLoadBalance';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -162,25 +162,30 @@ export default function LoadBalancePanel() {
 
         <Divider sx={{ my: 1 }} />
 
-        <Typography variant="subtitle1" fontWeight="bold" mb={1}>故障转移</Typography>
+        <Typography variant="subtitle1" fontWeight="bold" mb={1}>容量检查</Typography>
 
         <FormControlLabel
           control={
-            <Checkbox
-              checked={config.failoverEnabled}
-              onChange={(e) => update('failoverEnabled', e.target.checked)}
+            <Switch
+              checked={config.enableFullCheckInterval}
+              onChange={(e) => update('enableFullCheckInterval', e.target.checked)}
             />
           }
-          label={
-            <Box>
-              <Typography>上传失败自动切换渠道</Typography>
-              <Typography variant="body2" color="text.secondary">
-                上传失败时自动尝试其他可用渠道（最多重试 3 次）
-              </Typography>
-            </Box>
-          }
-          sx={{ alignItems: 'flex-start', ml: 0 }}
+          label="定时全量校正"
         />
+
+        {config.enableFullCheckInterval && (
+          <TextField
+            label="定时全量校正间隔（小时）"
+            size="small"
+            type="number"
+            value={config.fullCheckIntervalHours}
+            onChange={(e) => update('fullCheckIntervalHours', Math.max(1, Number(e.target.value) || 6))}
+            helperText="定期从数据库全量校正，防止缓存与实际不一致。默认 6 小时"
+            slotProps={{ htmlInput: { min: 1, max: 168, step: 1 } }}
+            sx={{ maxWidth: 300, ml: 4 }}
+          />
+        )}
 
         <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
           <Button variant="contained" onClick={handleSave} disabled={saving}>

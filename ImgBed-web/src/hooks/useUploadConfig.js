@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { SystemConfigDocs } from '../api';
+import { SystemConfigDocs, StorageDocs } from '../api';
 
 /**
  * 上传配置 Hook — 封装 UploadConfigPanel 的全部状态与操作
@@ -11,8 +11,7 @@ export function useUploadConfig() {
   const [result, setResult] = useState(null);
 
   const [config, setConfig] = useState({
-    enableFullCheckInterval: true,
-    fullCheckIntervalHours: 6,
+    failoverEnabled: true,
     enableS3Concurrent: false,
     enableSizeLimit: false,
     enableChunking: false,
@@ -27,13 +26,15 @@ export function useUploadConfig() {
     const loadConfig = async () => {
       setLoading(true);
       try {
-        const res = await SystemConfigDocs.get();
-        if (res.code === 0) {
-          const u = res.data.upload || {};
-          const p = res.data.performance?.s3Multipart || {};
+        const [sysRes, lbRes] = await Promise.all([
+          SystemConfigDocs.get(),
+          StorageDocs.getLoadBalance().catch(() => ({ code: -1, data: {} })),
+        ]);
+        if (sysRes.code === 0) {
+          const u = sysRes.data.upload || {};
+          const p = sysRes.data.performance?.s3Multipart || {};
           setConfig({
-            enableFullCheckInterval: u.fullCheckIntervalHours > 0,
-            fullCheckIntervalHours: u.fullCheckIntervalHours || 6,
+            failoverEnabled: lbRes.code === 0 ? (lbRes.data.failoverEnabled !== false) : true,
             enableS3Concurrent: p.enabled ?? false,
             enableSizeLimit: u.enableSizeLimit ?? false,
             defaultSizeLimitMB: u.defaultSizeLimitMB || 10,
@@ -58,7 +59,6 @@ export function useUploadConfig() {
     setSaving(true);
     try {
       const uploadConfig = {
-        fullCheckIntervalHours: config.enableFullCheckInterval ? config.fullCheckIntervalHours : 0,
         enableSizeLimit: config.enableSizeLimit,
         defaultSizeLimitMB: config.defaultSizeLimitMB,
         enableChunking: config.enableChunking,
@@ -76,14 +76,19 @@ export function useUploadConfig() {
         }
       };
 
-      const res = await SystemConfigDocs.update({
-        upload: uploadConfig,
-        performance: performanceConfig
-      });
-      if (res.code === 0) {
+      const [sysRes, lbRes] = await Promise.all([
+        SystemConfigDocs.update({
+          upload: uploadConfig,
+          performance: performanceConfig
+        }),
+        StorageDocs.updateLoadBalance({
+          failoverEnabled: config.failoverEnabled,
+        }),
+      ]);
+      if ((sysRes.code === 0 || sysRes.response?.status === 200) && lbRes.code === 0) {
         setResult({ type: 'success', msg: '上传配置已保存，重启服务后生效' });
       } else {
-        setResult({ type: 'error', msg: res.message || '保存失败' });
+        setResult({ type: 'error', msg: sysRes.message || lbRes.message || '保存失败' });
       }
     } catch (err) {
       setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });

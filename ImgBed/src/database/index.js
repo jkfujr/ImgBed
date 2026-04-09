@@ -18,10 +18,10 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-// better-sqlite3 默认开启 WAL 支持；这里仍按原配置显式设置
+// better-sqlite3 默认开启 WAL 支持
 const sqlite = new Database(dbPath);
 
-// 启用 WAL 模式以提升并发读写性能
+// SQLITE WAL
 sqlite.exec('PRAGMA journal_mode = WAL');       // 写操作不阻塞读操作
 sqlite.exec('PRAGMA synchronous = NORMAL');     // 平衡性能与安全性
 sqlite.exec('PRAGMA cache_size = -64000');      // 64MB 缓存
@@ -363,7 +363,7 @@ const initDb = () => {
             END;
         `);
 
-        // 当前初始化直接以完整 schema 建表，不执行迁移；版本保持 v0
+        // 数据库版本
         sqlite.exec('PRAGMA user_version = 0');
 
         log.info('表结构初始化完成');
