@@ -80,7 +80,9 @@ export const ApiTokenDocs = {
 export const FileDocs = {
    list: (params) => api.get('/api/files', { params }),
    update: (id, payload) => api.put(`/api/files/${id}`, payload),
-   delete: (id) => api.delete(`/api/files/${id}`),
+   delete: (id, deleteMode) => api.delete(`/api/files/${id}`, {
+     params: deleteMode ? { delete_mode: deleteMode } : undefined,
+   }),
    batch: (payload) => api.post('/api/files/batch', payload)
 };
 

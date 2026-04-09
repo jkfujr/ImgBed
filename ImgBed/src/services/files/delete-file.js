@@ -9,21 +9,40 @@ import {
   markOperationCompleted,
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
-import { parseStorageConfig, removeStoredArtifacts } from './storage-artifacts.js';
+import { parseStorageConfig, isIndexOnlyMode, removeStoredArtifacts } from './storage-artifacts.js';
 
 const log = createLogger('delete-file');
 
-async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, logger = log }) {
+/**
+ * 删除单条文件记录
+ * @param {Object} fileRecord - 文件数据库记录
+ * @param {Object} deps - 依赖注入
+ * @param {Object} deps.db
+ * @param {Object} deps.storageManager
+ * @param {Object} deps.ChunkManager
+ * @param {string} [deps.deleteMode] - 'remote_and_index' | 'index_only'
+ * @param {Object} [logger]
+ */
+async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, deleteMode = 'remote_and_index', logger = log }) {
   const configObj = parseStorageConfig(fileRecord.storage_config);
   const instanceId = fileRecord.storage_instance_id || configObj.instance_id || null;
   const fileSize = Number(fileRecord.size) || 0;
   const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
+
+  // 从 storage_config.extra_result 提取 TG 删除所需的 messageId/chatId
+  const extraResult = configObj.extra_result || {};
+  const tgOptions = {
+    messageId: extraResult.messageId || extraResult.message_id || null,
+    chatId: extraResult.chatId || extraResult.chat_id || null,
+  };
 
   const compensationPayload = {
     storageId: instanceId,
     storageKey: fileRecord.storage_key,
     isChunked: Boolean(fileRecord.is_chunked),
     chunkRecords,
+    deleteMode,
+    tgOptions,
   };
 
   const operationId = createStorageOperation(db, {
@@ -40,19 +59,26 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
       storageKey: fileRecord.storage_key,
       isChunked: Boolean(fileRecord.is_chunked),
       chunkRecords,
+      deleteMode,
+      tgOptions,
     });
     markOperationRemoteDone(db, operationId, {
       sourceStorageId: instanceId,
-      remotePayload: { deletedAt: new Date().toISOString() },
+      remotePayload: { deletedAt: new Date().toISOString(), deleteMode },
     });
   } catch (err) {
-    markOperationCompensationPending(db, operationId, {
-      sourceStorageId: instanceId,
-      compensationPayload,
-      error: err,
-    });
-    logger.warn(`[Files API] 文件 ${fileRecord.id} 远端清理失败，本地记录保留，已标记待补偿: ${err.message}`);
-    throw err;
+    // 仅删索引模式下，远端删除失败不阻止流程
+    if (isIndexOnlyMode(deleteMode)) {
+      logger.warn(`[delete-file] 仅删索引模式：远端删除失败跳过 — ${err.message}`);
+    } else {
+      markOperationCompensationPending(db, operationId, {
+        sourceStorageId: instanceId,
+        compensationPayload,
+        error: err,
+      });
+      logger.warn(`[delete-file] 文件 ${fileRecord.id} 远端清理失败，本地记录保留，已标记待补偿: ${err.message}`);
+      throw err;
+    }
   }
 
   const persistDelete = db.transaction(() => {
@@ -87,8 +113,16 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
   };
 }
 
+/**
+ * 批量删除文件记录
+ * @param {Object[]} files - 文件记录数组
+ * @param {Object} deps - 依赖注入
+ * @param {string} [deps.deleteMode] - 'remote_and_index' | 'index_only'
+ */
 async function deleteFilesBatch(files, deps) {
   const limit = pLimit(3);
+  const { deleteMode = 'remote_and_index' } = deps;
+
   const results = {
     total: files.length,
     success: 0,
@@ -99,7 +133,7 @@ async function deleteFilesBatch(files, deps) {
   const tasks = files.map((fileRecord) =>
     limit(async () => {
       try {
-        await deleteFileRecord(fileRecord, deps);
+        await deleteFileRecord(fileRecord, { ...deps, deleteMode });
         return { fileRecord, success: true };
       } catch (err) {
         return { fileRecord, success: false, error: err };

@@ -4,7 +4,40 @@ import { DEFAULT_PAGE_SIZE } from '../utils/constants';
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 export const ROOT_DIR = '/';
 export const EMPTY_LIST = { data: [], total: 0, hasMore: false, directories: [] };
-export const EMPTY_DELETE = { open: false, ids: [], label: '', saving: false };
+export const EMPTY_DELETE = { open: false, ids: [], label: '', saving: false, deleteMode: 'remote_and_index', errorMessage: '' };
+
+/**
+ * 判断文件是否存储在 Telegram 且上传时间超过 24 小时
+ * @param {Object} item - 文件记录，含 storage_channel 和 created_at
+ * @returns {boolean}
+ */
+export function isTelegramFileOlderThan24h(item) {
+  if (!item || item.storage_channel !== 'telegram') return false;
+  if (!item.created_at) return false;
+  const uploadTime = new Date(item.created_at).getTime();
+  const now = Date.now();
+  return (now - uploadTime) > 24 * 60 * 60 * 1000;
+}
+
+/**
+ * 判断是否所有待删文件均为 TG 且均超过 24 小时
+ * @param {Object[]} items - 文件记录数组
+ * @returns {boolean}
+ */
+export function areAllTelegramFilesOlderThan24h(items) {
+  if (!items || items.length === 0) return false;
+  return items.every((item) => isTelegramFileOlderThan24h(item));
+}
+
+/**
+ * 判断是否存在 TG 超过 24 小时的文件（部分或全部）
+ * @param {Object[]} items - 文件记录数组
+ * @returns {boolean}
+ */
+export function hasTelegramFilesOlderThan24h(items) {
+  if (!items || items.length === 0) return false;
+  return items.some((item) => isTelegramFileOlderThan24h(item));
+}
 
 export function getCacheKey(dir) {
   return dir;

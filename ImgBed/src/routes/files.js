@@ -175,15 +175,17 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
 /**
  * 执行硬删除销毁操作
  * DELETE /api/files/:id
+ * Query/Delete mode: delete_mode=remote_and_index（默认）| index_only
  */
 filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     const id = req.params.id;
+    const deleteMode = req.query.delete_mode || req.body?.delete_mode || 'remote_and_index';
     const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
     if (!fileRecord) {
         throw new NotFoundError('文件不存在或已被删除');
     }
 
-    await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager });
+    await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager, deleteMode });
 
     // 使文件列表缓存失效
     cacheInvalidation.invalidateFiles();
@@ -202,6 +204,7 @@ filesApp.post('/batch', adminAuth, asyncHandler(async (req, res) => {
         ids: body.ids,
         targetDirectory: body.target_directory,
         targetChannel: body.target_channel,
+        deleteMode: body.delete_mode || 'remote_and_index',
         db: sqlite,
         storageManager,
         ChunkManager,

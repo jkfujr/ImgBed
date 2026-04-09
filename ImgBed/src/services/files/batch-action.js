@@ -35,13 +35,13 @@ async function moveFilesBatch(ids, targetDirectory, db) {
   };
 }
 
-async function executeFilesBatchAction({ action, ids, targetDirectory, targetChannel, db, storageManager, ChunkManager }) {
+async function executeFilesBatchAction({ action, ids, targetDirectory, targetChannel, deleteMode, db, storageManager, ChunkManager }) {
   validateBatchIds(ids);
 
   if (action === 'delete') {
     const placeholders = ids.map(() => '?').join(', ');
     const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
-    const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager });
+    const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager, deleteMode });
     return {
       code: 0,
       message: `删除完成：成功 ${results.success}，失败 ${results.failed}`,

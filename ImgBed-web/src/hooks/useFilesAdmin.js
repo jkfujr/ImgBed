@@ -6,6 +6,7 @@ import {
   EMPTY_DELETE,
   EMPTY_LIST,
   ROOT_DIR,
+  areAllTelegramFilesOlderThan24h,
   fetchDirectories,
   fetchListPage,
   getCacheKey,
@@ -111,7 +112,12 @@ export function useFilesAdmin() {
     });
   };
 
-  const triggerDelete = (ids, label) => setDeleteDialog({ open: true, ids, label, saving: false });
+  const triggerDelete = (ids, label, items = []) => {
+    if (deleteDialog.open || !ids.length) return;
+    // 判断是否所有文件都是 TG 且超 24h，若是则强制仅删索引
+    const effectiveMode = areAllTelegramFilesOlderThan24h(items) ? 'index_only' : 'remote_and_index';
+    setDeleteDialog({ open: true, ids, label, saving: false, deleteMode: effectiveMode, errorMessage: '' });
+  };
 
   const closeDeleteDialog = () => {
     if (!deleteDialog.saving) setDeleteDialog(EMPTY_DELETE);
@@ -121,14 +127,17 @@ export function useFilesAdmin() {
     if (!deleteDialog.ids.length) return;
     setDeleteDialog((prev) => ({ ...prev, saving: true }));
     try {
-      if (deleteDialog.ids.length === 1) await FileDocs.delete(deleteDialog.ids[0]);
-      else await FileDocs.batch({ action: 'delete', ids: deleteDialog.ids });
+      const { ids, deleteMode } = deleteDialog;
+      if (ids.length === 1) {
+        await FileDocs.delete(ids[0], deleteMode);
+      } else {
+        await FileDocs.batch({ action: 'delete', ids, delete_mode: deleteMode });
+      }
       setDeleteDialog(EMPTY_DELETE);
       refreshAfterMutation();
     } catch (e) {
       logger.error(e);
-    } finally {
-      setDeleteDialog((prev) => ({ ...prev, saving: false }));
+      setDeleteDialog((prev) => ({ ...prev, saving: false, errorMessage: '删除失败，请重试' }));
     }
   };
 

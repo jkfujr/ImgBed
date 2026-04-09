@@ -17,6 +17,11 @@ export default function FilesAdmin() {
   const [prefCols] = useUserPreference('pref_masonry_cols', '0');
   const [viewMode, setViewMode] = useUserPreference('pref_view_mode', 'masonry');
 
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  };
+
   let autoCols = 2;
   if (isXl) {
     autoCols = 5;
@@ -45,6 +50,13 @@ export default function FilesAdmin() {
     setViewMode(val);
   };
 
+  // 批量删除时，收集选中项的完整对象供 TG 24h 判断
+  const handleDeleteSelected = () => {
+    if (deleteDialog.open || selected.size === 0) return;
+    const selectedItems = data.filter((item) => selected.has(item.id));
+    triggerDelete([...selected], `${selected.size} 个文件`, selectedItems);
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
       <FilesAdminToolbar
@@ -60,7 +72,7 @@ export default function FilesAdmin() {
         selectedCount={selected.size}
         onOpenMove={openMove}
         onOpenMigrate={openMigrate}
-        onDeleteSelected={() => triggerDelete([...selected], `${selected.size} 个文件`)}
+        onDeleteSelected={handleDeleteSelected}
         onClearSelection={clearSelection}
       />
 
@@ -89,10 +101,22 @@ export default function FilesAdmin() {
         onClose={closeDeleteDialog}
         onConfirm={confirmDelete}
         confirmLoading={deleting}
-        confirmText="确认删除"
+        confirmText={deleteDialog.errorMessage ? '关闭' : '确认删除'}
+        confirmDisabled={!!deleteDialog.errorMessage}
       >
-        确定要彻底删除 <b>{deleteDialog.label}</b> 吗？<br />
-        此操作将同时从数据库和云存储中永久移除，且不可恢复。
+        {deleteDialog.errorMessage ? (
+          <Alert severity="error">{deleteDialog.errorMessage}</Alert>
+        ) : deleteDialog.deleteMode === 'index_only' ? (
+          <>
+            确定要从索引中移除 <b>{escapeHtml(deleteDialog.label)}</b> 吗？<br />
+            该文件存储在 Telegram 服务器且上传已超过 24 小时，无法从 Telegram 端删除，仅移除索引记录，文件仍可通过直链访问。
+          </>
+        ) : (
+          <>
+            确定要彻底删除 <b>{escapeHtml(deleteDialog.label)}</b> 吗？<br />
+            此操作将同时从数据库和云存储中永久移除，且不可恢复。
+          </>
+        )}
       </ConfirmDialog>
 
       <ImageDetailLightbox

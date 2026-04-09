@@ -8,8 +8,13 @@ import { BORDER_RADIUS } from '../../utils/constants';
  * ImageDetailLightbox 右侧详情面板
  */
 export default function ImageDetailPanel({ item, theme, onClose, onDelete }) {
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  };
+
   const infoItems = [
-    { label: '文件名', value: item.original_name || item.file_name },
+    { label: '文件名', value: escapeHtml(item.original_name || item.file_name) },
     { label: '文件类型', value: item.mime_type },
     { label: '文件大小', value: fmtSize(item.size) },
     { label: '图片尺寸', value: item.width ? `${item.width} x ${item.height}` : '-' },
@@ -88,7 +93,7 @@ export default function ImageDetailPanel({ item, theme, onClose, onDelete }) {
           startIcon={<DeleteIcon />}
           onClick={() => {
             onClose();
-            onDelete([item.id], item.original_name || item.file_name);
+            onDelete([item.id], escapeHtml(item.original_name || item.file_name), [item]);
           }}
           sx={{ borderRadius: BORDER_RADIUS.md, py: 1.2, fontWeight: 'bold' }}
         >

@@ -27,6 +27,27 @@ class TelegramStorage extends StorageProvider {
     }
 
     /**
+     * 根据文件 MIME 类型选择 Telegram 发送接口
+     * 规则：
+     *   GIF/WEBP  → sendAnimation
+     *   SVG/ICO   → sendDocument
+     *   其他图片  → sendPhoto
+     */
+    selectSendMethod(mimeType, fileName) {
+        const lowerName = (fileName || '').toLowerCase();
+        const lowerMime = (mimeType || '').toLowerCase();
+
+        if (lowerMime === 'image/gif' || lowerMime === 'image/webp' || lowerName.endsWith('.gif') || lowerName.endsWith('.webp')) {
+            return { method: 'sendAnimation', paramName: 'animation' };
+        }
+        if (lowerMime === 'image/svg+xml' || lowerMime === 'image/x-icon' || lowerName.endsWith('.svg') || lowerName.endsWith('.ico')) {
+            return { method: 'sendDocument', paramName: 'document' };
+        }
+        // 默认走 sendPhoto
+        return { method: 'sendPhoto', paramName: 'photo' };
+    }
+
+    /**
      * 发送文件到Telegram (即原版的 sendFile)
      */
     async sendFile(file, chatId, functionName, functionType, caption = '', fileName = '') {
@@ -151,12 +172,29 @@ class TelegramStorage extends StorageProvider {
             fileBlob = file;
         }
 
+        // 根据文件类型选择发送接口
+        const { method, paramName } = this.selectSendMethod(mimeType, fileName);
+
         const responseData = await this.sendFile(
-            fileBlob, this.chatId, 'sendDocument', 'document', '', fileName || 'file'
+            fileBlob, this.chatId, method, paramName, '', fileName || 'file'
         );
+
+        if (!responseData.ok) {
+            throw new Error(`[TelegramStorage] 上传失败: ${responseData.description}`);
+        }
+
+        const result = responseData.result;
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取 file_id');
-        return { id: fileInfo.file_id };
+
+        // 保存完整的 Telegram 消息元数据，用于后续删除
+        return {
+            id: fileInfo.file_id,
+            fileId: fileInfo.file_id,
+            messageId: result.message_id,
+            chatId: this.chatId,
+            method,
+        };
     }
 
     async getStream(fileId, options) {
@@ -175,15 +213,43 @@ class TelegramStorage extends StorageProvider {
         return `${this.fileDomain}/file/bot${this.botToken}/${filePath}`;
     }
 
-    async delete(fileId, options) {
-        try {
-            // Telegram 不支持直接删除文件，但可以尝试删除包含该文件的消息
-            // 由于我们只存储了 file_id，无法直接定位到 message_id
-            // 因此这里返回 false 表示不支持删除操作
-            log.warn({ fileId }, 'Telegram 存储不支持删除操作（缺少 message_id）');
+    /**
+     * 删除 Telegram 消息（即删除该图片对应的消息）
+     * options 预期包含：
+     *   { messageId, chatId } — 从 storage_config.extra_result 里取出
+     * 如果 options 为空或缺少 messageId，返回 false 表示不支持。
+     */
+    async delete(fileId, options = {}) {
+        const messageId = options?.messageId;
+        const chatId = options?.chatId || this.chatId;
+
+        if (!messageId) {
+            log.warn({ fileId }, 'Telegram 存储无法删除：storage_config 中缺少 messageId');
             return false;
+        }
+
+        try {
+            const url = `${this.baseURL}/deleteMessage`;
+            const response = await this.requestTelegram(url, {
+                method: 'POST',
+                headers: {
+                    ...this.defaultHeaders,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ chat_id: chatId, message_id: Number(messageId) }),
+            });
+
+            const data = await response.json();
+            if (data.ok) {
+                log.info({ fileId, messageId, chatId }, 'Telegram 消息删除成功');
+                return true;
+            } else {
+                // 48h 限制等错误在这里打出来，方便排查
+                log.warn({ fileId, messageId, chatId, description: data.description }, 'Telegram deleteMessage 失败');
+                return false;
+            }
         } catch (err) {
-            log.error({ fileId, err }, '删除操作失败');
+            log.error({ fileId, err }, 'Telegram deleteMessage 请求异常');
             return false;
         }
     }
