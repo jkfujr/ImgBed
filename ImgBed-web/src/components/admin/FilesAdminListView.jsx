@@ -205,7 +205,7 @@ export default function FilesAdminListView({
       width: 100,
       renderCell: (params) => (
         <Typography variant="body2" color="text.secondary" noWrap>
-          {params.row._type === 'directory' ? params.row.path : (params.row.directory || '/')}
+          {params.row._type === 'directory' ? params.row.path : params.row.directory}
         </Typography>
       ),
     },

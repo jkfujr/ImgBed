@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUpload } from './useUpload';
 import { ALLOWED_IMAGE_EXTENSIONS } from '../utils/constants';
+import { ROOT_DIR } from '../admin/filesAdminShared';
 
 const createFileEntry = (file) => ({
   id: Math.random().toString(36).slice(2),
@@ -128,7 +129,7 @@ export function useHomeUpload() {
     for (const entry of pending) {
       patchEntry(entry.id, { status: 'uploading' });
       try {
-        const result = await upload(entry.file, { uploadPassword });
+        const result = await upload(entry.file, { uploadPassword, directory: ROOT_DIR });
 
         if (result.success) {
           const fullUrl = window.location.origin + result.data.url;
@@ -140,7 +141,7 @@ export function useHomeUpload() {
           if (password) {
             uploadPassword = password;
             // 使用密码重试当前文件
-            const retryResult = await upload(entry.file, { uploadPassword });
+            const retryResult = await upload(entry.file, { uploadPassword, directory: ROOT_DIR });
             if (retryResult.success) {
               const fullUrl = window.location.origin + retryResult.data.url;
               patchEntry(entry.id, { status: 'done', result: { ...retryResult.data, fullUrl } });

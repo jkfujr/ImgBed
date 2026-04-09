@@ -30,8 +30,7 @@ export default function SearchDialog({ open, onClose }) {
   }, [searchInput, open, loadFiles]);
 
   const handleItemClick = (item) => {
-    const dir = item.directory || '';
-    navigate(`/admin/files?path=${encodeURIComponent(dir)}`);
+    navigate(`/admin/files?path=${encodeURIComponent(item.directory)}`);
     handleClose();
   };
 
@@ -94,7 +93,7 @@ export default function SearchDialog({ open, onClose }) {
                     </ListItemIcon>
                     <ListItemText
                       primary={item.file_name}
-                      secondary={item.directory || '/'}
+                      secondary={item.directory}
                     />
                   </ListItemButton>
                 </ListItem>

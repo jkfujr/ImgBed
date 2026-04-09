@@ -14,6 +14,7 @@ import ChannelDialog from '../common/ChannelDialog';
 import { useRefresh } from '../../contexts/RefreshContext';
 import { useUpload } from '../../hooks/useUpload';
 import { useCreateDirectory } from '../../hooks/useCreateDirectory';
+import { ROOT_DIR } from '../../admin/filesAdminShared';
 
 export default function CreateActionButton() {
   const { triggerRefresh } = useRefresh();
@@ -58,7 +59,7 @@ export default function CreateActionButton() {
 
   const handlePasteUploadFile = async (file, options = {}) => {
     try {
-      const result = await upload(file, options);
+      const result = await upload(file, { ...options, directory: ROOT_DIR });
       if (!result.success) {
         logger.error('上传失败:', result.error);
       }

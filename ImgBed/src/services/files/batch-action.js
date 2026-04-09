@@ -1,5 +1,6 @@
 import { deleteFilesBatch } from './delete-file.js';
 import { createFilesError, migrateFilesBatch } from './migrate-file.js';
+import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../../utils/directory-path.js';
 
 function validateBatchIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -7,21 +8,29 @@ function validateBatchIds(ids) {
   }
 }
 
-async function moveFilesBatch(ids, targetDirectory, db) {
-  if (targetDirectory === undefined) {
-    throw createFilesError(400, '执行移动批处理时，必须连通带有目标目录 (target_directory) 指针');
+function normalizeTargetDirectory(targetDirectory, db) {
+  try {
+    const normalized = normalizeDirectoryPath(targetDirectory);
+    ensureExistingDirectoryPath(normalized, db);
+    return normalized;
+  } catch (error) {
+    throw createFilesError(400, `执行移动批处理时，target_directory 不合法：${error.message}`);
   }
+}
+
+async function moveFilesBatch(ids, targetDirectory, db) {
+  const normalizedDirectory = normalizeTargetDirectory(targetDirectory, db);
 
   const placeholders = ids.map(() => '?').join(', ');
   const runMove = () => db.prepare(
     `UPDATE files SET directory = ? WHERE id IN (${placeholders})`
-  ).run(targetDirectory, ...ids);
+  ).run(normalizedDirectory, ...ids);
 
   db.transaction(runMove)();
 
   return {
     code: 0,
-    message: `移库完成，已将 ${ids.length} 宗物品改签至 ${targetDirectory}`,
+    message: `移库完成，已将 ${ids.length} 宗物品改签至 ${normalizedDirectory}`,
     data: {},
   };
 }

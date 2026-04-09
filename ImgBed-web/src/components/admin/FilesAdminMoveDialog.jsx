@@ -5,9 +5,10 @@ import {
 } from '@mui/material';
 import { FileDocs, DirectoryDocs } from '../../api';
 import logger from '../../utils/logger';
+import { ROOT_DIR } from '../../admin/filesAdminShared';
 
 export default function FilesAdminMoveDialog({ open, ids, currentDir, onClose, onSuccess }) {
-  const [targetDirectory, setTargetDirectory] = useState('');
+  const [targetDirectory, setTargetDirectory] = useState(ROOT_DIR);
   const [availableDirectories, setAvailableDirectories] = useState([]);
   const [moving, setMoving] = useState(false);
   const [moveResult, setMoveResult] = useState(null);
@@ -27,10 +28,10 @@ export default function FilesAdminMoveDialog({ open, ids, currentDir, onClose, o
   useEffect(() => {
     if (open) {
       fetchDirectories();
-      setTargetDirectory('');
+      setTargetDirectory(currentDir);
       setMoveResult(null);
     }
-  }, [open, fetchDirectories]);
+  }, [open, fetchDirectories, currentDir]);
 
   const handleConfirm = async () => {
     if (targetDirectory === undefined || ids.length === 0) return;
@@ -76,7 +77,7 @@ export default function FilesAdminMoveDialog({ open, ids, currentDir, onClose, o
             onChange={(e) => setTargetDirectory(e.target.value)}
             disabled={moving}
           >
-            <MenuItem value="">根目录 (/)</MenuItem>
+            <MenuItem value={ROOT_DIR}>根目录 (/)</MenuItem>
             {availableDirectories.map((dir) => (
               <MenuItem key={dir.path} value={dir.path}>
                 {dir.path}

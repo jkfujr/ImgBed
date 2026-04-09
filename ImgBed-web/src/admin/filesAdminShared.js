@@ -7,11 +7,11 @@ export const EMPTY_LIST = { data: [], total: 0, hasMore: false, directories: [] 
 export const EMPTY_DELETE = { open: false, ids: [], label: '', saving: false };
 
 export function getCacheKey(dir) {
-  return dir || ROOT_DIR;
+  return dir;
 }
 
 export function buildDirectoryChildren(allDirs, dir) {
-  const parentPath = dir || ROOT_DIR;
+  const parentPath = dir;
   const prefix = parentPath === ROOT_DIR ? ROOT_DIR : `${parentPath}/`;
 
   return allDirs
@@ -31,10 +31,9 @@ export function parseListResponse(pageRes) {
 
 export function updateCachedDirectories(cache, allDirs) {
   for (const [key, value] of cache.entries()) {
-    const dir = key === ROOT_DIR ? null : key;
     cache.set(key, {
       ...value,
-      directories: buildDirectoryChildren(allDirs, dir),
+      directories: buildDirectoryChildren(allDirs, key),
     });
   }
 }
@@ -51,8 +50,7 @@ export async function fetchDirectories(currentDir) {
 }
 
 export async function fetchListPage(dir) {
-  const params = { page: 1, pageSize: PAGE_SIZE };
-  if (dir) params.directory = dir;
+  const params = { page: 1, pageSize: PAGE_SIZE, directory: dir };
   const pageRes = await FileDocs.list(params);
   return parseListResponse(pageRes);
 }

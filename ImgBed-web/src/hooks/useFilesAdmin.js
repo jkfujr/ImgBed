@@ -5,6 +5,7 @@ import logger from '../utils/logger';
 import {
   EMPTY_DELETE,
   EMPTY_LIST,
+  ROOT_DIR,
   fetchDirectories,
   fetchListPage,
   getCacheKey,
@@ -19,7 +20,7 @@ export function useFilesAdmin() {
 
   const [listData, setListData] = useState(EMPTY_LIST);
   const [loading, setLoading] = useState(true);
-  const [currentDir, setCurrentDir] = useState(null);
+  const [currentDir, setCurrentDir] = useState(ROOT_DIR);
   const [selected, setSelected] = useState(new Set());
   const [error, setError] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(EMPTY_DELETE);
@@ -131,7 +132,7 @@ export function useFilesAdmin() {
     }
   };
 
-  const navigateToDir = (path) => setCurrentDir(path || null);
+  const navigateToDir = (path) => setCurrentDir(path);
   const openMigrate = () => setMigrateDialog({ open: true, ids: [...selected] });
   const closeMigrate = () => setMigrateDialog({ open: false, ids: [] });
   const openMove = () => setMoveDialog({ open: true, ids: [...selected] });

@@ -112,8 +112,8 @@ export const UploadDocs = {
   upload: (file, options = {}) => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('directory', options.directory);
 
-    if (options.directory) formData.append('directory', options.directory);
     if (options.channel) formData.append('channel', options.channel);
     if (options.tags) formData.append('tags', options.tags);
     if (options.is_public !== undefined) formData.append('is_public', options.is_public);

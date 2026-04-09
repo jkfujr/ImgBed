@@ -11,9 +11,44 @@ import { NotFoundError, ValidationError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { filesListCache, cacheInvalidation } from '../middleware/cache.js';
 import { success } from '../utils/response.js';
+import { ensureExistingDirectoryPath, normalizeDirectoryPath, parseOptionalDirectoryPath } from '../utils/directory-path.js';
 
 const log = createLogger('files');
 const filesApp = express.Router();
+
+function validatePaging(page, pageSize) {
+    if (!Number.isInteger(page) || page < 1) {
+        throw new ValidationError('page 参数必须是大于等于 1 的整数');
+    }
+
+    if (!Number.isInteger(pageSize) || pageSize < 1) {
+        throw new ValidationError('pageSize 参数必须是大于等于 1 的整数');
+    }
+}
+
+function normalizeDirectoryOrThrow(input, fieldLabel = 'directory') {
+    try {
+        return normalizeDirectoryPath(input);
+    } catch (error) {
+        throw new ValidationError(`${fieldLabel} 参数不合法：${error.message}`);
+    }
+}
+
+function parseOptionalDirectoryOrThrow(input, fieldLabel = 'directory') {
+    try {
+        return parseOptionalDirectoryPath(input);
+    } catch (error) {
+        throw new ValidationError(`${fieldLabel} 参数不合法：${error.message}`);
+    }
+}
+
+function ensureDirectoryExistsOrThrow(directory, fieldLabel = 'directory') {
+    try {
+        ensureExistingDirectoryPath(directory, sqlite);
+    } catch (error) {
+        throw new ValidationError(`${fieldLabel} 参数不合法：${error.message}`);
+    }
+}
 
 /**
  * 文件列表接口 (带分页与简单过滤)
@@ -22,18 +57,29 @@ const filesApp = express.Router();
 filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandler(async (req, res) => {
     const page = parseInt(req.query.page || '1');
     const pageSize = parseInt(req.query.pageSize || '20');
-    const directory = req.query.directory;
-    const search = req.query.search;
+    const directory = parseOptionalDirectoryOrThrow(req.query.directory);
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    validatePaging(page, pageSize);
+
+    const isSearchMode = search.length > 0;
+    if (!isSearchMode && directory === undefined) {
+        throw new ValidationError('浏览文件列表时必须提供 directory 参数');
+    }
+
+    if (directory !== undefined) {
+        ensureDirectoryExistsOrThrow(directory);
+    }
 
     const conditions = [];
     const params = [];
 
-    if (directory) {
+    if (directory !== undefined) {
         conditions.push('directory = ?');
         params.push(directory);
     }
 
-    if (search) {
+    if (isSearchMode) {
         conditions.push('file_name LIKE ?');
         params.push(`%${search}%`);
     }
@@ -99,7 +145,11 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
 
     const updateData = {};
     if (body.file_name) updateData.file_name = body.file_name;
-    if (body.directory !== undefined) updateData.directory = body.directory;
+    if (body.directory !== undefined) {
+        const normalizedDirectory = normalizeDirectoryOrThrow(body.directory);
+        ensureDirectoryExistsOrThrow(normalizedDirectory);
+        updateData.directory = normalizedDirectory;
+    }
     if (body.is_public !== undefined) updateData.is_public = body.is_public ? 1 : 0;
 
     if (Object.keys(updateData).length === 0) {

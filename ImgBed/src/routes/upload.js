@@ -27,6 +27,7 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { cacheInvalidation } from '../middleware/cache.js';
+import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../utils/directory-path.js';
 
 const log = createLogger('upload');
 const uploadApp = express.Router();
@@ -36,6 +37,16 @@ const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.
 function validateUploadFile(file) {
   if (!file || typeof file === 'string') {
     throw new ValidationError('未检测到文件上传或字段错误');
+  }
+}
+
+function normalizeUploadDirectory(input) {
+  try {
+    const normalized = normalizeDirectoryPath(input);
+    ensureExistingDirectoryPath(normalized, sqlite);
+    return normalized;
+  } catch (error) {
+    throw new ValidationError(`directory 参数不合法：${error.message}`);
   }
 }
 
@@ -97,7 +108,7 @@ async function extractFileMetadata(file) {
   };
 }
 
-function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSize, body, finalChannelId, storageResult, isChunked, chunkCount, width, height, exif, auth, clientIp }) {
+function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSize, body, directory, finalChannelId, storageResult, isChunked, chunkCount, width, height, exif, auth, clientIp }) {
   return {
     id: String(fileId),
     file_name: String(newFileName),
@@ -115,7 +126,7 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
     upload_address: '{}',
     uploader_type: String(auth?.type || 'admin_jwt'),
     uploader_id: String(auth?.tokenId || auth?.username || 'admin'),
-    directory: String(body['directory'] || '/'),
+    directory,
     tags: body['tags'] ? JSON.stringify(body['tags'].toString().split(',')) : null,
     is_public: (body['is_public'] === 'true' || body['is_public'] === true || body['is_public'] === '1' || !!body['is_public']) ? 1 : 0,
     is_chunked: isChunked,
@@ -164,6 +175,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 
   validateUploadFile(file);
 
+  const directory = normalizeUploadDirectory(body.directory);
   const { channelId } = resolveUploadChannel(body, storageManager, config);
   const quotaAllowed = storageManager.isUploadAllowed(channelId);
   if (!quotaAllowed) {
@@ -210,6 +222,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     mimeType: fileMeta.mimeType,
     fileSize: file.size,
     body,
+    directory,
     finalChannelId: uploadResult.finalChannelId,
     storageResult: uploadResult.storageResult,
     isChunked: uploadResult.isChunked,

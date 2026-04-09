@@ -83,11 +83,14 @@ export function filesListCache() {
     prefix: 'files:list',
     keyBuilder: (req) => {
       const cache = getResponseCache();
+      const search = typeof req.query.search === 'string' ? req.query.search : '';
+      const directory = typeof req.query.directory === 'string' ? req.query.directory : undefined;
       return cache.buildKey('files:list', {
+        mode: search.trim() ? 'search' : 'browse',
         page: req.query.page || '1',
         pageSize: req.query.pageSize || '20',
-        directory: req.query.directory || '',
-        search: req.query.search || ''
+        directory: directory === undefined ? '__missing__' : directory,
+        search
       });
     },
     ttl: 30 // 文件列表缓存 30 秒

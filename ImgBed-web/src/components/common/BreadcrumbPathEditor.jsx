@@ -10,10 +10,10 @@ import { BORDER_RADIUS } from '../../utils/constants';
  * - 展示模式下显示分段面包屑导航
  * - 点击路径区域进入编辑模式
  * - 支持 Enter/Blur 提交、Escape 取消
- * - 自动规范化路径（前缀 /，空值转为 null）
+ * - 自动规范化路径（前缀 /，空值转为 /）
  *
  * @param {string} currentDir - 当前路径，如 "/folder1/folder2"
- * @param {(path: string|null) => void} onNavigate - 导航回调
+ * @param {(path: string) => void} onNavigate - 导航回调
  * @param {string} [rootLabel='根目录'] - 根目录标签
  */
 export default function BreadcrumbPathEditor({
@@ -28,7 +28,7 @@ export default function BreadcrumbPathEditor({
   useEffect(() => {
     if (!pathEditing) return undefined;
     if (pathInputRef.current) {
-      pathInputRef.current.value = currentDir || '/';
+      pathInputRef.current.value = currentDir;
     }
     const timer = setTimeout(() => pathInputRef.current?.focus(), 0);
     return () => clearTimeout(timer);
@@ -37,7 +37,7 @@ export default function BreadcrumbPathEditor({
   // 提交路径编辑
   const commitPathEdit = () => {
     const raw = (pathInputRef.current?.value || '').trim();
-    let normalized = null;
+    let normalized = '/';
 
     if (raw !== '/' && raw !== '') {
       normalized = raw.startsWith('/') ? raw : `/${raw}`;
@@ -91,7 +91,7 @@ export default function BreadcrumbPathEditor({
         >
           <input
             ref={pathInputRef}
-            defaultValue={currentDir || '/'}
+            defaultValue={currentDir}
             onBlur={commitPathEdit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitPathEdit();
@@ -135,14 +135,14 @@ export default function BreadcrumbPathEditor({
             <Link
               component="button"
               underline="hover"
-              color={currentDir ? 'inherit' : 'text.primary'}
+              color={currentDir === '/' ? 'text.primary' : 'inherit'}
               onClick={(e) => {
                 e.stopPropagation();
-                onNavigate(null);
+                onNavigate('/');
               }}
               sx={{
                 cursor: 'pointer',
-                fontWeight: !currentDir ? 'bold' : 'normal',
+                fontWeight: currentDir === '/' ? 'bold' : 'normal',
                 fontSize: 14,
                 border: 'none',
                 background: 'none',
