@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Node modules
+ImgBed-web/node_modules
+ImgBed-web/dist
+
+# 文档
+.docs
+README.md
+
+# 测试
+ImgBed/test
+
+# 数据文件（运行时挂载）
+ImgBed/data
+
+# 其他
+.github
+entities.json
+mempalace.yaml
