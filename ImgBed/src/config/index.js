@@ -5,8 +5,9 @@ import { fileURLToPath } from 'url';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('config');
-
-const configPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../config.json');
+const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const dataRoot = path.join(appRoot, 'data');
+const configPath = path.join(dataRoot, 'config.json');
 
 // 默认系统配置模板
 const defaultConfig = {
@@ -87,11 +88,13 @@ const generateRandomString = (length) => {
 let config = {};
 
 try {
+  fs.mkdirSync(dataRoot, { recursive: true });
+
   if (fs.existsSync(configPath)) {
     const rawData = fs.readFileSync(configPath, 'utf8');
     config = JSON.parse(rawData);
   } else {
-    log.info('未找到 config.json，系统正自动生成默认配置');
+    log.info({ configPath }, '未找到 data/config.json，系统正自动生成默认配置');
 
     // 生成新的配置
     config = { ...defaultConfig };

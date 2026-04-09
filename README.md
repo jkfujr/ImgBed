@@ -18,10 +18,6 @@ docker run -d \
   ghcr.io/jkfujr/imgbed:latest
 ```
 
-访问 `http://localhost:13000`，使用默认账号：
-- 用户名: `admin`
-- 密码: `admin`
-
 ### 源码部署
 
 #### 要求
@@ -48,7 +44,8 @@ npm start
 # 服务运行在 http://localhost:13000
 ```
 
-访问 `http://localhost:13000`，使用默认账号：
+### 默认用户
+
 - 用户名: `admin`
 - 密码: `admin`
 ---
