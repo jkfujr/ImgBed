@@ -67,7 +67,7 @@ const staticPath = path.join(__dirname, '..', 'static');
 app.use(express.static(staticPath));
 
 // SPA 回退：所有未匹配的路由返回 index.html（如果存在）
-app.get('*', (_req, res) => {
+app.use((_req, res) => {
   const indexPath = path.join(staticPath, 'index.html');
 
   // 检查 index.html 是否存在
