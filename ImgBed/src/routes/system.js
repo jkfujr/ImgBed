@@ -1,11 +1,9 @@
 import express from 'express';
-import { fileURLToPath } from 'url';
-import path from 'path';
 
 import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
-import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels } from '../services/system/config-io.js';
+import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels, getSystemConfigPath } from '../services/system/config-io.js';
 import { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannelMeta } from '../services/system/storage-channel-sync.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
@@ -32,10 +30,7 @@ import { success } from '../utils/response.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
-const configPath = (() => {
-  const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-  return path.join(appRoot, 'data', 'config.json');
-})();
+const configPath = getSystemConfigPath();
 
 const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
 const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];

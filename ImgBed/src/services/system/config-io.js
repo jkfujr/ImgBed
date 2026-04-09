@@ -37,5 +37,4 @@ function syncAllowedUploadChannels(cfg) {
 
 export { readSystemConfig,
   writeSystemConfig,
-  syncAllowedUploadChannels,
-  getSystemConfigPath, };
+  syncAllowedUploadChannels, };
