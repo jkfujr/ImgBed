@@ -26,7 +26,7 @@ const log = createLogger('delete-file');
  */
 async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, deleteMode = 'remote_and_index', logger = log }) {
   const configObj = parseStorageConfig(fileRecord.storage_config);
-  const instanceId = fileRecord.storage_instance_id || configObj.instance_id || null;
+  const instanceId = fileRecord.storage_instance_id || null;
   const fileSize = Number(fileRecord.size) || 0;
   const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
 

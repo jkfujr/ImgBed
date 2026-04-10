@@ -22,7 +22,7 @@ import {
     markOperationCompensationPending,
     markOperationFailed,
 } from '../services/system/storage-operations.js';
-import { parseStorageConfig, removeStoredArtifacts } from '../services/files/storage-artifacts.js';
+import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 import { getSystemConfigPath } from '../services/system/config-io.js';
 
 class StorageManager {
@@ -150,8 +150,7 @@ class StorageManager {
             return;
         }
 
-        const configObj = parseStorageConfig(fileRecord.storage_config);
-        const instanceId = operation.source_storage_id || fileRecord.storage_instance_id || configObj.instance_id || null;
+        const instanceId = operation.source_storage_id || fileRecord.storage_instance_id || null;
         const fileSize = Number(fileRecord.size) || 0;
         const chunkRecords = fileRecord.is_chunked
             ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)

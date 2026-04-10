@@ -1,4 +1,7 @@
 import { getQuotaEventsArchive } from './quota-events-archive.js';
+import { cleanupOldAccessLogs } from './access-logs-cleanup.js';
+import { cleanupCompletedOperations } from './storage-operations-cleanup.js';
+import { sqlite } from '../../database/index.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('archive-scheduler');
@@ -114,7 +117,15 @@ class ArchiveScheduler {
         duration: result.duration
       }, '定时归档任务完成');
 
-      return result;
+      // 清理 30 天前的访问日志
+      const accessLogsResult = await cleanupOldAccessLogs(sqlite, 30);
+      log.info({ deleted: accessLogsResult.deleted }, '访问日志清理完成');
+
+      // 清理 90 天前的已完成操作记录
+      const opsResult = await cleanupCompletedOperations(sqlite, 90);
+      log.info({ deleted: opsResult.deleted }, 'storage_operations 清理完成');
+
+      return { ...result, accessLogsDeleted: accessLogsResult.deleted, opsDeleted: opsResult.deleted };
 
     } catch (error) {
       log.error({ err: error }, '定时归档任务失败');

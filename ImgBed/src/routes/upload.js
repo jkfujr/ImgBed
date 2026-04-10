@@ -119,7 +119,6 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
     storage_channel: String(storageManager.instances.get(finalChannelId)?.type || 'unknown'),
     storage_key: String(storageResult.id || newFileName),
     storage_config: JSON.stringify({
-      instance_id: finalChannelId,
       extra_result: storageResult,
     }),
     storage_instance_id: String(finalChannelId),

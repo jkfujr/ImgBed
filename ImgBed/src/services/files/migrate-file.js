@@ -175,7 +175,6 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
       storageChannel: targetEntry.type,
       storageKey: targetUploadResult.storageResult.id || fileRecord.storage_key,
       storageConfig: JSON.stringify({
-        instance_id: targetChannel,
         extra_result: targetUploadResult.storageResult,
       }),
       storageInstanceId: targetChannel,

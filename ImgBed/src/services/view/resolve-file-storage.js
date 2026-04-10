@@ -2,7 +2,7 @@ import { parseStorageConfig } from '../files/storage-artifacts.js';
 
 function resolveFileStorage(fileRecord, { storageManager }) {
   const configObj = parseStorageConfig(fileRecord.storage_config);
-  const instanceId = fileRecord.storage_instance_id || configObj.instance_id;
+  const instanceId = fileRecord.storage_instance_id;
   const storage = storageManager.getStorage(instanceId);
 
   if (!storage) {
