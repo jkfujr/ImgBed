@@ -1,3 +1,5 @@
+import { getDirectoryByPath } from '../database/directories-dao.js';
+
 export function normalizeDirectoryPath(input) {
   if (typeof input !== 'string') {
     throw new Error('目录路径必须是字符串');
@@ -34,7 +36,7 @@ export function ensureExistingDirectoryPath(directory, sqlite) {
     return;
   }
 
-  const exists = sqlite.prepare('SELECT id FROM directories WHERE path = ? LIMIT 1').get(directory);
+  const exists = getDirectoryByPath(sqlite, directory);
   if (!exists) {
     throw new Error(`目录不存在：${directory}`);
   }

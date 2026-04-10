@@ -1,3 +1,11 @@
+import {
+  getDirectoryById,
+  getDirectoryByPath,
+  getChildDirectoriesByPathPrefix,
+  updateDirectoryPath,
+  updateDirectoryNameAndPath,
+} from '../../database/directories-dao.js';
+
 /**
  * 解析目录父路径
  */
@@ -6,7 +14,7 @@ async function resolveParentPath(parentId, sqlite) {
     return { parentPath: '/', parentIdToSave: null };
   }
 
-  const parent = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(parentId);
+  const parent = getDirectoryById(sqlite, parentId);
   if (!parent) {
     const error = new Error('指定的父级目录不存在');
     error.status = 404;
@@ -20,7 +28,7 @@ async function resolveParentPath(parentId, sqlite) {
  * 检查路径是否已存在
  */
 async function checkPathConflict(path, sqlite) {
-  const exists = sqlite.prepare('SELECT * FROM directories WHERE path = ?').get(path);
+  const exists = getDirectoryByPath(sqlite, path);
   if (exists) {
     const error = new Error('该层级下同名目录已存在');
     error.status = 409;
@@ -43,11 +51,11 @@ function buildPath(parentPath, rawName) {
  * 递归更新子目录路径
  */
 async function updateChildrenPaths(oldPath, newPath, sqlite) {
-  const children = sqlite.prepare('SELECT * FROM directories WHERE path LIKE ?').all(`${oldPath}/%`);
+  const children = getChildDirectoriesByPathPrefix(sqlite, oldPath);
 
   for (const child of children) {
     const updatedChildPath = child.path.replace(oldPath, newPath);
-    sqlite.prepare('UPDATE directories SET path = ? WHERE id = ?').run(updatedChildPath, child.id);
+    updateDirectoryPath(sqlite, child.id, updatedChildPath);
     sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(updatedChildPath, child.path);
   }
 }
@@ -56,7 +64,7 @@ async function updateChildrenPaths(oldPath, newPath, sqlite) {
  * 重命名目录并级联更新子目录和文件
  */
 async function renameDirectory(id, newName, sqlite) {
-  const targetDir = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(id);
+  const targetDir = getDirectoryById(sqlite, id);
   if (!targetDir) {
     const error = new Error('修改对象不存在');
     error.status = 404;
@@ -67,14 +75,14 @@ async function renameDirectory(id, newName, sqlite) {
 
   let parentPath = '/';
   if (targetDir.parent_id) {
-    const parent = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(targetDir.parent_id);
+    const parent = getDirectoryById(sqlite, targetDir.parent_id);
     if (parent) parentPath = parent.path;
   }
 
   const newPath = buildPath(parentPath, newName);
 
   if (oldPath !== newPath) {
-    const exist = sqlite.prepare('SELECT id FROM directories WHERE path = ?').get(newPath);
+    const exist = getDirectoryByPath(sqlite, newPath);
     if (exist) {
       const error = new Error('该级别已存在此同名目录');
       error.status = 409;
@@ -82,8 +90,7 @@ async function renameDirectory(id, newName, sqlite) {
     }
   }
 
-  sqlite.prepare('UPDATE directories SET name = ?, path = ? WHERE id = ?')
-    .run(newName.trim(), newPath, id);
+  updateDirectoryNameAndPath(sqlite, id, { name: newName, path: newPath });
 
   if (oldPath !== newPath) {
     sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(newPath, oldPath);

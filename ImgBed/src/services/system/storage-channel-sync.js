@@ -1,3 +1,5 @@
+import { freezeFilesByStorageInstance } from '../../database/files-dao.js';
+
 /**
  * 在数据库中插入新的存储渠道元数据
  */
@@ -58,11 +60,7 @@ function markStorageChannelDeleted(id, db) {
       WHERE id = ?
     `).run(id);
 
-    db.prepare(`
-      UPDATE files
-      SET status = 'channel_deleted'
-      WHERE storage_instance_id = ? AND status = 'active'
-    `).run(id);
+    freezeFilesByStorageInstance(db, id);
   })();
 }
 

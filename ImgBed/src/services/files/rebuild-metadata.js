@@ -1,5 +1,6 @@
 import sharp from 'sharp';
 import { parseStorageConfig } from './storage-artifacts.js';
+import { updateFileImageMetadata, getImageFilesForMetadataRebuild } from '../../database/files-dao.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,9 +58,7 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
   }
 
   const metadata = await extractMetadata(buffer);
-  db.prepare(
-    'UPDATE files SET width = ?, height = ?, exif = ? WHERE id = ?'
-  ).run(metadata.width, metadata.height, metadata.exif, file.id);
+  updateFileImageMetadata(db, file.id, metadata);
 
   await wait(sleepMs);
   return { status: 'updated' };
@@ -68,10 +67,7 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
 async function rebuildMetadataTask({ force, db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = extractImageMetadata }) {
   logger.log(`[Maintenance] 开始${force ? '全量' : '增量'}重建元数据...`);
 
-  const sql = force
-    ? 'SELECT * FROM files WHERE mime_type LIKE ?'
-    : 'SELECT * FROM files WHERE mime_type LIKE ? AND width IS NULL';
-  const files = db.prepare(sql).all('image/%');
+  const files = getImageFilesForMetadataRebuild(db, force);
   logger.log(`[Maintenance] 找到 ${files.length} 个待处理文件`);
 
   const stats = { total: files.length, updated: 0, skipped: 0, failed: 0 };

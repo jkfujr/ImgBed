@@ -3,6 +3,7 @@ import express from 'express';
 import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
+import { getActiveFilesStats, getTodayUploadCount, getUploadTrend } from '../database/files-dao.js';
 import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels, getSystemConfigPath } from '../services/system/config-io.js';
 import { insertStorageChannelMeta, updateStorageChannelMeta, markStorageChannelDeleted } from '../services/system/storage-channel-sync.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
@@ -531,20 +532,8 @@ systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
  * GET /api/system/dashboard/overview
  */
 systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(async (_req, res) => {
-  // 查询总文件数
-  const totalFilesResult = sqlite.prepare("SELECT COUNT(*) as count FROM files WHERE status = 'active'").get();
-  const totalFiles = totalFilesResult?.count || 0;
-
-  // 查询总存储大小
-  const totalSizeResult = sqlite.prepare("SELECT SUM(size) as sum FROM files WHERE status = 'active'").get();
-  const totalSize = totalSizeResult?.sum || 0;
-
-  // 查询今日上传数
-  const todayUploadsResult = sqlite.prepare(`
-    SELECT COUNT(*) as count FROM files
-    WHERE DATE(created_at) = DATE('now') AND status = 'active'
-  `).get();
-  const todayUploads = todayUploadsResult?.count || 0;
+  const { count: totalFiles, sum: totalSize } = getActiveFilesStats(sqlite);
+  const todayUploads = getTodayUploadCount(sqlite);
 
   // 查询今日访问次数
   const todayAccessResult = sqlite.prepare(`
@@ -590,16 +579,7 @@ systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandl
     throw new ValidationError('days 参数必须是 7、30 或 90');
   }
 
-  const trend = sqlite.prepare(`
-    SELECT
-      DATE(created_at) as date,
-      COUNT(*) as fileCount,
-      COALESCE(SUM(size), 0) as totalSize
-    FROM files
-    WHERE created_at >= datetime('now', '-${days} days') AND status = 'active'
-    GROUP BY DATE(created_at)
-    ORDER BY date ASC
-  `).all();
+  const trend = getUploadTrend(sqlite, days);
 
   return res.json({
     code: 0,

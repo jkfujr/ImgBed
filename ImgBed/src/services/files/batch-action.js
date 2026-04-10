@@ -1,6 +1,7 @@
 import { deleteFilesBatch } from './delete-file.js';
 import { createFilesError, migrateFilesBatch } from './migrate-file.js';
 import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../../utils/directory-path.js';
+import { getActiveFilesByIds, moveFilesToDirectory } from '../../database/files-dao.js';
 
 function validateBatchIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -21,12 +22,7 @@ function normalizeTargetDirectory(targetDirectory, db) {
 async function moveFilesBatch(ids, targetDirectory, db) {
   const normalizedDirectory = normalizeTargetDirectory(targetDirectory, db);
 
-  const placeholders = ids.map(() => '?').join(', ');
-  const runMove = () => db.prepare(
-    `UPDATE files SET directory = ? WHERE id IN (${placeholders})`
-  ).run(normalizedDirectory, ...ids);
-
-  db.transaction(runMove)();
+  db.transaction(() => moveFilesToDirectory(db, ids, normalizedDirectory))();
 
   return {
     code: 0,
@@ -39,8 +35,7 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   validateBatchIds(ids);
 
   if (action === 'delete') {
-    const placeholders = ids.map(() => '?').join(', ');
-    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders}) AND status = 'active'`).all(...ids);
+    const files = getActiveFilesByIds(db, ids);
     const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager, deleteMode });
     return {
       code: 0,
@@ -57,8 +52,7 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
   }
 
   if (action === 'migrate') {
-    const placeholders = ids.map(() => '?').join(', ');
-    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders}) AND status = 'active'`).all(...ids);
+    const files = getActiveFilesByIds(db, ids);
     const results = await migrateFilesBatch(files, {
       targetChannel,
       db,

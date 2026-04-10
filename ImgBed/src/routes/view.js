@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { sqlite } from '../database/index.js';
+import { getActiveFileById } from '../database/files-dao.js';
 import config from '../config/index.js';
 import storageManager from '../storage/manager.js';
 import ChunkManager from '../storage/chunk-manager.js';
@@ -104,7 +105,7 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
         throw new ForbiddenError('禁止访问');
     }
 
-    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
+    const fileRecord = getActiveFileById(sqlite, id);
 
     if (!fileRecord) {
         throw new NotFoundError('文件未找到或标识符无效');

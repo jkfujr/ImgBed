@@ -8,12 +8,12 @@ import {
   createStorageOperation,
   insertQuotaEvents,
   markOperationCommitted,
-  markOperationCompensated,
   markOperationCompensationPending,
   markOperationCompleted,
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
 import { parseStorageConfig, removeStoredArtifacts } from './storage-artifacts.js';
+import { updateFileMigrationFields } from '../../database/files-dao.js';
 
 const log = createLogger('migrate-file');
 
@@ -171,25 +171,17 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
     ChunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
 
-    db.prepare(`UPDATE files SET
-        storage_channel = ?,
-        storage_key = ?,
-        storage_config = ?,
-        storage_instance_id = ?,
-        is_chunked = ?,
-        chunk_count = ?
-      WHERE id = ?`).run(
-      targetEntry.type,
-      targetUploadResult.storageResult.id || fileRecord.storage_key,
-      JSON.stringify({
+    updateFileMigrationFields(db, fileRecord.id, {
+      storageChannel: targetEntry.type,
+      storageKey: targetUploadResult.storageResult.id || fileRecord.storage_key,
+      storageConfig: JSON.stringify({
         instance_id: targetChannel,
         extra_result: targetUploadResult.storageResult,
       }),
-      targetChannel,
-      targetUploadResult.isChunked ? 1 : 0,
-      Number(targetUploadResult.chunkCount) || 0,
-      fileRecord.id
-    );
+      storageInstanceId: targetChannel,
+      isChunked: targetUploadResult.isChunked ? 1 : 0,
+      chunkCount: Number(targetUploadResult.chunkCount) || 0,
+    });
 
     const fileSize = Number(fileRecord.size) || 0;
     insertQuotaEvents(db, [

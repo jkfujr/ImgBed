@@ -5,6 +5,13 @@ import { resolveParentPath, checkPathConflict, buildPath, renameDirectory } from
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, ForbiddenError } from '../errors/AppError.js';
 import { success } from '../utils/response.js';
+import {
+  getDirectoryById,
+  getAllDirectories,
+  insertDirectory,
+  deleteDirectoryById,
+  countChildDirectories,
+} from '../database/directories-dao.js';
 
 const dirsApp = express.Router();
 
@@ -25,7 +32,7 @@ const buildTree = (directories, parentId = null) => {
  */
 dirsApp.get('/', asyncHandler(async (req, res) => {
     const type = req.query.type;
-    const dirs = sqlite.prepare('SELECT * FROM directories ORDER BY path ASC').all();
+    const dirs = getAllDirectories(sqlite);
 
     if (type === 'flat') {
         return res.json(success(dirs));
@@ -52,11 +59,8 @@ dirsApp.post('/', asyncHandler(async (req, res) => {
 
     await checkPathConflict(newPath, sqlite);
 
-    const insertRes = sqlite.prepare(
-        'INSERT INTO directories (name, path, parent_id) VALUES (?, ?, ?)'
-    ).run(name.trim(), newPath, parentIdToSave);
-
-    const inserted = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(Number(insertRes.lastInsertRowid));
+    const insertRes = insertDirectory(sqlite, { name, path: newPath, parentId: parentIdToSave });
+    const inserted = getDirectoryById(sqlite, Number(insertRes.lastInsertRowid));
 
     return res.json(success(inserted, '创建成功'));
 }));
@@ -92,7 +96,7 @@ dirsApp.delete('/:id', asyncHandler(async (req, res) => {
         throw new ValidationError('无效的 ID 格式');
     }
 
-    const targetDir = sqlite.prepare('SELECT * FROM directories WHERE id = ?').get(id);
+    const targetDir = getDirectoryById(sqlite, id);
     if (!targetDir) {
        return res.json(success(null, '目录已不存在'));
     }
@@ -103,12 +107,11 @@ dirsApp.delete('/:id', asyncHandler(async (req, res) => {
         throw new ForbiddenError(`无法删除：该目录或其子目录下仍关联 ${ct} 份文件`);
     }
 
-    const childDirsRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM directories WHERE parent_id = ?').get(id);
-    if (Number(childDirsRes?.ct || 0) > 0) {
+    if (countChildDirectories(sqlite, id) > 0) {
         throw new ForbiddenError('存在子目录，请先清空子目录');
     }
 
-    sqlite.prepare('DELETE FROM directories WHERE id = ?').run(id);
+    deleteDirectoryById(sqlite, id);
 
     return res.json(success({}, '目录删除完成'));
 }));

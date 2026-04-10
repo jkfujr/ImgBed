@@ -10,6 +10,7 @@ import {
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
 import { parseStorageConfig, isIndexOnlyMode, removeStoredArtifacts } from './storage-artifacts.js';
+import { deleteFileById } from '../../database/files-dao.js';
 
 const log = createLogger('delete-file');
 
@@ -83,7 +84,7 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
 
   const persistDelete = db.transaction(() => {
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
-    db.prepare('DELETE FROM files WHERE id = ?').run(fileRecord.id);
+    deleteFileById(db, fileRecord.id);
 
     if (instanceId) {
       insertQuotaEvents(db, [buildQuotaEvent({

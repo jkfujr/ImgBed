@@ -4,6 +4,7 @@ import multer from 'multer';
 import storageManager from '../storage/manager.js';
 import sharp from 'sharp';
 import { sqlite } from '../database/index.js';
+import { insertFile } from '../database/files-dao.js';
 import { requirePermission } from '../middleware/auth.js';
 import { guestUploadAuth } from '../middleware/guestUpload.js';
 import config from '../config/index.js';
@@ -236,19 +237,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
   });
 
   const persistUpload = sqlite.transaction(() => {
-    sqlite.prepare(`INSERT INTO files (
-      id, file_name, original_name, mime_type, size,
-      storage_channel, storage_key, storage_config, storage_instance_id,
-      upload_ip, upload_address, uploader_type, uploader_id,
-      directory, tags, is_public, is_chunked, chunk_count,
-      width, height, exif, status
-    ) VALUES (
-      @id, @file_name, @original_name, @mime_type, @size,
-      @storage_channel, @storage_key, @storage_config, @storage_instance_id,
-      @upload_ip, @upload_address, @uploader_type, @uploader_id,
-      @directory, @tags, @is_public, @is_chunked, @chunk_count,
-      @width, @height, @exif, @status
-    )`).run(dbRecord);
+    insertFile(sqlite, dbRecord);
 
     ChunkManager.insertChunks(uploadResult.chunkRecords || [], sqlite);
     insertQuotaEvents(sqlite, [buildQuotaEvent({

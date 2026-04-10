@@ -1,5 +1,6 @@
 import express from 'express';
 import { sqlite } from '../database/index.js';
+import { getActiveFileById } from '../database/files-dao.js';
 import { adminAuth, requirePermission } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import ChunkManager from '../storage/chunk-manager.js';
@@ -126,7 +127,7 @@ filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandle
  */
 filesApp.get('/:id', requirePermission('files:read'), asyncHandler(async (req, res) => {
     const id = req.params.id;
-    const file = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
+    const file = getActiveFileById(sqlite, id);
 
     if (!file) {
         throw new NotFoundError('指定的文件未找到');
@@ -180,7 +181,7 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
 filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     const id = req.params.id;
     const deleteMode = req.query.delete_mode || req.body?.delete_mode || 'remote_and_index';
-    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
+    const fileRecord = getActiveFileById(sqlite, id);
     if (!fileRecord) {
         throw new NotFoundError('文件不存在或已被删除');
     }
