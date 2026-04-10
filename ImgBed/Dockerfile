@@ -1,6 +1,6 @@
-FROM node:24-slim
+FROM node:24-slim AS builder
 
-# 安装必要的系统依赖（sharp 需要）
+# 安装原生模块编译依赖
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -12,15 +12,32 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# 复制后端代码
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
-COPY . ./
+COPY main.js ./
+COPY src ./src
+COPY static ./static
 
-# 清理构建依赖
-RUN apt-get purge -y --auto-remove python3 make g++ && \
-    rm -rf /root/.npm /tmp/*
+
+FROM node:24-bookworm-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libvips \
+    libsqlite3-0 && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/main.js ./
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/static ./static
 
 # 创建数据目录
 RUN mkdir -p /app/data/storage
