@@ -5,6 +5,7 @@ import {
   updateDirectoryPath,
   updateDirectoryNameAndPath,
 } from '../../database/directories-dao.js';
+import { renameFileDirectory } from '../../database/files-dao.js';
 
 /**
  * 解析目录父路径
@@ -56,7 +57,7 @@ async function updateChildrenPaths(oldPath, newPath, sqlite) {
   for (const child of children) {
     const updatedChildPath = child.path.replace(oldPath, newPath);
     updateDirectoryPath(sqlite, child.id, updatedChildPath);
-    sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(updatedChildPath, child.path);
+    renameFileDirectory(sqlite, updatedChildPath, child.path);
   }
 }
 
@@ -93,7 +94,7 @@ async function renameDirectory(id, newName, sqlite) {
   updateDirectoryNameAndPath(sqlite, id, { name: newName, path: newPath });
 
   if (oldPath !== newPath) {
-    sqlite.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(newPath, oldPath);
+    renameFileDirectory(sqlite, newPath, oldPath);
 
     await updateChildrenPaths(oldPath, newPath, sqlite);
   }

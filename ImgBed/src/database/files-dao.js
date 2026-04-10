@@ -203,6 +203,40 @@ function moveFilesToDirectory(db, ids, directory) {
   ).run(directory, ...ids);
 }
 
+/**
+ * 将旧目录路径下的所有文件的 directory 字段更新为新路径（目录重命名级联用）。
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} newDirectory
+ * @param {string} oldDirectory
+ */
+function renameFileDirectory(db, newDirectory, oldDirectory) {
+  return db.prepare('UPDATE files SET directory = ? WHERE directory = ?').run(newDirectory, oldDirectory);
+}
+
+/**
+ * 记录文件访问日志。
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ fileId: string, ip: string, userAgent: string|null, referer: string|null, isAdmin: number }} param
+ */
+function insertAccessLog(db, { fileId, ip, userAgent, referer, isAdmin }) {
+  return db.prepare(
+    'INSERT INTO access_logs (file_id, ip, user_agent, referer, is_admin) VALUES (?, ?, ?, ?, ?)'
+  ).run(fileId, ip, userAgent, referer, isAdmin);
+}
+
+/**
+ * 按目录路径前缀统计 active 文件数（删除目录前安全检查用）。
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} pathPrefix - 目录 path（含子目录，使用 LIKE prefix%）
+ * @returns {number}
+ */
+function countFilesByDirectoryPrefix(db, pathPrefix) {
+  const row = db.prepare(
+    "SELECT COUNT(id) AS ct FROM files WHERE directory LIKE ? AND status = 'active'"
+  ).get(`${pathPrefix}%`);
+  return Number(row?.ct || 0);
+}
+
 export {
   getActiveFileById,
   getFileById,
@@ -217,4 +251,7 @@ export {
   updateFileImageMetadata,
   freezeFilesByStorageInstance,
   moveFilesToDirectory,
+  renameFileDirectory,
+  insertAccessLog,
+  countFilesByDirectoryPrefix,
 };

@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { sqlite } from '../database/index.js';
-import { getActiveFileById } from '../database/files-dao.js';
+import { getActiveFileById, insertAccessLog } from '../database/files-dao.js';
 import config from '../config/index.js';
 import storageManager from '../storage/manager.js';
 import ChunkManager from '../storage/chunk-manager.js';
@@ -131,10 +131,13 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
             // 检测是否为管理员访问（通过 Authorization header 或 referer 包含 /admin）
             const isAdmin = !!(req.headers['authorization'] || (referer && referer.includes('/admin')));
 
-            sqlite.prepare(`
-                INSERT INTO access_logs (file_id, ip, user_agent, referer, is_admin)
-                VALUES (?, ?, ?, ?, ?)
-            `).run(id, ip, userAgent, referer, isAdmin ? 1 : 0);
+            insertAccessLog(sqlite, {
+                fileId: id,
+                ip,
+                userAgent,
+                referer,
+                isAdmin: isAdmin ? 1 : 0,
+            });
         } catch (error) {
             // 日志记录失败不影响文件访问
             log.error({ err: error }, '访问日志记录失败');
