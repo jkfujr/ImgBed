@@ -657,7 +657,7 @@ class StorageManager {
             const rows = sqlite.prepare(`
                 SELECT storage_instance_id, SUM(size) AS used_bytes, COUNT(*) AS file_count
                 FROM files
-                WHERE storage_instance_id IS NOT NULL
+                WHERE storage_instance_id IS NOT NULL AND status = 'active'
                 GROUP BY storage_instance_id
             `).all();
 
@@ -722,7 +722,7 @@ class StorageManager {
             const actualStats = sqlite.prepare(`
                 SELECT storage_instance_id, SUM(size) AS used_bytes, COUNT(*) AS file_count
                 FROM files
-                WHERE storage_instance_id IS NOT NULL
+                WHERE storage_instance_id IS NOT NULL AND status = 'active'
                 GROUP BY storage_instance_id
             `).all();
 

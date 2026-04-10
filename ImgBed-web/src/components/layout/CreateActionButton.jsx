@@ -14,9 +14,9 @@ import ChannelDialog from '../common/ChannelDialog';
 import { useRefresh } from '../../contexts/RefreshContext';
 import { useUpload } from '../../hooks/useUpload';
 import { useCreateDirectory } from '../../hooks/useCreateDirectory';
-import { ROOT_DIR } from '../../admin/filesAdminShared';
+import { normalizeDirectoryPath, ROOT_DIR } from '../../admin/filesAdminShared';
 
-export default function CreateActionButton() {
+export default function CreateActionButton({ currentDir = ROOT_DIR }) {
   const { triggerRefresh } = useRefresh();
   const { upload } = useUpload({ refreshMode: 'global' });
   const { createDirectory } = useCreateDirectory();
@@ -25,6 +25,7 @@ export default function CreateActionButton() {
   const [uploadMode, setUploadMode] = useState('file');
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const resolvedDir = normalizeDirectoryPath(currentDir);
 
   const handleCreateMenuOpen = (event) => {
     setCreateMenuAnchor(event.currentTarget);
@@ -59,7 +60,7 @@ export default function CreateActionButton() {
 
   const handlePasteUploadFile = async (file, options = {}) => {
     try {
-      const result = await upload(file, { ...options, directory: ROOT_DIR });
+      const result = await upload(file, { ...options, directory: resolvedDir });
       if (!result.success) {
         logger.error('上传失败:', result.error);
       }
@@ -70,7 +71,10 @@ export default function CreateActionButton() {
 
   const handleCreateFolderConfirm = async (folderPath) => {
     try {
-      const result = await createDirectory(folderPath, { parentId: null });
+      const createOptions = resolvedDir === ROOT_DIR
+        ? { parentId: null }
+        : { currentPath: resolvedDir };
+      const result = await createDirectory(folderPath, createOptions);
       if (!result.success) {
         logger.error('创建文件夹失败:', result.error);
       }

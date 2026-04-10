@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -29,6 +29,7 @@ import { useThemeMode } from '../contexts/ThemeContext';
 import { BORDER_RADIUS } from '../utils/constants';
 import SearchDialog from '../components/common/SearchDialog';
 import CreateActionButton from '../components/layout/CreateActionButton';
+import { getDirectoryPathFromSearch, ROOT_DIR } from '../admin/filesAdminShared';
 
 export default function MainLayout() {
   const { isAuthenticated, logout, user } = useAuth();
@@ -58,7 +59,6 @@ export default function MainLayout() {
   };
 
   const handleThemeToggle = () => {
-    // 循环切换: light -> dark -> auto -> light
     const modes = ['light', 'dark', 'auto'];
     const currentIndex = modes.indexOf(themeMode);
     const nextIndex = (currentIndex + 1) % modes.length;
@@ -93,12 +93,17 @@ export default function MainLayout() {
 
   const isPublicArea = !location.pathname.startsWith('/admin');
   const showCreateButton = isAuthenticated && !isPublicArea;
+  const createButtonDir = useMemo(() => {
+    if (location.pathname !== '/admin/files') {
+      return ROOT_DIR;
+    }
+    return getDirectoryPathFromSearch(location.search);
+  }, [location.pathname, location.search]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', width: '100%' }}>
       <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar>
-          {/* Logo 区域*/}
           <Box sx={{
             display: 'flex',
             alignItems: 'center',
@@ -113,10 +118,8 @@ export default function MainLayout() {
             </Typography>
           </Box>
 
-          {/* 新建按钮*/}
-          {showCreateButton && <CreateActionButton />}
+          {showCreateButton && <CreateActionButton currentDir={createButtonDir} />}
 
-          {/* 搜索框 */}
           {showCreateButton && (
             <TextField
               size="small"
@@ -136,10 +139,8 @@ export default function MainLayout() {
             />
           )}
 
-          {/* 右侧区域 */}
           <Box sx={{ flexGrow: 1 }} />
 
-          {/* 主题切换按钮 */}
           <Tooltip title={getThemeLabel()}>
             <IconButton
               onClick={handleThemeToggle}
@@ -150,7 +151,6 @@ export default function MainLayout() {
             </IconButton>
           </Tooltip>
 
-          {/* User / Authentication Dropdown Area */}
           <IconButton
             size="large"
             color="primary"
@@ -203,12 +203,10 @@ export default function MainLayout() {
         </Toolbar>
       </AppBar>
 
-      {/* 内容主体 */}
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', bgcolor: 'background.default', overflow: 'hidden', minHeight: 0 }}>
           <Outlet />
       </Box>
 
-      {/* 搜索对话框 */}
       <SearchDialog
         open={searchDialogOpen}
         onClose={() => setSearchDialogOpen(false)}

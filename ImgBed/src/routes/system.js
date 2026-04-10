@@ -4,7 +4,7 @@ import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
 import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels, getSystemConfigPath } from '../services/system/config-io.js';
-import { insertStorageChannelMeta, updateStorageChannelMeta, deleteStorageChannelMeta } from '../services/system/storage-channel-sync.js';
+import { insertStorageChannelMeta, updateStorageChannelMeta, markStorageChannelDeleted } from '../services/system/storage-channel-sync.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
@@ -111,19 +111,25 @@ systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) =
   const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
   const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
 
-  const list = fileStorages.map(s => {
-    const dbCh = dbMap.get(s.id);
-    const merged = {
-      ...s,
-      name: dbCh ? dbCh.name : s.name,
-      enabled: dbCh ? Boolean(dbCh.enabled) : s.enabled,
-      allowUpload: dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload,
-      weight: dbCh ? Number(dbCh.weight) : (s.weight || 1),
-      quotaLimitGB: dbCh ? dbCh.quota_limit_gb : s.quotaLimitGB,
-      usedBytes: quotaStats[s.id] || 0
-    };
-    return maskStorage(merged);
-  });
+  // 过滤逻辑删除的渠道（deleted_at IS NOT NULL）
+  const list = fileStorages
+    .filter(s => {
+      const dbCh = dbMap.get(s.id);
+      return !dbCh || dbCh.deleted_at == null;
+    })
+    .map(s => {
+      const dbCh = dbMap.get(s.id);
+      const merged = {
+        ...s,
+        name: dbCh ? dbCh.name : s.name,
+        enabled: dbCh ? Boolean(dbCh.enabled) : s.enabled,
+        allowUpload: dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload,
+        weight: dbCh ? Number(dbCh.weight) : (s.weight || 1),
+        quotaLimitGB: dbCh ? dbCh.quota_limit_gb : s.quotaLimitGB,
+        usedBytes: quotaStats[s.id] || 0
+      };
+      return maskStorage(merged);
+    });
 
   return res.json(success({ list, default: cfg.storage?.default }));
 }));
@@ -143,8 +149,11 @@ systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req,
   let allowUpload = 0;
   const byType = {};
 
+  // 只统计未逻辑删除的渠道
   fileStorages.forEach(s => {
     const dbCh = dbMap.get(s.id);
+    if (dbCh && dbCh.deleted_at != null) return;
+
     const isEnabled = dbCh ? Boolean(dbCh.enabled) : s.enabled;
     const canUpload = dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload;
 
@@ -153,11 +162,16 @@ systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req,
     byType[s.type] = (byType[s.type] || 0) + 1;
   });
 
+  const total = fileStorages.filter(s => {
+    const dbCh = dbMap.get(s.id);
+    return !dbCh || dbCh.deleted_at == null;
+  }).length;
+
   return res.json({
     code: 0,
     message: 'success',
     data: {
-      total: fileStorages.length,
+      total,
       enabled,
       allowUpload,
       byType
@@ -290,7 +304,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
 }));
 
 /**
- * 删除存储渠道
+ * 删除存储渠道（逻辑删除）
  * DELETE /api/system/storages/:id
  */
 systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
@@ -299,19 +313,26 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   if (cfg.storage.default === id) {
     throw new ValidationError('不能删除当前默认渠道，请先切换默认渠道');
   }
-  const before = (cfg.storage.storages || []).length;
-  cfg.storage.storages = (cfg.storage.storages || []).filter((s) => s.id !== id);
-  if (cfg.storage.storages.length === before) {
+  const storage = (cfg.storage.storages || []).find((s) => s.id === id);
+  if (!storage) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
   }
 
-  await deleteStorageChannelMeta(id, sqlite);
+  // 逻辑删除：禁用渠道配置（保留在 config 中以备审计）
+  storage.enabled = false;
+  storage.allowUpload = false;
+
+  // 事务内：标记渠道 deleted_at，冻结关联文件 status = 'channel_deleted'
+  markStorageChannelDeleted(id, sqlite);
+
   await applyStorageConfigChange({ cfg, configPath, storageManager });
 
-  // 使存储相关缓存失效
+  // 使存储和文件相关缓存全部失效
   cacheInvalidation.invalidateStorages();
+  cacheInvalidation.invalidateFiles();
+  cacheInvalidation.invalidateDashboard();
 
-  return res.json(success(null, '存储渠道已删除'));
+  return res.json(success(null, '存储渠道已停用，关联文件已冻结'));
 }));
 
 /**
@@ -511,17 +532,17 @@ systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
  */
 systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(async (_req, res) => {
   // 查询总文件数
-  const totalFilesResult = sqlite.prepare('SELECT COUNT(*) as count FROM files').get();
+  const totalFilesResult = sqlite.prepare("SELECT COUNT(*) as count FROM files WHERE status = 'active'").get();
   const totalFiles = totalFilesResult?.count || 0;
 
   // 查询总存储大小
-  const totalSizeResult = sqlite.prepare('SELECT SUM(size) as sum FROM files').get();
+  const totalSizeResult = sqlite.prepare("SELECT SUM(size) as sum FROM files WHERE status = 'active'").get();
   const totalSize = totalSizeResult?.sum || 0;
 
   // 查询今日上传数
   const todayUploadsResult = sqlite.prepare(`
     SELECT COUNT(*) as count FROM files
-    WHERE DATE(created_at) = DATE('now')
+    WHERE DATE(created_at) = DATE('now') AND status = 'active'
   `).get();
   const todayUploads = todayUploadsResult?.count || 0;
 
@@ -532,12 +553,13 @@ systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(asyn
   `).get();
   const todayAccess = todayAccessResult?.count || 0;
 
-  // 查询存储渠道数
+  // 查询存储渠道数（排除逻辑删除的渠道）
   const channelsResult = sqlite.prepare(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled
     FROM storage_channels
+    WHERE deleted_at IS NULL
   `).get();
   const totalChannels = channelsResult?.total || 0;
   const enabledChannels = channelsResult?.enabled || 0;
@@ -574,7 +596,7 @@ systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandl
       COUNT(*) as fileCount,
       COALESCE(SUM(size), 0) as totalSize
     FROM files
-    WHERE created_at >= datetime('now', '-${days} days')
+    WHERE created_at >= datetime('now', '-${days} days') AND status = 'active'
     GROUP BY DATE(created_at)
     ORDER BY date ASC
   `).all();
@@ -616,6 +638,7 @@ systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandl
     INNER JOIN files ON access_logs.file_id = files.id
     WHERE DATE(access_logs.created_at) >= DATE('now', '-7 days')
       AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
+      AND files.status = 'active'
     GROUP BY access_logs.file_id
     ORDER BY accessCount DESC
     LIMIT 5

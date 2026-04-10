@@ -39,12 +39,33 @@ export function hasTelegramFilesOlderThan24h(items) {
   return items.some((item) => isTelegramFileOlderThan24h(item));
 }
 
+export function normalizeDirectoryPath(path) {
+  const raw = `${path ?? ''}`.trim();
+  if (!raw || raw === ROOT_DIR) return ROOT_DIR;
+
+  const withLeadingSlash = raw.startsWith(ROOT_DIR) ? raw : `${ROOT_DIR}${raw}`;
+  const collapsed = withLeadingSlash.replace(/\/+/g, ROOT_DIR);
+  const trimmed = collapsed.replace(/\/+$/g, '');
+
+  return trimmed || ROOT_DIR;
+}
+
+export function getDirectoryPathFromSearch(search) {
+  const params = new URLSearchParams(search);
+  return normalizeDirectoryPath(params.get('path'));
+}
+
+export function buildFilesAdminPath(dir) {
+  const normalized = normalizeDirectoryPath(dir);
+  return `/admin/files?path=${encodeURIComponent(normalized)}`;
+}
+
 export function getCacheKey(dir) {
-  return dir;
+  return normalizeDirectoryPath(dir);
 }
 
 export function buildDirectoryChildren(allDirs, dir) {
-  const parentPath = dir;
+  const parentPath = normalizeDirectoryPath(dir);
   const prefix = parentPath === ROOT_DIR ? ROOT_DIR : `${parentPath}/`;
 
   return allDirs
@@ -72,18 +93,20 @@ export function updateCachedDirectories(cache, allDirs) {
 }
 
 export async function fetchDirectories(currentDir) {
+  const normalizedDir = normalizeDirectoryPath(currentDir);
   const dirsRes = await DirectoryDocs.list({ type: 'flat' });
   if (dirsRes.code !== 0 || !dirsRes.data) return { allDirs: null, directories: [] };
 
   const allDirs = dirsRes.data.list || dirsRes.data || [];
   return {
     allDirs,
-    directories: buildDirectoryChildren(allDirs, currentDir),
+    directories: buildDirectoryChildren(allDirs, normalizedDir),
   };
 }
 
 export async function fetchListPage(dir) {
-  const params = { page: 1, pageSize: PAGE_SIZE, directory: dir };
+  const normalizedDir = normalizeDirectoryPath(dir);
+  const params = { page: 1, pageSize: PAGE_SIZE, directory: normalizedDir };
   const pageRes = await FileDocs.list(params);
   return parseListResponse(pageRes);
 }

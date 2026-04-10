@@ -1,5 +1,6 @@
 import config from './src/config/index.js';
-import { initDb, sqlite } from './src/database/index.js';
+import { initDb, sqlite, dbPath } from './src/database/index.js';
+import { runMigrations } from './src/database/migrations.js';
 import { initResponseCache } from './src/services/cache/response-cache.js';
 import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
 import { initArchiveScheduler } from './src/services/archive/archive-scheduler.js';
@@ -75,6 +76,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
 try {
   initDb();
+  runMigrations(sqlite, dbPath);
   // 同步配置文件中的存储渠道到数据库
   await syncAllStorageChannels(config, sqlite);
   log.info('存储渠道已同步到数据库');

@@ -104,7 +104,7 @@ viewApp.get('/:id', asyncHandler(async (req, res) => {
         throw new ForbiddenError('禁止访问');
     }
 
-    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
+    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
 
     if (!fileRecord) {
         throw new NotFoundError('文件未找到或标识符无效');

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { FileDocs } from '../api';
 import { useRefresh } from '../contexts/RefreshContext';
 import logger from '../utils/logger';
@@ -7,9 +8,12 @@ import {
   EMPTY_LIST,
   ROOT_DIR,
   areAllTelegramFilesOlderThan24h,
+  buildFilesAdminPath,
   fetchDirectories,
   fetchListPage,
   getCacheKey,
+  getDirectoryPathFromSearch,
+  normalizeDirectoryPath,
   updateCachedDirectories,
 } from '../admin/filesAdminShared';
 
@@ -18,10 +22,11 @@ import {
  */
 export function useFilesAdmin() {
   const { refreshTrigger } = useRefresh();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [listData, setListData] = useState(EMPTY_LIST);
   const [loading, setLoading] = useState(true);
-  const [currentDir, setCurrentDir] = useState(ROOT_DIR);
   const [selected, setSelected] = useState(new Set());
   const [error, setError] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(EMPTY_DELETE);
@@ -31,6 +36,7 @@ export function useFilesAdmin() {
 
   const pageRef = useRef(0);
   const cacheRef = useRef(new Map());
+  const currentDir = useMemo(() => getDirectoryPathFromSearch(location.search), [location.search]);
 
   const handleOpenDetail = useCallback((item) => setDetailItem(item), []);
   const handleCloseDetail = useCallback(() => setDetailItem(null), []);
@@ -89,6 +95,14 @@ export function useFilesAdmin() {
   }, [clearSelection, currentDir]);
 
   useEffect(() => {
+    const normalizedPath = getDirectoryPathFromSearch(location.search);
+    const pathParam = new URLSearchParams(location.search).get('path');
+    if (pathParam !== normalizedPath) {
+      navigate(buildFilesAdminPath(normalizedPath), { replace: true });
+    }
+  }, [location.search, navigate]);
+
+  useEffect(() => {
     loadDirectoryData({ showLoading: true });
   }, [loadDirectoryData]);
 
@@ -114,7 +128,6 @@ export function useFilesAdmin() {
 
   const triggerDelete = (ids, label, items = []) => {
     if (deleteDialog.open || !ids.length) return;
-    // 判断是否所有文件都是 TG 且超 24h，若是则强制仅删索引
     const effectiveMode = areAllTelegramFilesOlderThan24h(items) ? 'index_only' : 'remote_and_index';
     setDeleteDialog({ open: true, ids, label, saving: false, deleteMode: effectiveMode, errorMessage: '' });
   };
@@ -135,13 +148,17 @@ export function useFilesAdmin() {
       }
       setDeleteDialog(EMPTY_DELETE);
       refreshAfterMutation();
-    } catch (e) {
+    } catch (e) { 
       logger.error(e);
       setDeleteDialog((prev) => ({ ...prev, saving: false, errorMessage: '删除失败，请重试' }));
     }
   };
 
-  const navigateToDir = (path) => setCurrentDir(path);
+  const navigateToDir = useCallback((path) => {
+    const normalized = normalizeDirectoryPath(path);
+    navigate(buildFilesAdminPath(normalized));
+  }, [navigate]);
+
   const openMigrate = () => setMigrateDialog({ open: true, ids: [...selected] });
   const closeMigrate = () => setMigrateDialog({ open: false, ids: [] });
   const openMove = () => setMoveDialog({ open: true, ids: [...selected] });

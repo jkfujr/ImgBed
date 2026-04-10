@@ -71,8 +71,8 @@ filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandle
         ensureDirectoryExistsOrThrow(directory);
     }
 
-    const conditions = [];
-    const params = [];
+    const conditions = ['status = ?'];
+    const params = ['active'];
 
     if (directory !== undefined) {
         conditions.push('directory = ?');
@@ -126,7 +126,7 @@ filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandle
  */
 filesApp.get('/:id', requirePermission('files:read'), asyncHandler(async (req, res) => {
     const id = req.params.id;
-    const file = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
+    const file = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
 
     if (!file) {
         throw new NotFoundError('指定的文件未找到');
@@ -159,7 +159,7 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
     const setClauses = Object.keys(updateData).map((k) => `${k} = ?`).join(', ');
     const setParams = Object.values(updateData);
     const { changes } = sqlite.prepare(
-        `UPDATE files SET ${setClauses} WHERE id = ?`
+        `UPDATE files SET ${setClauses} WHERE id = ? AND status = 'active'`
     ).run(...setParams, id);
 
     if (!changes) {
@@ -180,7 +180,7 @@ filesApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
 filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     const id = req.params.id;
     const deleteMode = req.query.delete_mode || req.body?.delete_mode || 'remote_and_index';
-    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(id);
+    const fileRecord = sqlite.prepare('SELECT * FROM files WHERE id = ? AND status = ? LIMIT 1').get(id, 'active');
     if (!fileRecord) {
         throw new NotFoundError('文件不存在或已被删除');
     }

@@ -97,7 +97,7 @@ dirsApp.delete('/:id', asyncHandler(async (req, res) => {
        return res.json(success(null, '目录已不存在'));
     }
 
-    const fileCountRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM files WHERE directory LIKE ?').get(`${targetDir.path}%`);
+    const fileCountRes = sqlite.prepare('SELECT COUNT(id) AS ct FROM files WHERE directory LIKE ? AND status = ?').get(`${targetDir.path}%`, 'active');
     const ct = Number(fileCountRes?.ct || 0);
     if (ct > 0) {
         throw new ForbiddenError(`无法删除：该目录或其子目录下仍关联 ${ct} 份文件`);

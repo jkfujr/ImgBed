@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Box, Breadcrumbs, Link, Typography } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { BORDER_RADIUS } from '../../utils/constants';
+import { normalizeDirectoryPath, ROOT_DIR } from '../../admin/filesAdminShared';
 
 /**
  * 可编辑面包屑路径编辑器
@@ -24,7 +25,6 @@ export default function BreadcrumbPathEditor({
   const [pathEditing, setPathEditing] = useState(false);
   const pathInputRef = useRef(null);
 
-  // 进入编辑模式时：填充当前路径并聚焦
   useEffect(() => {
     if (!pathEditing) return undefined;
     if (pathInputRef.current) {
@@ -34,30 +34,20 @@ export default function BreadcrumbPathEditor({
     return () => clearTimeout(timer);
   }, [pathEditing, currentDir]);
 
-  // 提交路径编辑
   const commitPathEdit = () => {
-    const raw = (pathInputRef.current?.value || '').trim();
-    let normalized = '/';
-
-    if (raw !== '/' && raw !== '') {
-      normalized = raw.startsWith('/') ? raw : `/${raw}`;
-    }
-
-    onNavigate(normalized);
+    const raw = pathInputRef.current?.value || '';
+    onNavigate(normalizeDirectoryPath(raw));
     setPathEditing(false);
   };
 
-  // 取消路径编辑
   const cancelPathEdit = () => {
     setPathEditing(false);
   };
 
-  // 从当前路径解析分段
   const segments = currentDir
     ? currentDir.split('/').filter(Boolean)
     : [];
 
-  // 路径分段悬浮高亮样式
   const segmentHoverSx = {
     cursor: 'pointer',
     fontSize: 14,
@@ -74,7 +64,6 @@ export default function BreadcrumbPathEditor({
   return (
     <>
       {pathEditing ? (
-        /* 编辑态：原生 input + 外层 Box 统一视觉样式 */
         <Box
           sx={{
             flex: 1,
@@ -135,14 +124,14 @@ export default function BreadcrumbPathEditor({
             <Link
               component="button"
               underline="hover"
-              color={currentDir === '/' ? 'text.primary' : 'inherit'}
+              color={currentDir === ROOT_DIR ? 'text.primary' : 'inherit'}
               onClick={(e) => {
                 e.stopPropagation();
-                onNavigate('/');
+                onNavigate(ROOT_DIR);
               }}
               sx={{
                 cursor: 'pointer',
-                fontWeight: currentDir === '/' ? 'bold' : 'normal',
+                fontWeight: currentDir === ROOT_DIR ? 'bold' : 'normal',
                 fontSize: 14,
                 border: 'none',
                 background: 'none',
@@ -157,7 +146,7 @@ export default function BreadcrumbPathEditor({
               {rootLabel}
             </Link>
             {segments.map((seg, i) => {
-              const path = '/' + segments.slice(0, i + 1).join('/');
+              const path = normalizeDirectoryPath(`${ROOT_DIR}${segments.slice(0, i + 1).join('/')}`);
               const isLast = i === segments.length - 1;
               return isLast ? (
                 <Typography

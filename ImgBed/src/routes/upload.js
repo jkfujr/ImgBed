@@ -134,6 +134,7 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
     width,
     height,
     exif,
+    status: 'active',
   };
 }
 
@@ -240,13 +241,13 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
       storage_channel, storage_key, storage_config, storage_instance_id,
       upload_ip, upload_address, uploader_type, uploader_id,
       directory, tags, is_public, is_chunked, chunk_count,
-      width, height, exif
+      width, height, exif, status
     ) VALUES (
       @id, @file_name, @original_name, @mime_type, @size,
       @storage_channel, @storage_key, @storage_config, @storage_instance_id,
       @upload_ip, @upload_address, @uploader_type, @uploader_id,
       @directory, @tags, @is_public, @is_chunked, @chunk_count,
-      @width, @height, @exif
+      @width, @height, @exif, @status
     )`).run(dbRecord);
 
     ChunkManager.insertChunks(uploadResult.chunkRecords || [], sqlite);

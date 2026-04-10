@@ -4,6 +4,7 @@ import config from '../config/index.js';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { createLogger } from '../utils/logger.js';
+import { runMigrations } from './migrations.js';
 
 const log = createLogger('database');
 
@@ -69,7 +70,10 @@ const initDb = () => {
                  storage_instance_id TEXT,
 
                  is_chunked BOOLEAN DEFAULT FALSE,
-                 chunk_count INTEGER DEFAULT 0
+                 chunk_count INTEGER DEFAULT 0,
+
+                 -- 文件状态：active = 正常，channel_deleted = 渠道逻辑删除后冻结
+                 status TEXT NOT NULL DEFAULT 'active'
              );
 
             CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
@@ -78,6 +82,9 @@ const initDb = () => {
             CREATE INDEX IF NOT EXISTS idx_files_storage_instance ON files(storage_instance_id);
             CREATE INDEX IF NOT EXISTS idx_files_mime_type ON files(mime_type);
             CREATE INDEX IF NOT EXISTS idx_files_is_chunked ON files(is_chunked);
+            CREATE INDEX IF NOT EXISTS idx_files_status_created_at ON files(status, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_status_directory_created_at ON files(status, directory, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_status_storage_instance ON files(status, storage_instance_id);
 
             -- 复合索引优化查询性能
             CREATE INDEX IF NOT EXISTS idx_files_dir_time ON files(directory, created_at DESC);
@@ -183,6 +190,7 @@ const initDb = () => {
                 allow_upload BOOLEAN DEFAULT TRUE,
                 weight INTEGER DEFAULT 1,
                 quota_limit_gb REAL,
+                deleted_at DATETIME,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -299,10 +307,10 @@ const initDb = () => {
             CREATE INDEX IF NOT EXISTS idx_storage_quota_cache_last_updated
             ON storage_quota_cache(last_updated DESC);
 
-            -- 容量缓存触发器：INSERT
+            -- 容量缓存触发器：INSERT（仅统计 active 文件）
             CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_insert
             AFTER INSERT ON files
-            WHEN NEW.storage_instance_id IS NOT NULL
+            WHEN NEW.storage_instance_id IS NOT NULL AND NEW.status = 'active'
             BEGIN
                 INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
                 VALUES (NEW.storage_instance_id, NEW.size, 1, CURRENT_TIMESTAMP)
@@ -312,10 +320,10 @@ const initDb = () => {
                     last_updated = CURRENT_TIMESTAMP;
             END;
 
-            -- 容量缓存触发器：DELETE
+            -- 容量缓存触发器：DELETE（仅对 active 文件扣减）
             CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_delete
             AFTER DELETE ON files
-            WHEN OLD.storage_instance_id IS NOT NULL
+            WHEN OLD.storage_instance_id IS NOT NULL AND OLD.status = 'active'
             BEGIN
                 UPDATE storage_quota_cache
                 SET
@@ -325,12 +333,12 @@ const initDb = () => {
                 WHERE storage_id = OLD.storage_instance_id;
             END;
 
-            -- 容量缓存触发器：UPDATE
+            -- 容量缓存触发器：UPDATE（覆盖 active<->冻结切换、size 变化、跨渠道迁移四种场景）
             CREATE TRIGGER IF NOT EXISTS trg_quota_cache_after_update
             AFTER UPDATE ON files
             WHEN OLD.storage_instance_id IS NOT NULL OR NEW.storage_instance_id IS NOT NULL
             BEGIN
-                -- 情况1: storage_instance_id 未变化，只是 size 变化
+                -- 情况1: 同一渠道 active->active，只是 size 变化
                 UPDATE storage_quota_cache
                 SET
                     used_bytes = storage_quota_cache.used_bytes - OLD.size + NEW.size,
@@ -338,10 +346,11 @@ const initDb = () => {
                 WHERE storage_id = OLD.storage_instance_id
                     AND OLD.storage_instance_id IS NOT NULL
                     AND NEW.storage_instance_id IS NOT NULL
-                    AND OLD.storage_instance_id = NEW.storage_instance_id;
+                    AND OLD.storage_instance_id = NEW.storage_instance_id
+                    AND OLD.status = 'active'
+                    AND NEW.status = 'active';
 
-                -- 情况2: storage_instance_id 发生变化（迁移）
-                -- 从旧存储实例减少
+                -- 情况2: active -> 非active（冻结），从渠道扣减
                 UPDATE storage_quota_cache
                 SET
                     used_bytes = MAX(0, storage_quota_cache.used_bytes - OLD.size),
@@ -349,9 +358,10 @@ const initDb = () => {
                     last_updated = CURRENT_TIMESTAMP
                 WHERE storage_id = OLD.storage_instance_id
                     AND OLD.storage_instance_id IS NOT NULL
-                    AND (NEW.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id);
+                    AND OLD.status = 'active'
+                    AND NEW.status != 'active';
 
-                -- 向新存储实例增加
+                -- 情况3: 非active -> active（解冻），向渠道增加
                 INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
                 VALUES (NEW.storage_instance_id, NEW.size, 1, CURRENT_TIMESTAMP)
                 ON CONFLICT(storage_id) DO UPDATE SET
@@ -359,7 +369,32 @@ const initDb = () => {
                     file_count = storage_quota_cache.file_count + 1,
                     last_updated = CURRENT_TIMESTAMP
                 WHERE NEW.storage_instance_id IS NOT NULL
-                    AND (OLD.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id);
+                    AND OLD.status != 'active'
+                    AND NEW.status = 'active';
+
+                -- 情况4: active 且 storage_instance_id 跨渠道变化（迁移）- 从旧渠道扣减
+                UPDATE storage_quota_cache
+                SET
+                    used_bytes = MAX(0, storage_quota_cache.used_bytes - OLD.size),
+                    file_count = MAX(0, storage_quota_cache.file_count - 1),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE storage_id = OLD.storage_instance_id
+                    AND OLD.storage_instance_id IS NOT NULL
+                    AND (NEW.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id)
+                    AND OLD.status = 'active'
+                    AND NEW.status = 'active';
+
+                -- 情况4续: active 且 storage_instance_id 跨渠道变化（迁移）- 向新渠道增加
+                INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
+                VALUES (NEW.storage_instance_id, NEW.size, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(storage_id) DO UPDATE SET
+                    used_bytes = storage_quota_cache.used_bytes + NEW.size,
+                    file_count = storage_quota_cache.file_count + 1,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE NEW.storage_instance_id IS NOT NULL
+                    AND (OLD.storage_instance_id IS NULL OR OLD.storage_instance_id != NEW.storage_instance_id)
+                    AND OLD.status = 'active'
+                    AND NEW.status = 'active';
             END;
         `);
 
@@ -379,4 +414,4 @@ const get = (sql, params = []) => sqlite.prepare(sql).get(params);
 const all = (sql, params = []) => sqlite.prepare(sql).all(params);
 const transaction = (fn) => sqlite.transaction(fn);
 
-export { sqlite, initDb, run, get, all, transaction };
+export { sqlite, initDb, run, get, all, transaction, dbPath };

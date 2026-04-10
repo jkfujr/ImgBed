@@ -40,7 +40,7 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
 
   if (action === 'delete') {
     const placeholders = ids.map(() => '?').join(', ');
-    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
+    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders}) AND status = 'active'`).all(...ids);
     const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager, deleteMode });
     return {
       code: 0,
@@ -58,7 +58,7 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
 
   if (action === 'migrate') {
     const placeholders = ids.map(() => '?').join(', ');
-    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...ids);
+    const files = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders}) AND status = 'active'`).all(...ids);
     const results = await migrateFilesBatch(files, {
       targetChannel,
       db,
