@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
  * 与 src/config/index.js 保持一致：从 appRoot/data/config.json 读取
  */
 export function getSystemConfigPath() {
-  const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   return path.join(appRoot, 'data', 'config.json');
 }
 
