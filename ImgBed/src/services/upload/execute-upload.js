@@ -14,7 +14,7 @@ function isRetryableError(error) {
   const msg = (error.message || '').toLowerCase();
   if (msg.includes('timeout') || msg.includes('network') || msg.includes('unavailable')) return true;
 
-  return true;
+  return false;
 }
 
 async function uploadToStorage({ storage, buffer, fileId, newFileName, originalName, mimeType, finalChannelId, storageManager }) {

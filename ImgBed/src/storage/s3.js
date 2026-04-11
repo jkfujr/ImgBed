@@ -76,26 +76,32 @@ class S3Storage extends StorageProvider {
 
     async put(file, options) {
         await this._ensureInitialized();
-        const { fileName, mimeType } = options;
+        const { fileName, mimeType, contentLength } = options;
         if (!fileName) throw new Error('[S3Storage] missing fileName');
 
         const fileKey = this._getFullPath(fileName);
-        let fileBuffer;
+        let body;
         if (file instanceof Buffer) {
-            fileBuffer = file;
+            body = file;
         } else if (typeof file.arrayBuffer === 'function') {
-            fileBuffer = Buffer.from(await file.arrayBuffer());
+            body = Buffer.from(await file.arrayBuffer());
         } else {
-            throw new Error('[S3Storage] Unsupported file format');
+            // Node.js Readable 或 Web ReadableStream 直接作为 Body 传给 S3 SDK
+            body = file;
         }
 
-        const command = new PutObjectCommand({
+        const commandParams = {
             Bucket: this.bucket,
             Key: fileKey,
-            Body: fileBuffer,
+            Body: body,
             ContentType: mimeType || 'application/octet-stream'
-        });
+        };
+        // 流式上传时需提供 ContentLength，否则 S3 SDK 可能报错
+        if (contentLength !== undefined) {
+            commandParams.ContentLength = contentLength;
+        }
 
+        const command = new PutObjectCommand(commandParams);
         await this.s3.send(command);
         return {
             id: fileKey
@@ -249,6 +255,13 @@ class S3Storage extends StorageProvider {
 S3Storage.__getS3ClientForTest = () => S3Client;
 S3Storage.__setS3ClientForTest = (client) => {
     S3Client = client;
+};
+// 测试用：注入命令构造函数 stub（避免依赖真实 AWS SDK）
+S3Storage.__setCommandsForTest = (commands) => {
+    if (commands.PutObjectCommand !== undefined) PutObjectCommand = commands.PutObjectCommand;
+    if (commands.GetObjectCommand !== undefined) GetObjectCommand = commands.GetObjectCommand;
+    if (commands.DeleteObjectCommand !== undefined) DeleteObjectCommand = commands.DeleteObjectCommand;
+    if (commands.HeadObjectCommand !== undefined) HeadObjectCommand = commands.HeadObjectCommand;
 };
 
 export default S3Storage;

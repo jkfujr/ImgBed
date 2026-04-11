@@ -45,7 +45,9 @@ const defaultConfig = {
     ]
   },
   security: {
-    corsOrigin: "*"
+    corsOrigin: "*",
+    guestUploadEnabled: false,
+    uploadPassword: ""
   },
   // 默认上传配置
   upload: {

@@ -145,16 +145,36 @@ class HuggingFaceStorage extends StorageProvider {
         const { fileName, originalName } = options;
         if (!fileName) throw new Error('[HuggingFaceStorage] Missing fileName');
 
-        // 为了与原版兼容，读取为 ArrayBuffer
         let fileBuffer;
         if (file instanceof Buffer) {
             fileBuffer = file;
         } else if (typeof file.arrayBuffer === 'function') {
+            // Web File / Response.body 转 ArrayBuffer
             fileBuffer = await file.arrayBuffer();
+        } else {
+            // Node.js Readable 或 Web ReadableStream：逐块收集
+            const { Readable } = await import('stream');
+            if (file instanceof Readable) {
+                const chunks = [];
+                for await (const chunk of file) {
+                    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                }
+                fileBuffer = Buffer.concat(chunks);
+            } else {
+                // Web ReadableStream
+                const reader = file.getReader();
+                const parts = [];
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    parts.push(value);
+                }
+                fileBuffer = Buffer.concat(parts);
+            }
         }
 
         const filesData = { [fileName]: fileBuffer };
-        const result = await this.commit(`Upload ${originalName || fileName}`, filesData);
+        await this.commit(`Upload ${originalName || fileName}`, filesData);
         return {
             id: fileName,
             url: await this.getUrl(fileName)

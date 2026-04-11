@@ -1,5 +1,6 @@
 import pLimit from 'p-limit';
 import { Readable } from 'stream';
+
 import { createLogger } from '../../utils/logger.js';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { uploadToStorage } from '../upload/execute-upload.js';
@@ -14,6 +15,16 @@ import {
 } from '../system/storage-operations.js';
 import { parseStorageConfig, removeStoredArtifacts } from './storage-artifacts.js';
 import { updateFileMigrationFields } from '../../database/files-dao.js';
+
+/**
+ * 将 Node.js Readable 或 Web ReadableStream 转换为 Node.js Readable
+ * 方便后续统一用 for-await 消费
+ */
+function toNodeReadable(stream) {
+  if (stream instanceof Readable) return stream;
+  // Web ReadableStream → Node Readable
+  return Readable.fromWeb(stream);
+}
 
 const log = createLogger('migrate-file');
 
@@ -69,7 +80,11 @@ async function streamToBuffer(stream) {
   return Buffer.concat(chunks);
 }
 
-async function readSourceFile(fileRecord, storageManager) {
+/**
+ * 读取源文件，返回 Node.js Readable 流（非分块）或分块流
+ * 仅在分块场景下才读取完整 buffer（各块尺寸有限，不会 OOM）
+ */
+async function readSourceFileAsStream(fileRecord, storageManager) {
   const sourceConfig = parseStorageConfig(fileRecord.storage_config);
   const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
 
@@ -79,16 +94,16 @@ async function readSourceFile(fileRecord, storageManager) {
 
   if (fileRecord.is_chunked) {
     const chunkRecords = await ChunkManager.getChunks(fileRecord.id);
-    const stream = ChunkManager.createChunkedReadStream(
+    // 分块合并流（Web ReadableStream）→ 转为 Node Readable
+    const webStream = ChunkManager.createChunkedReadStream(
       chunkRecords,
       (storageId) => storageManager.getStorage(storageId),
       { totalSize: Number(fileRecord.size) || 0 }
     );
-
     return {
       sourceInstanceId,
       sourceChunkRecords: chunkRecords,
-      buffer: await streamToBuffer(stream),
+      stream: toNodeReadable(webStream),
     };
   }
 
@@ -101,7 +116,7 @@ async function readSourceFile(fileRecord, storageManager) {
   return {
     sourceInstanceId,
     sourceChunkRecords: [],
-    buffer: await streamToBuffer(fileStream),
+    stream: toNodeReadable(fileStream),
   };
 }
 
@@ -118,7 +133,9 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     return { status: 'failed', reason: '源渠道不存在' };
   }
 
-  const { buffer, sourceChunkRecords } = await readSourceFile(fileRecord, storageManager);
+  const { stream, sourceChunkRecords } = await readSourceFileAsStream(fileRecord, storageManager);
+  const fileSize = Number(fileRecord.size) || 0;
+
   const operationId = createStorageOperation(db, {
     operationType: 'migrate',
     fileId: fileRecord.id,
@@ -131,16 +148,48 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     },
   });
 
-  const targetUploadResult = await uploadToStorage({
-    storage: targetEntry.instance,
-    buffer,
-    fileId: fileRecord.id,
-    newFileName: fileRecord.file_name,
-    originalName: fileRecord.original_name,
-    mimeType: fileRecord.mime_type,
-    finalChannelId: targetChannel,
-    storageManager,
+  // 判断是否需要分块（基于已知 fileSize，无需读入 buffer）
+  const limits = storageManager.getEffectiveUploadLimits(targetChannel);
+  const chunkAnalysis = ChunkManager.analyze(targetEntry.instance, fileSize, {
+    channelConfig: limits.enableChunking ? {
+      enableChunking: true,
+      sizeLimitMB: limits.sizeLimitMB,
+      chunkSizeMB: limits.chunkSizeMB,
+      maxChunks: limits.maxChunks,
+    } : null,
   });
+
+  let targetUploadResult;
+
+  if (chunkAnalysis.needsChunking) {
+    // 分块场景：需要 buffer（各块尺寸有限，chunk-manager 内部逐块处理）
+    const buffer = await streamToBuffer(stream);
+    targetUploadResult = await uploadToStorage({
+      storage: targetEntry.instance,
+      buffer,
+      fileId: fileRecord.id,
+      newFileName: fileRecord.file_name,
+      originalName: fileRecord.original_name,
+      mimeType: fileRecord.mime_type,
+      finalChannelId: targetChannel,
+      storageManager,
+    });
+  } else {
+    // 非分块场景：直接流式写入目标存储
+    const storageResult = await targetEntry.instance.put(stream, {
+      id: fileRecord.id,
+      fileName: fileRecord.file_name,
+      originalName: fileRecord.original_name,
+      mimeType: fileRecord.mime_type,
+      contentLength: fileSize || undefined,
+    });
+    targetUploadResult = {
+      storageResult,
+      isChunked: 0,
+      chunkCount: 0,
+      chunkRecords: [],
+    };
+  }
 
   markOperationRemoteDone(db, operationId, {
     sourceStorageId: sourceInstanceId,
@@ -182,7 +231,6 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
       chunkCount: Number(targetUploadResult.chunkCount) || 0,
     });
 
-    const fileSize = Number(fileRecord.size) || 0;
     insertQuotaEvents(db, [
       buildQuotaEvent({
         operationId,
