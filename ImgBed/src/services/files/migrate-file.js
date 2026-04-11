@@ -2,6 +2,7 @@ import pLimit from 'p-limit';
 import { Readable } from 'stream';
 
 import { createLogger } from '../../utils/logger.js';
+import { streamToBuffer } from '../../utils/stream.js';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { uploadToStorage } from '../upload/execute-upload.js';
 import {
@@ -55,29 +56,6 @@ function validateMigrationTarget(targetChannel, storageManager) {
   }
 
   return targetEntry;
-}
-
-async function streamToBuffer(stream) {
-  if (Buffer.isBuffer(stream)) {
-    return stream;
-  }
-
-  if (stream instanceof Readable) {
-    const chunks = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    return Buffer.concat(chunks);
-  }
-
-  const reader = stream.getReader();
-  const chunks = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks);
 }
 
 /**

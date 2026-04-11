@@ -5,9 +5,9 @@
  */
 
 import pLimit from 'p-limit';
-import { Readable } from 'stream';
 import { sqlite } from '../database/index.js';
 import { createLogger } from '../utils/logger.js';
+import { streamToBuffer } from '../utils/stream.js';
 
 const log = createLogger('chunk-manager');
 
@@ -291,7 +291,7 @@ class ChunkManager {
 
                     const stream = await storage.getChunkStream(chunk.storage_key, {});
                     // 将流转为 Buffer（单块大小有限，不会 OOM）
-                    const chunkData = await ChunkManager._streamToBuffer(stream);
+                    const chunkData = await streamToBuffer(stream);
 
                     // 计算本块内需要截取的范围
                     const sliceStart = Math.max(0, start - chunkStart);
@@ -318,32 +318,6 @@ class ChunkManager {
         return sqlite.prepare(
             'SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC'
         ).all(fileId);
-    }
-
-    /**
-     * 将 ReadableStream / Buffer / Node.Readable 转为 Buffer
-     * @param {ReadableStream|Buffer|Readable} stream
-     * @returns {Promise<Buffer>}
-     */
-    static async _streamToBuffer(stream) {
-        if (Buffer.isBuffer(stream)) return stream;
-
-        // Node.js Readable
-        if (stream instanceof Readable) {
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            return Buffer.concat(chunks);
-        }
-
-        // Web ReadableStream
-        const reader = stream.getReader();
-        const parts = [];
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            parts.push(value);
-        }
-        return Buffer.concat(parts);
     }
 }
 
