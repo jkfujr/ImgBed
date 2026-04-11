@@ -1,5 +1,6 @@
 import StorageProvider from './base.js';
 import { createLogger } from '../utils/logger.js';
+import { fetchWithProxy } from '../network/proxy.js';
 
 const log = createLogger('discord');
 
@@ -12,11 +13,16 @@ class DiscordStorage extends StorageProvider {
         super();
         this.botToken = config.botToken;
         this.channelId = config.channelId;
+        this.proxyUrl = config.proxyUrl || '';
         this.baseURL = 'https://discord.com/api/v10';
         this.defaultHeaders = {
             'Authorization': `Bot ${this.botToken}`,
             'User-Agent': 'DiscordBot (ImgBed-Node, 1.0)'
         };
+    }
+
+    async requestDiscord(url, options = {}) {
+        return fetchWithProxy(url, options, this.proxyUrl);
     }
 
     /**
@@ -32,7 +38,7 @@ class DiscordStorage extends StorageProvider {
             formData.append('files[0]', file);
         }
 
-        const response = await fetch(`${this.baseURL}/channels/${channelId}/messages`, {
+        const response = await this.requestDiscord(`${this.baseURL}/channels/${channelId}/messages`, {
             method: 'POST',
             headers: this.defaultHeaders,
             body: formData
@@ -84,7 +90,7 @@ class DiscordStorage extends StorageProvider {
     async getMessage(channelId, messageId, maxRetries = 3) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                const response = await fetch(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
+                const response = await this.requestDiscord(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
                     method: 'GET',
                     headers: this.defaultHeaders
                 });
@@ -137,7 +143,7 @@ class DiscordStorage extends StorageProvider {
      */
     async deleteMessage(channelId, messageId) {
         try {
-            const response = await fetch(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
+            const response = await this.requestDiscord(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
                 method: 'DELETE',
                 headers: this.defaultHeaders
             });
@@ -186,7 +192,7 @@ class DiscordStorage extends StorageProvider {
             throw new Error(`[DiscordStorage] URL not found for file: ${fileId}`);
         }
 
-        const response = await fetch(fileURL);
+        const response = await this.requestDiscord(fileURL);
         if (!response.ok) throw new Error('[DiscordStorage] Failed fetching file stream: ' + response.statusText);
         return response.body; 
     }
@@ -216,7 +222,7 @@ class DiscordStorage extends StorageProvider {
      */
     async testConnection() {
         try {
-            const response = await fetch(`${this.baseURL}/users/@me`, {
+            const response = await this.requestDiscord(`${this.baseURL}/users/@me`, {
                 headers: this.defaultHeaders,
                 signal: AbortSignal.timeout(10000)
             });
