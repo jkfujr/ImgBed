@@ -23,7 +23,7 @@ function resolveUploadChannel(body, storageManager, config) {
 
   const storage = storageManager.getStorage(channelId);
   if (!storage) {
-    throw createUploadError(400, `找不到指定的存储渠道: ${channelId}`);
+    throw createUploadError(500, `默认存储渠道不可用或不存在: ${channelId}`);
   }
 
   return { channelId, storage };

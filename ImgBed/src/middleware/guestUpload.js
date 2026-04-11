@@ -1,7 +1,19 @@
+import { timingSafeEqual } from 'crypto';
 import { readSystemConfig, getSystemConfigPath } from '../services/system/config-io.js';
 import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
 
 const configPath = getSystemConfigPath();
+
+function isUploadPasswordValid(providedPassword, uploadPassword) {
+  const providedBuffer = Buffer.from(providedPassword, 'utf8');
+  const expectedBuffer = Buffer.from(uploadPassword, 'utf8');
+
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 /**
  * 访客上传中间件
@@ -37,7 +49,7 @@ export const guestUploadAuth = async (req, res, next) => {
       return;
     }
 
-    if (providedPassword !== uploadPassword) {
+    if (!isUploadPasswordValid(providedPassword, uploadPassword)) {
       send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
       return;
     }

@@ -43,9 +43,10 @@ function getAllDirectories(db) {
  * @returns {Object[]}
  */
 function getChildDirectoriesByPathPrefix(db, parentPath) {
+  const escapedPath = parentPath.replace(/([\\%_])/g, '\\$1');
   return db.prepare(
-    'SELECT * FROM directories WHERE path LIKE ?'
-  ).all(`${parentPath}/%`);
+    "SELECT * FROM directories WHERE path LIKE ? ESCAPE '\\'"
+  ).all(`${escapedPath}/%`);
 }
 
 /**
