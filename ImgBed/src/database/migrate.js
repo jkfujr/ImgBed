@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { createLogger } from '../utils/logger.js';
 import { migrateV001 } from './migrations/v001.js';
+import { migrateV002 } from './migrations/v002.js';
 
 const log = createLogger('database:migrate');
 
@@ -10,6 +11,7 @@ const log = createLogger('database:migrate');
  */
 const MIGRATION_STEPS = [
   { version: 1, migrate: migrateV001 },
+  { version: 2, migrate: migrateV002 },
 ];
 
 const CURRENT_VERSION = MIGRATION_STEPS[MIGRATION_STEPS.length - 1].version;

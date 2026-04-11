@@ -34,6 +34,7 @@ function updateStorageOperation(db, operationId, changes = {}) {
     remote_payload: changes.remotePayload === undefined ? current.remote_payload : serializeJson(changes.remotePayload),
     compensation_payload: changes.compensationPayload === undefined ? current.compensation_payload : serializeJson(changes.compensationPayload),
     error_message: changes.errorMessage === undefined ? current.error_message : changes.errorMessage,
+    retry_count: changes.retryCount === undefined ? (current.retry_count ?? 0) : changes.retryCount,
   };
 
   db.prepare(`UPDATE storage_operations SET
@@ -42,8 +43,15 @@ function updateStorageOperation(db, operationId, changes = {}) {
     target_storage_id = @target_storage_id,
     remote_payload = @remote_payload,
     compensation_payload = @compensation_payload,
-    error_message = @error_message
+    error_message = @error_message,
+    retry_count = @retry_count
     WHERE id = @id`).run(next);
+}
+
+function incrementOperationRetryCount(db, operationId) {
+  db.prepare(
+    'UPDATE storage_operations SET retry_count = COALESCE(retry_count, 0) + 1 WHERE id = ?'
+  ).run(operationId);
 }
 
 function createStorageOperation(db, {
@@ -202,6 +210,7 @@ export {
   OPERATION_STATUS,
   buildQuotaEvent,
   createStorageOperation,
+  incrementOperationRetryCount,
   insertQuotaEvents,
   markOperationCommitted,
   markOperationCompensated,

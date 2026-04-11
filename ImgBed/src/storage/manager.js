@@ -15,6 +15,7 @@ import HuggingFaceStorage from './huggingface.js';
 import ExternalStorage from './external.js';
 import {
     buildQuotaEvent,
+    incrementOperationRetryCount,
     insertQuotaEvents,
     markOperationCommitted,
     markOperationCompensated,
@@ -37,6 +38,7 @@ class StorageManager {
         this._fullRebuildTimer = null;
         this._compensationRetryTimer = null;
         this._isRecoveryRunning = false;
+        this._compensationBackoffMs = 5 * 60 * 1000; // 初始 5 分钟，指数退避
 
         if (autoInit) {
             this._init().catch((err) => log.error({ err }, '初始化失败'));
@@ -115,6 +117,14 @@ class StorageManager {
 
     async _executeRecovery(operation) {
         const db = this.db;
+        const MAX_RETRIES = 5;
+        const retryCount = operation.retry_count ?? 0;
+
+        if (retryCount >= MAX_RETRIES) {
+            markOperationFailed(db, operation.id, new Error(`超过最大重试次数 ${MAX_RETRIES}`));
+            log.warn({ operationId: operation.id, retryCount }, '恢复已达最大重试次数，标记失败');
+            return;
+        }
 
         try {
             switch (operation.status) {
@@ -131,8 +141,8 @@ class StorageManager {
                     break;
             }
         } catch (err) {
-            markOperationFailed(db, operation.id, err);
-            log.error({ operationId: operation.id, err }, '恢复失败');
+            incrementOperationRetryCount(db, operation.id);
+            log.error({ operationId: operation.id, retryCount: retryCount + 1, err }, '恢复失败，已递增重试计数');
         }
     }
 
@@ -233,34 +243,60 @@ class StorageManager {
 
     _startCompensationRetryTimer() {
         const db = this.db;
+        const MIN_INTERVAL_MS = 5 * 60 * 1000;   // 5 分钟
+        const MAX_INTERVAL_MS = 60 * 60 * 1000;  // 60 分钟上限
 
         if (this._compensationRetryTimer) {
             return;
         }
 
-        const intervalMs = 5 * 60 * 1000;
-        this._compensationRetryTimer = setInterval(async () => {
-            try {
-                const pending = db.prepare(`
-                    SELECT COUNT(*) AS count FROM storage_operations
-                    WHERE status IN ('remote_done', 'committed', 'compensation_pending')
-                `).get();
+        const scheduleNext = () => {
+            this._compensationRetryTimer = setTimeout(async () => {
+                try {
+                    const pending = db.prepare(`
+                        SELECT COUNT(*) AS count FROM storage_operations
+                        WHERE status IN ('remote_done', 'committed', 'compensation_pending')
+                    `).get();
 
-                if (pending.count > 0) {
-                    log.info({ count: pending.count }, '定时恢复: 发现异常操作');
-                    await this._recoverStaleOperations();
+                    if (pending.count > 0) {
+                        log.info({ count: pending.count, nextIntervalMs: this._compensationBackoffMs }, '定时恢复: 发现异常操作');
+                        const result = await this._recoverStaleOperations();
+                        if (result.recovered > 0) {
+                            // 有成功恢复则重置退避
+                            this._compensationBackoffMs = MIN_INTERVAL_MS;
+                        } else {
+                            // 全部失败则指数加倍，不超过上限
+                            this._compensationBackoffMs = Math.min(
+                                this._compensationBackoffMs * 2,
+                                MAX_INTERVAL_MS
+                            );
+                        }
+                    } else {
+                        // 无待处理操作，重置退避
+                        this._compensationBackoffMs = MIN_INTERVAL_MS;
+                    }
+                } catch (err) {
+                    log.error({ err }, '定时恢复失败');
+                    this._compensationBackoffMs = Math.min(
+                        this._compensationBackoffMs * 2,
+                        MAX_INTERVAL_MS
+                    );
+                } finally {
+                    if (this._compensationRetryTimer !== null) {
+                        scheduleNext();
+                    }
                 }
-            } catch (err) {
-                log.error({ err }, '定时恢复失败');
-            }
-        }, intervalMs);
+            }, this._compensationBackoffMs);
 
-        this._compensationRetryTimer.unref();
+            this._compensationRetryTimer.unref();
+        };
+
+        scheduleNext();
     }
 
     _stopCompensationRetryTimer() {
         if (this._compensationRetryTimer) {
-            clearInterval(this._compensationRetryTimer);
+            clearTimeout(this._compensationRetryTimer);
             this._compensationRetryTimer = null;
         }
     }
