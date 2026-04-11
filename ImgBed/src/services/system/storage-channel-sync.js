@@ -3,7 +3,7 @@ import { freezeFilesByStorageInstance } from '../../database/files-dao.js';
 /**
  * 在数据库中插入新的存储渠道元数据
  */
-async function insertStorageChannelMeta(storage, db) {
+function insertStorageChannelMeta(storage, db) {
   db.prepare(`INSERT OR REPLACE INTO storage_channels (
     id, name, type, enabled, allow_upload, weight, quota_limit_gb
   ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -21,7 +21,7 @@ async function insertStorageChannelMeta(storage, db) {
 /**
  * 在数据库中更新存储渠道元数据
  */
-async function updateStorageChannelMeta(id, storage, db) {
+function updateStorageChannelMeta(id, storage, db) {
   db.prepare(`UPDATE storage_channels SET
     name = ?, enabled = ?, allow_upload = ?, weight = ?, quota_limit_gb = ?
     WHERE id = ?`)
@@ -38,7 +38,7 @@ async function updateStorageChannelMeta(id, storage, db) {
 /**
  * 在数据库中删除存储渠道元数据及其历史记录（物理删除，保留用于内部清理）
  */
-async function deleteStorageChannelMeta(id, db) {
+function deleteStorageChannelMeta(id, db) {
   db.prepare('DELETE FROM storage_channels WHERE id = ?').run(id);
   db.prepare('DELETE FROM storage_operations WHERE source_storage_id = ? OR target_storage_id = ?').run(id, id);
   db.prepare('DELETE FROM storage_quota_events WHERE storage_id = ?').run(id);
@@ -67,10 +67,10 @@ function markStorageChannelDeleted(id, db) {
 /**
  * 同步配置文件中的所有存储渠道到数据库
  */
-async function syncAllStorageChannels(config, db) {
+function syncAllStorageChannels(config, db) {
   const storages = config.storage?.storages || [];
   for (const storage of storages) {
-    await insertStorageChannelMeta(storage, db);
+    insertStorageChannelMeta(storage, db);
   }
 }
 

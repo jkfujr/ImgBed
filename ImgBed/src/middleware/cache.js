@@ -8,6 +8,35 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('cache-middleware');
 
+function getCacheIdentity(req) {
+  const auth = req.auth;
+  if (!auth) {
+    return 'anonymous';
+  }
+
+  if (auth.type === 'api_token') {
+    return `api_token:${auth.tokenId || auth.id || 'unknown'}`;
+  }
+
+  if (auth.type === 'guest') {
+    return 'guest';
+  }
+
+  if (auth.type === 'admin_jwt') {
+    return `admin_jwt:${auth.username || req.user?.username || 'unknown'}`;
+  }
+
+  return `${auth.type || 'unknown'}:${auth.username || auth.tokenId || auth.id || 'unknown'}`;
+}
+
+function buildIdentityCacheKey(prefix, req, params = {}) {
+  const cache = getResponseCache();
+  return cache.buildKey(prefix, {
+    identity: getCacheIdentity(req),
+    ...params,
+  });
+}
+
 /**
  * 创建响应缓存中间件
  * @param {Object} options
@@ -42,8 +71,8 @@ export function cacheMiddleware(options = {}) {
     if (keyBuilder) {
       cacheKey = keyBuilder(req);
     } else {
-      // 默认使用查询参数构建缓存键
-      cacheKey = cache.buildKey(prefix, req.query);
+      // 默认使用用户身份 + 查询参数构建缓存键
+      cacheKey = buildIdentityCacheKey(prefix, req, req.query);
     }
 
     // 尝试从缓存获取
@@ -82,10 +111,9 @@ export function filesListCache() {
   return cacheMiddleware({
     prefix: 'files:list',
     keyBuilder: (req) => {
-      const cache = getResponseCache();
       const search = typeof req.query.search === 'string' ? req.query.search : '';
       const directory = typeof req.query.directory === 'string' ? req.query.directory : undefined;
-      return cache.buildKey('files:list', {
+      return buildIdentityCacheKey('files:list', req, {
         mode: search.trim() ? 'search' : 'browse',
         page: req.query.page || '1',
         pageSize: req.query.pageSize || '20',
@@ -164,8 +192,7 @@ export function dashboardUploadTrendCache() {
   return cacheMiddleware({
     prefix: 'system:dashboard:upload-trend',
     keyBuilder: (req) => {
-      const cache = getResponseCache();
-      return cache.buildKey('system:dashboard:upload-trend', {
+      return buildIdentityCacheKey('system:dashboard:upload-trend', req, {
         days: req.query.days || '7'
       });
     },
