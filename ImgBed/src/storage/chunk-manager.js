@@ -50,12 +50,18 @@ class ChunkManager {
     /**
      * 通用分块上传
      * 将文件 Buffer 切分为多个块，逐块调用 putChunk，记录到 chunks 表
+     * 若存储驱动实现了 uploadChunkedBatch，则走批量路径（减少 API 请求次数）
      * @param {StorageProvider} storage - 存储渠道实例
      * @param {Buffer} buffer - 完整文件 Buffer
      * @param {Object} options - { fileId, fileName, originalName, mimeType, storageId }
      * @returns {Promise<{ chunkCount: number, totalSize: number }>}
      */
     static async uploadChunked(storage, buffer, options) {
+        // 优先走批量路径（驱动自行实现，如 HuggingFace）
+        if (typeof storage.uploadChunkedBatch === 'function') {
+            return storage.uploadChunkedBatch(buffer, options);
+        }
+
         const config = storage.getChunkConfig();
         const totalChunks = Math.ceil(buffer.length / config.chunkSize);
         const chunkRecords = [];

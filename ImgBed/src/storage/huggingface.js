@@ -1,5 +1,6 @@
 import StorageProvider from './base.js';
 import { createLogger } from '../utils/logger.js';
+import { streamToBuffer } from '../utils/stream.js';
 
 const log = createLogger('huggingface');
 
@@ -146,31 +147,10 @@ class HuggingFaceStorage extends StorageProvider {
         if (!fileName) throw new Error('[HuggingFaceStorage] Missing fileName');
 
         let fileBuffer;
-        if (file instanceof Buffer) {
-            fileBuffer = file;
-        } else if (typeof file.arrayBuffer === 'function') {
-            // Web File / Response.body 转 ArrayBuffer
-            fileBuffer = await file.arrayBuffer();
+        if (typeof file.arrayBuffer === 'function') {
+            fileBuffer = Buffer.from(await file.arrayBuffer());
         } else {
-            // Node.js Readable 或 Web ReadableStream：逐块收集
-            const { Readable } = await import('stream');
-            if (file instanceof Readable) {
-                const chunks = [];
-                for await (const chunk of file) {
-                    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                }
-                fileBuffer = Buffer.concat(chunks);
-            } else {
-                // Web ReadableStream
-                const reader = file.getReader();
-                const parts = [];
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    parts.push(value);
-                }
-                fileBuffer = Buffer.concat(parts);
-            }
+            fileBuffer = await streamToBuffer(file);
         }
 
         const filesData = { [fileName]: fileBuffer };
@@ -251,6 +231,41 @@ class HuggingFaceStorage extends StorageProvider {
         const filesData = { [chunkPath]: chunkBuffer };
         await this.commit(`Upload chunk ${chunkIndex} of ${fileName || fileId}`, filesData);
         return { storageKey: chunkPath, size: chunkBuffer.length };
+    }
+
+    /**
+     * 批量分块上传：将所有块合并为单次 commit，减少 API 请求次数
+     * 由 ChunkManager.uploadChunked 自动检测并调用
+     * @returns {Promise<{ chunkCount: number, totalSize: number, chunkRecords: Array }>}
+     */
+    async uploadChunkedBatch(buffer, options) {
+        const config = this.getChunkConfig();
+        const totalChunks = Math.ceil(buffer.length / config.chunkSize);
+        const { fileId, fileName, storageId } = options;
+
+        const filesData = {};
+        const chunkRecords = [];
+
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * config.chunkSize;
+            const end = Math.min(start + config.chunkSize, buffer.length);
+            const chunkPath = `chunks/${fileId}/chunk_${String(i).padStart(4, '0')}`;
+            filesData[chunkPath] = buffer.subarray(start, end);
+            chunkRecords.push({
+                file_id: fileId,
+                chunk_index: i,
+                storage_type: 'huggingface',
+                storage_id: storageId,
+                storage_key: chunkPath,
+                storage_config: JSON.stringify({}),
+                size: end - start,
+            });
+        }
+
+        await this.commit(`Upload ${totalChunks} chunks of ${fileName || fileId}`, filesData);
+        log.info({ fileId, totalChunks }, 'HuggingFace 批量分块上传完成');
+
+        return { chunkCount: totalChunks, totalSize: buffer.length, chunkRecords };
     }
 }
 

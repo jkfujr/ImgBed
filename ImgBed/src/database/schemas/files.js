@@ -1,5 +1,5 @@
 /**
- * files 表 DDL：CREATE TABLE + 14 个索引 + updated_at 触发器。
+ * files 表 DDL：CREATE TABLE + 索引 + updated_at 触发器。
  * 注意：quota_cache 的三个跨表触发器在 storage-quota-cache.js 中定义。
  * @param {import('better-sqlite3').Database} db
  */
@@ -48,7 +48,6 @@ export function createFilesSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_files_directory ON files(directory);
     CREATE INDEX IF NOT EXISTS idx_files_storage_channel ON files(storage_channel);
     CREATE INDEX IF NOT EXISTS idx_files_storage_instance ON files(storage_instance_id);
     CREATE INDEX IF NOT EXISTS idx_files_mime_type ON files(mime_type);
@@ -56,8 +55,6 @@ export function createFilesSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_files_status_created_at ON files(status, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_status_directory_created_at ON files(status, directory, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_status_storage_instance ON files(status, storage_instance_id);
-    CREATE INDEX IF NOT EXISTS idx_files_dir_time ON files(directory, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_files_channel_time ON files(storage_channel, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_uploader ON files(uploader_type, uploader_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_name_search ON files(file_name COLLATE NOCASE);
 
