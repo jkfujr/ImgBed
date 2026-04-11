@@ -29,6 +29,7 @@ import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { cacheInvalidation } from '../middleware/cache.js';
 import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../utils/directory-path.js';
+import { success } from '../utils/response.js';
 
 const log = createLogger('upload');
 const uploadApp = express.Router();
@@ -157,13 +158,11 @@ function buildUploadResponse({ fileId, newFileName, originalName, fileSize, widt
     };
   }
 
-  return {
-    code: 0,
-    message: failedChannels.length > 0
-      ? `文件上传成功（经过 ${failedChannels.length} 次渠道切换）`
-      : '文件上传成功',
-    data: responseData,
-  };
+  const message = failedChannels.length > 0
+    ? `文件上传成功（经过 ${failedChannels.length} 次渠道切换）`
+    : '文件上传成功';
+
+  return success(responseData, message);
 }
 
 /**

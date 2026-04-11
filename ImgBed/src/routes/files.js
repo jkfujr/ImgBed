@@ -236,11 +236,7 @@ filesApp.post('/maintenance/rebuild-metadata', requirePermission('admin'), async
         }
     })();
 
-    return res.json({
-        code: 0,
-        message: '元数据重建任务已在后台启动',
-        data: { status: 'processing' }
-    });
+    return res.json(success({ status: 'processing' }, '元数据重建任务已在后台启动'));
 }));
 
 export default filesApp;

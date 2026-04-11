@@ -168,16 +168,12 @@ systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req,
     return !dbCh || dbCh.deleted_at == null;
   }).length;
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: {
-      total,
-      enabled,
-      allowUpload,
-      byType
-    }
-  });
+  return res.json(success({
+    total,
+    enabled,
+    allowUpload,
+    byType
+  }));
 }));
 
 /**
@@ -376,11 +372,10 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
 
-  return res.json({
-    code: 0,
-    message: `渠道 "${id}" 已${storage.enabled ? '启用' : '禁用'}`,
-    data: { enabled: storage.enabled }
-  });
+  return res.json(success(
+    { enabled: storage.enabled },
+    `渠道 "${id}" 已${storage.enabled ? '启用' : '禁用'}`
+  ));
 }));
 
 /**
@@ -389,18 +384,14 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
  */
 systemApp.get('/quota-stats', quotaStatsCache(), asyncHandler(async (_req, res) => {
   const stats = storageManager.getAllQuotaStats();
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: { stats }
-  });
+  return res.json(success({ stats }));
 }));
 
 /**
  * 手动触发全量容量校正
  * POST /api/system/maintenance/rebuild-quota-stats
  */
-systemApp.post('/maintenance/rebuild-quota-stats', asyncHandler(async (req, res) => {
+systemApp.post('/maintenance/rebuild-quota-stats', asyncHandler(async (_req, res) => {
   (async () => {
     try {
       log.info('手动触发容量校正任务');
@@ -411,11 +402,7 @@ systemApp.post('/maintenance/rebuild-quota-stats', asyncHandler(async (req, res)
     }
   })();
 
-  return res.json({
-    code: 0,
-    message: '容量校正任务已在后台启动',
-    data: { status: 'processing' }
-  });
+  return res.json(success({ status: 'processing' }, '容量校正任务已在后台启动'));
 }));
 
 /**
@@ -439,11 +426,7 @@ systemApp.get('/maintenance/quota-history', asyncHandler(async (req, res) => {
 
   const history = sqlite.prepare(query).all(...params);
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: { history }
-  });
+  return res.json(success({ history }));
 }));
 
 /**
@@ -454,11 +437,7 @@ systemApp.get('/cache/stats', asyncHandler(async (_req, res) => {
   const cache = getResponseCache();
   const stats = cache.getStats();
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: stats
-  });
+  return res.json(success(stats));
 }));
 
 /**
@@ -468,10 +447,7 @@ systemApp.get('/cache/stats', asyncHandler(async (_req, res) => {
 systemApp.post('/cache/clear', asyncHandler(async (_req, res) => {
   cacheInvalidation.invalidateAll();
 
-  return res.json({
-    code: 0,
-    message: '缓存已清空'
-  });
+  return res.json(success(null, '缓存已清空'));
 }));
 
 /**
@@ -482,11 +458,7 @@ systemApp.get('/archive/stats', asyncHandler(async (_req, res) => {
   const archive = getQuotaEventsArchive();
   const stats = archive.getStats();
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: stats
-  });
+  return res.json(success(stats));
 }));
 
 /**
@@ -498,18 +470,10 @@ systemApp.post('/archive/run', asyncHandler(async (_req, res) => {
   const result = await scheduler.runNow();
 
   if (result.skipped) {
-    return res.json({
-      code: 0,
-      message: '归档任务正在执行中，已跳过本次触发',
-      data: result
-    });
+    return res.json(success(result, '归档任务正在执行中，已跳过本次触发'));
   }
 
-  return res.json({
-    code: 0,
-    message: '归档任务执行完成',
-    data: result
-  });
+  return res.json(success(result, '归档任务执行完成'));
 }));
 
 /**
@@ -520,11 +484,7 @@ systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
   const scheduler = getArchiveScheduler();
   const status = scheduler.getStatus();
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: status
-  });
+  return res.json(success(status));
 }));
 
 /**
@@ -553,18 +513,14 @@ systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(asyn
   const totalChannels = channelsResult?.total || 0;
   const enabledChannels = channelsResult?.enabled || 0;
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: {
-      totalFiles,
-      totalSize,
-      todayUploads,
-      todayAccess,
-      totalChannels,
-      enabledChannels
-    }
-  });
+  return res.json(success({
+    totalFiles,
+    totalSize,
+    todayUploads,
+    todayAccess,
+    totalChannels,
+    enabledChannels
+  }));
 }));
 
 /**
@@ -581,11 +537,7 @@ systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandl
 
   const trend = getUploadTrend(sqlite, days);
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: { trend }
-  });
+  return res.json(success({ trend }));
 }));
 
 /**
@@ -636,16 +588,12 @@ systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandl
     ORDER BY date ASC
   `).all();
 
-  return res.json({
-    code: 0,
-    message: 'success',
-    data: {
-      todayAccess,
-      todayVisitors,
-      topFiles,
-      accessTrend
-    }
-  });
+  return res.json(success({
+    todayAccess,
+    todayVisitors,
+    topFiles,
+    accessTrend
+  }));
 }));
 
 export default systemApp;
