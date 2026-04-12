@@ -54,7 +54,7 @@ class HuggingFaceStorage extends StorageProvider {
         try {
             const operations = await this.buildCommitFiles(filesData);
             if (!operations) {
-                throw new Error("Invalid file content type");
+                throw new Error('文件内容类型无效');
             }
 
             const commitData = {
@@ -70,12 +70,12 @@ class HuggingFaceStorage extends StorageProvider {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`[HuggingFaceStorage] API Error: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`[HuggingFaceStorage] 接口请求失败: ${response.status} ${response.statusText} - ${errorText}`);
             }
 
             return await response.json();
         } catch (error) {
-            log.error({ err: error }, 'Commit error');
+            log.error({ err: error }, '提交请求失败');
             throw error;
         }
     }
@@ -107,12 +107,12 @@ class HuggingFaceStorage extends StorageProvider {
                     return true;
                 }
                 const errorText = await response.text();
-                throw new Error(`[HuggingFaceStorage] Delete API Error: ${response.status} ${errorText}`);
+                throw new Error(`[HuggingFaceStorage] 删除请求失败: ${response.status} ${errorText}`);
             }
 
             return true;
         } catch (error) {
-            log.error({ err: error }, 'Delete error');
+            log.error({ err: error }, '删除请求失败');
             return false;
         }
     }
@@ -130,12 +130,12 @@ class HuggingFaceStorage extends StorageProvider {
             });
 
             if (!response.ok) {
-                throw new Error(`[HuggingFaceStorage] Get file error: ${response.status} ${response.statusText}`);
+                throw new Error(`[HuggingFaceStorage] 获取文件失败: ${response.status} ${response.statusText}`);
             }
 
             return response;
         } catch (error) {
-            log.error({ err: error }, 'Get file error');
+            log.error({ err: error }, '获取文件失败');
             throw error;
         }
     }
@@ -144,7 +144,7 @@ class HuggingFaceStorage extends StorageProvider {
 
     async put(file, options) {
         const { fileName, originalName } = options;
-        if (!fileName) throw new Error('[HuggingFaceStorage] Missing fileName');
+        if (!fileName) throw new Error('[HuggingFaceStorage] 缺少 fileName');
 
         let fileBuffer;
         if (typeof file.arrayBuffer === 'function') {
@@ -229,7 +229,7 @@ class HuggingFaceStorage extends StorageProvider {
         // 分块以 {fileId}/chunk_{index} 形式存入 HF 数据集
         const chunkPath = `chunks/${fileId}/chunk_${String(chunkIndex).padStart(4, '0')}`;
         const filesData = { [chunkPath]: chunkBuffer };
-        await this.commit(`Upload chunk ${chunkIndex} of ${fileName || fileId}`, filesData);
+        await this.commit(`上传分块 ${chunkIndex}，文件 ${fileName || fileId}`, filesData);
         return { storageKey: chunkPath, size: chunkBuffer.length };
     }
 

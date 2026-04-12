@@ -28,12 +28,12 @@ export function createApplicationRuntime({
 
   const handleServerError = (error) => {
     if (error && error.code === 'EADDRINUSE') {
-      log.fatal({ port, err: error }, `Port ${port} is already in use`);
+      log.fatal({ port, err: error }, `端口 ${port} 已被占用`);
       processExit(1);
       return;
     }
 
-    log.fatal({ err: error }, 'Application startup failed');
+    log.fatal({ err: error }, '应用启动失败');
     processExit(1);
   };
 
@@ -41,7 +41,7 @@ export function createApplicationRuntime({
     initSchema(sqlite);
     runMigrations(sqlite, dbPath);
     await syncAllStorageChannels(config, sqlite);
-    log.info('Storage channels synced to database');
+    log.info('存储渠道已同步到数据库');
 
     initResponseCache({
       enabled: cacheConfig.enabled !== false,
@@ -65,10 +65,10 @@ export function createApplicationRuntime({
     await storageManager.startMaintenance();
 
     const app = await loadApp();
-    log.info({ host, port }, `Starting server at http://${displayHost}:${port}`);
+    log.info({ host, port }, `正在启动服务，地址: http://${displayHost}:${port}`);
 
     server = app.listen(Number(port), host, () => {
-      log.info({ host, port }, `Server listening at http://${displayHost}:${port}`);
+      log.info({ host, port }, `服务已启动，监听地址: http://${displayHost}:${port}`);
     });
     server.on?.('error', handleServerError);
 
@@ -85,21 +85,21 @@ export function createApplicationRuntime({
     }
 
     shutdownPromise = new Promise((resolve) => {
-      log.info({ signal }, `Received ${signal}, shutting down`);
+      log.info({ signal }, `收到 ${signal} 信号，开始优雅关闭`);
 
       storageManager.stopMaintenance();
       stopArchiveScheduler();
 
       server.close(async () => {
-        log.info('HTTP server closed');
+        log.info('HTTP 服务已关闭');
         await flushLogs();
-        log.info('Logs flushed, exiting process');
+        log.info('日志已刷新，进程即将退出');
         processExit(0);
         resolve();
       });
 
       setTimeoutFn(() => {
-        log.error('Graceful shutdown timed out, forcing exit');
+        log.error('优雅关闭超时，强制退出');
         processExit(1);
       }, 10000);
     });

@@ -24,10 +24,10 @@ class QuotaProjectionService {
             }
 
             if (cacheRecords.length > 0) {
-                this.log.info({ count: cacheRecords.length }, 'loaded quota projection from cache');
+                this.log.info({ count: cacheRecords.length }, '已从缓存加载容量投影');
             }
         } catch (err) {
-            this.log.warn({ err }, 'failed to load quota projection from cache, falling back to history');
+            this.log.warn({ err }, '从缓存加载容量投影失败，回退到历史快照');
             await this.loadQuotaFromHistory();
         }
     }
@@ -51,10 +51,10 @@ class QuotaProjectionService {
             }
 
             if (latestRecords.length > 0) {
-                this.log.info({ count: latestRecords.length }, 'loaded quota projection from history');
+                this.log.info({ count: latestRecords.length }, '已从历史快照加载容量投影');
             }
         } catch (err) {
-            this.log.error({ err }, 'failed to load quota projection from history');
+            this.log.error({ err }, '从历史快照加载容量投影失败');
         }
     }
 
@@ -65,7 +65,7 @@ class QuotaProjectionService {
                 'SELECT * FROM storage_quota_history WHERE storage_id = ? ORDER BY recorded_at DESC LIMIT ?'
             ).all(storageId, limit);
         } catch (err) {
-            this.log.error({ err, storageId }, 'failed to get quota history');
+            this.log.error({ err, storageId }, '获取容量历史失败');
             return [];
         }
     }
@@ -88,7 +88,7 @@ class QuotaProjectionService {
                 });
             }
         } catch (err) {
-            this.log.error({ err }, 'failed to initialize usage stats');
+            this.log.error({ err }, '初始化使用统计失败');
         }
     }
 
@@ -199,13 +199,13 @@ class QuotaProjectionService {
                     db.prepare(`UPDATE storage_quota_events SET applied_at = NULL WHERE id IN (${placeholders})`)
                         .run(...eventIds);
                 }
-                this.log.error({ err: projectionErr }, 'failed to persist quota projection');
+                this.log.error({ err: projectionErr }, '写入容量投影失败');
                 throw projectionErr;
             }
 
             return { applied: rows.length, storageIds: [...affectedStorageIds] };
         } catch (err) {
-            this.log.error({ err }, 'failed to apply pending quota events');
+            this.log.error({ err }, '应用待处理容量事件失败');
             throw err;
         }
     }
@@ -269,9 +269,9 @@ class QuotaProjectionService {
             this.quotaProjection = nextProjection;
             this.usageStats = nextUsageStats;
 
-            this.log.info({ count: historyRecords.length }, 'rebuilt quota projection');
+            this.log.info({ count: historyRecords.length }, '已重建容量投影');
         } catch (err) {
-            this.log.error({ err }, 'failed to rebuild quota projection');
+            this.log.error({ err }, '重建容量投影失败');
         }
     }
 
@@ -328,14 +328,14 @@ class QuotaProjectionService {
             }
 
             if (inconsistencies.length > 0) {
-                this.log.warn({ inconsistencies }, 'quota projection consistency check failed');
+                this.log.warn({ inconsistencies }, '容量投影一致性校验失败');
                 return { consistent: false, inconsistencies };
             }
 
-            this.log.info('quota projection consistency check passed');
+            this.log.info('容量投影一致性校验通过');
             return { consistent: true, inconsistencies: [] };
         } catch (err) {
-            this.log.error({ err }, 'failed to verify quota projection consistency');
+            this.log.error({ err }, '容量投影一致性校验失败');
             throw err;
         }
     }

@@ -213,7 +213,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
   });
 
   if (uploadResult.failedChannels.length > 0) {
-    log.info({ fileId: fileMeta.fileId, retries: uploadResult.failedChannels.length, finalChannel: uploadResult.finalChannelId }, 'Upload Failover: 文件经过切换后成功上传');
+    log.info({ fileId: fileMeta.fileId, retries: uploadResult.failedChannels.length, finalChannel: uploadResult.finalChannelId }, '上传故障切换：文件经过切换后成功上传');
   }
 
   const dbRecord = buildUploadRecord({

@@ -10,5 +10,5 @@ export function dropQuotaCacheTriggers(db) {
 
 export function migrateV004(db) {
   dropQuotaCacheTriggers(db);
-  log.info('迁移：已移除 storage_quota_cache 触发器，quota cache 改由 QuotaProjectionService 单写');
+  log.info('迁移：已移除 storage_quota_cache 触发器，容量缓存改由容量投影服务单写');
 }

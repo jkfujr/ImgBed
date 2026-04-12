@@ -23,7 +23,7 @@ async function loadS3Module() {
         AbortMultipartUploadCommand = s3.AbortMultipartUploadCommand;
         s3ModuleLoaded = true;
     } catch (e) {
-        throw new Error('[S3Storage] 请先执行 npm install @aws-sdk/client-s3 安装 AWS SDK');
+        throw new Error('[S3Storage] 请先执行 npm install @aws-sdk/client-s3 安装 S3 客户端依赖');
     }
 }
 
@@ -77,7 +77,7 @@ class S3Storage extends StorageProvider {
     async put(file, options) {
         await this._ensureInitialized();
         const { fileName, mimeType, contentLength } = options;
-        if (!fileName) throw new Error('[S3Storage] missing fileName');
+        if (!fileName) throw new Error('[S3Storage] 缺少 fileName');
 
         const fileKey = this._getFullPath(fileName);
         let body;
@@ -184,7 +184,7 @@ class S3Storage extends StorageProvider {
         try {
             const command = new HeadBucketCommand({ Bucket: this.bucket });
             await this.s3.send(command);
-            return { ok: true, message: `Bucket "${this.bucket}" 连接成功` };
+            return { ok: true, message: `存储桶 "${this.bucket}" 连接成功` };
         } catch (err) {
             return { ok: false, message: `连接失败: ${err.message}` };
         }

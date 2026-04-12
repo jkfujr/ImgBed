@@ -67,7 +67,7 @@ async function readSourceFileAsStream(fileRecord, storageManager) {
   const sourceInstanceId = fileRecord.storage_instance_id || sourceConfig.instance_id;
 
   if (!sourceInstanceId) {
-    throw new Error('源文件缺少 storage_instance_id');
+    throw new Error('源文件缺少存储实例标识字段 storage_instance_id');
   }
 
   if (fileRecord.is_chunked) {

@@ -1,4 +1,5 @@
 import fs from 'fs';
+
 import { createLogger } from '../utils/logger.js';
 import { migrateV001 } from './migrations/v001.js';
 import { migrateV002 } from './migrations/v002.js';
@@ -7,10 +8,6 @@ import { migrateV004 } from './migrations/v004.js';
 
 const log = createLogger('database:migrate');
 
-/**
- * 迁移版本列表，按版本号升序执行。
- * 新增迁移时，只追加新版本，不修改既有步骤。
- */
 const MIGRATION_STEPS = [
   { version: 1, migrate: migrateV001 },
   { version: 2, migrate: migrateV002 },
@@ -20,12 +17,6 @@ const MIGRATION_STEPS = [
 
 const CURRENT_VERSION = MIGRATION_STEPS[MIGRATION_STEPS.length - 1].version;
 
-/**
- * 执行数据库增量迁移。
- *
- * @param {import('better-sqlite3').Database} db
- * @param {string} dbPath 数据库文件绝对路径，用于备份
- */
 export function runMigrations(db, dbPath) {
   try {
     const tableExists = db.prepare(
@@ -48,7 +39,7 @@ export function runMigrations(db, dbPath) {
     const currentVersion = row?.v ?? 0;
 
     if (currentVersion >= CURRENT_VERSION) {
-      log.info({ version: currentVersion }, '数据库已经是最新版本，跳过迁移');
+      log.info({ version: currentVersion }, '数据库已是最新版本，跳过迁移');
       return;
     }
 

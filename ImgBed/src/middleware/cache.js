@@ -50,7 +50,7 @@ export function cacheMiddleware(options = {}) {
   const { prefix, keyBuilder, ttl, shouldCache } = options;
 
   if (!prefix) {
-    throw new Error('缓存中间件必须指定 prefix');
+    throw new Error('缓存中间件必须指定前缀');
   }
 
   return async (req, res, next) => {

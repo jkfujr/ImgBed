@@ -48,7 +48,7 @@ class DiscordStorage extends StorageProvider {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(`Discord API error: ${response.status} - ${errorData.message || response.statusText}`);
+            throw new Error(`Discord 接口请求失败: ${response.status} - ${errorData.message || response.statusText}`);
         }
 
         return await response.json();
@@ -60,7 +60,7 @@ class DiscordStorage extends StorageProvider {
     getFileInfo(responseData) {
         try {
             if (!responseData || !responseData.id) {
-                log.error({ responseData }, 'Invalid response');
+                log.error({ responseData }, '响应结构无效');
                 return null;
             }
 
@@ -79,7 +79,7 @@ class DiscordStorage extends StorageProvider {
 
             return null;
         } catch (error) {
-            log.error({ err: error }, 'Error parsing response');
+            log.error({ err: error }, '解析响应失败');
             return null;
         }
     }
@@ -99,7 +99,7 @@ class DiscordStorage extends StorageProvider {
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After');
                     const waitTime = retryAfter ? parseFloat(retryAfter) * 1000 : 1000 * (attempt + 1);
-                    log.warn({ waitTime, attempt: attempt + 1, maxRetries }, '429 rate limit, waiting before retry');
+                    log.warn({ waitTime, attempt: attempt + 1, maxRetries }, '触发限流，等待后重试');
 
                     if (attempt < maxRetries) {
                         await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -108,13 +108,13 @@ class DiscordStorage extends StorageProvider {
                 }
 
                 if (!response.ok) {
-                    log.error({ status: response.status, statusText: response.statusText }, 'getMessage error');
+                    log.error({ status: response.status, statusText: response.statusText }, '获取消息失败');
                     return null;
                 }
 
                 return await response.json();
             } catch (error) {
-                log.error({ err: error }, 'Error getting message');
+                log.error({ err: error }, '读取消息失败');
                 if (attempt < maxRetries) {
                     await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
                     continue;
@@ -152,10 +152,10 @@ class DiscordStorage extends StorageProvider {
                 return true;
             }
 
-            log.error({ status: response.status, statusText: response.statusText }, 'deleteMessage error');
+            log.error({ status: response.status, statusText: response.statusText }, '删除消息失败');
             return false;
         } catch (error) {
-            log.error({ err: error }, 'Error deleting message');
+            log.error({ err: error }, '删除消息请求异常');
             return false;
         }
     }
@@ -164,7 +164,7 @@ class DiscordStorage extends StorageProvider {
     // --- 以下为 StorageProvider 接口实现 ---
 
     async put(file, options) {
-        if (!this.channelId) throw new Error('[DiscordStorage] 缺少 channelId，无法上传');
+        if (!this.channelId) throw new Error('[DiscordStorage] 缺少频道标识，无法上传');
         const { fileName, mimeType } = options;
 
         let fileBlob;
@@ -184,16 +184,16 @@ class DiscordStorage extends StorageProvider {
         // 配置里会有 channelId 或者参数传过来，通常 fileId = channelId/messageId
         const [channelId, messageId] = fileId.split('/');
         if (!channelId || !messageId) {
-            throw new Error('[DiscordStorage] Invalid Discord fileId string. Expected "channelId/messageId".');
+            throw new Error('[DiscordStorage] Discord 文件标识格式无效，应为“频道标识/消息标识”');
         }
 
         const fileURL = await this.getFileURL(channelId, messageId);
         if (!fileURL) {
-            throw new Error(`[DiscordStorage] URL not found for file: ${fileId}`);
+            throw new Error(`[DiscordStorage] 未找到文件访问地址: ${fileId}`);
         }
 
         const response = await this.requestDiscord(fileURL);
-        if (!response.ok) throw new Error('[DiscordStorage] Failed fetching file stream: ' + response.statusText);
+        if (!response.ok) throw new Error('[DiscordStorage] 拉取文件流失败: ' + response.statusText);
         return response.body; 
     }
 
@@ -228,7 +228,7 @@ class DiscordStorage extends StorageProvider {
             });
             if (response.ok) {
                 const data = await response.json();
-                return { ok: true, message: `Bot "${data.username}" 连接成功` };
+                return { ok: true, message: `机器人 "${data.username}" 连接成功` };
             }
             const errData = await response.json().catch(() => ({}));
             return { ok: false, message: `连接失败: ${response.status} - ${errData.message || response.statusText}` };
@@ -250,7 +250,7 @@ class DiscordStorage extends StorageProvider {
     }
 
     async putChunk(chunkBuffer, options) {
-        if (!this.channelId) throw new Error('[DiscordStorage] 缺少 channelId，无法上传分块');
+        if (!this.channelId) throw new Error('[DiscordStorage] 缺少频道标识，无法上传分块');
         const { fileId, chunkIndex } = options;
         const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
         const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });

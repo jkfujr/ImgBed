@@ -1,68 +1,64 @@
 /**
- * 存储抽象基类
- * 所有具体的存储渠道（如 Local, S3, Telegram 等）都需继承并实现此接口
+ * 存储抽象基类。
+ * 所有具体存储驱动都需要继承并实现这些接口。
  */
 class StorageProvider {
   /**
-   * 上传文件
-   * @param {File|Buffer} file 文件对象或二进制流
-   * @param {Object} options 其他元数据选项（如 fileName, originalName）
-   * @returns {Promise<Object>} 返回存储后的关键信息 (如 id, url)
-   */
-  async put(file, options) { throw new Error('Not implemented: put()'); }
-
-  /**
-   * 获取文件信息
-   * @param {string} id 存储ID
+   * 上传文件。
+   * @param {File|Buffer} file
+   * @param {Object} options
    * @returns {Promise<Object>}
    */
-  async get(id) { throw new Error('Not implemented: get()'); }
+  async put(file, options) { throw new Error('未实现 put()'); }
 
   /**
-   * 删除文件
-   * @param {string} id 存储ID
-   * @param {Object} options 其他选项（例如关联的 token 等）
+   * 获取文件信息。
+   * @param {string} id
+   * @returns {Promise<Object>}
+   */
+  async get(id) { throw new Error('未实现 get()'); }
+
+  /**
+   * 删除文件。
+   * @param {string} id
+   * @param {Object} options
    * @returns {Promise<boolean>}
    */
-  async delete(id, options) { throw new Error('Not implemented: delete()'); }
+  async delete(id, options) { throw new Error('未实现 delete()'); }
 
   /**
-   * 获取文件可读流 (主要供直接访问返回 Response 使用)
-   * @param {string} id 存储ID
-   * @param {Object} options 其他选项 (支持范围请求)
+   * 获取文件可读流。
+   * @param {string} id
+   * @param {Object} options
    * @returns {Promise<ReadableStream|Buffer>}
    */
-  async getStream(id, options) { throw new Error('Not implemented: getStream()'); }
+  async getStream(id, options) { throw new Error('未实现 getStream()'); }
 
   /**
-   * 获取文件直接访问 URL (如果可行的话)
-   * @param {string} id 存储ID
-   * @param {Object} options 其他选项
+   * 获取文件直链地址。
+   * @param {string} id
+   * @param {Object} options
    * @returns {Promise<string>}
    */
-  async getUrl(id, options) { throw new Error('Not implemented: getUrl()'); }
+  async getUrl(id, options) { throw new Error('未实现 getUrl()'); }
 
   /**
-   * 检查文件是否存在
-   * @param {string} id 存储ID
+   * 检查文件是否存在。
+   * @param {string} id
    * @returns {Promise<boolean>}
    */
-  async exists(id) { throw new Error('Not implemented: exists()'); }
+  async exists(id) { throw new Error('未实现 exists()'); }
 
   /**
-   * 测试连接是否可用
-   * 子类应覆盖此方法以提供特定的连接测试逻辑
+   * 测试连接。
    * @returns {Promise<{ok: boolean, message: string}>}
    */
   async testConnection() {
     throw new Error('该存储类型不支持连接测试');
   }
 
-  // ========== 分块上传扩展接口 ==========
-
   /**
-   * 获取分块配置（同步，纯声明）
-   * 子类覆盖此方法以声明自身分块能力
+   * 获取分块配置。
    * @returns {{ enabled: boolean, chunkThreshold: number, chunkSize: number, maxChunks: number, mode: 'generic'|'native' }}
    */
   getChunkConfig() {
@@ -70,19 +66,19 @@ class StorageProvider {
   }
 
   /**
-   * 上传单个分块（通用分块模式，需子类实现）
-   * @param {Buffer} chunkBuffer - 分块二进制数据
-   * @param {Object} options - { fileId, chunkIndex, totalChunks, fileName, mimeType }
+   * 上传单个分块。
+   * @param {Buffer} chunkBuffer
+   * @param {Object} options
    * @returns {Promise<{ storageKey: string, size: number }>}
    */
   async putChunk(chunkBuffer, options) {
-    throw new Error('Not implemented: putChunk()');
+    throw new Error('未实现 putChunk()');
   }
 
   /**
-   * 获取单个分块的可读流（默认回退到 getStream）
-   * @param {string} storageKey - 分块存储键
-   * @param {Object} options - 可选参数
+   * 获取分块可读流。
+   * @param {string} storageKey
+   * @param {Object} options
    * @returns {Promise<ReadableStream|Buffer>}
    */
   async getChunkStream(storageKey, options) {
@@ -90,8 +86,8 @@ class StorageProvider {
   }
 
   /**
-   * 删除单个分块（默认回退到 delete）
-   * @param {string} storageKey - 分块存储键
+   * 删除分块。
+   * @param {string} storageKey
    * @returns {Promise<boolean>}
    */
   async deleteChunk(storageKey) {

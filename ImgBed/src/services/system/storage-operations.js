@@ -63,7 +63,7 @@ function createStorageOperation(db, {
   status = OPERATION_STATUS.PENDING,
 } = {}) {
   if (!operationType) {
-    throw new Error('创建存储操作时必须提供 operationType');
+    throw new Error('创建存储操作时必须提供操作类型');
   }
 
   const operationId = crypto.randomUUID();

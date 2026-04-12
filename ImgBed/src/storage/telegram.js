@@ -70,7 +70,7 @@ class TelegramStorage extends StorageProvider {
         });
         log.debug({ status: response.status, statusText: response.statusText }, 'API response');
         if (!response.ok) {
-            throw new Error(`Telegram API error: ${response.statusText}`);
+            throw new Error(`Telegram 接口请求失败: ${response.statusText}`);
         }
 
         const responseData = await response.json();
@@ -89,7 +89,7 @@ class TelegramStorage extends StorageProvider {
 
         try {
             if (!responseData.ok) {
-                log.error({ description: responseData.description }, 'API error');
+                log.error({ description: responseData.description }, '接口返回失败');
                 return null;
             }
 
@@ -148,7 +148,7 @@ class TelegramStorage extends StorageProvider {
     async getFileContent(fileId) {
         const filePath = await this.getFilePath(fileId);
         if (!filePath) {
-            throw new Error(`[TelegramStorage] File path not found for fileId: ${fileId}`);
+            throw new Error(`[TelegramStorage] 未找到文件路径: ${fileId}`);
         }
 
         const fullURL = `${this.fileDomain}/file/bot${this.botToken}/${filePath}`;
@@ -162,7 +162,7 @@ class TelegramStorage extends StorageProvider {
     // --- 以下为 StorageProvider 接口实现，映射旧逻辑 ---
 
     async put(file, options) {
-        if (!this.chatId) throw new Error('[TelegramStorage] 缺少 chatId，无法上传');
+        if (!this.chatId) throw new Error('[TelegramStorage] 缺少会话标识，无法上传');
         const { fileName, mimeType } = options;
 
         let fileBlob;
@@ -185,7 +185,7 @@ class TelegramStorage extends StorageProvider {
 
         const result = responseData.result;
         const fileInfo = this.getFileInfo(responseData);
-        if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取 file_id');
+        if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取文件标识');
 
         // 保存完整的 Telegram 消息元数据，用于后续删除
         return {
@@ -201,7 +201,7 @@ class TelegramStorage extends StorageProvider {
         // 直接复用原版拉取逻辑
         const response = await this.getFileContent(fileId);
         if (!response.ok) {
-            throw new Error(`Failed to fetch from Telegram: ${response.statusText}`);
+            throw new Error(`从 Telegram 拉取文件失败: ${response.statusText}`);
         }
         return response.body; // 返回可流通 Node 侧或者代理直接转换的 Web Stream
     }
@@ -245,11 +245,11 @@ class TelegramStorage extends StorageProvider {
                 return true;
             } else {
                 // 48h 限制等错误在这里打出来，方便排查
-                log.warn({ fileId, messageId, chatId, description: data.description }, 'Telegram deleteMessage 失败');
+                log.warn({ fileId, messageId, chatId, description: data.description }, 'Telegram 删除消息失败');
                 return false;
             }
         } catch (err) {
-            log.error({ fileId, err }, 'Telegram deleteMessage 请求异常');
+            log.error({ fileId, err }, 'Telegram 删除消息请求异常');
             return false;
         }
     }
@@ -271,7 +271,7 @@ class TelegramStorage extends StorageProvider {
             });
             const data = await response.json();
             if (data.ok && data.result) {
-                return { ok: true, message: `Bot "${data.result.first_name}" (@${data.result.username}) 连接成功` };
+                return { ok: true, message: `机器人 "${data.result.first_name}" (@${data.result.username}) 连接成功` };
             }
             return { ok: false, message: `连接失败: ${data.description || '未知错误'}` };
         } catch (err) {
@@ -304,7 +304,7 @@ class TelegramStorage extends StorageProvider {
     }
 
     async putChunk(chunkBuffer, options) {
-        if (!this.chatId) throw new Error('[TelegramStorage] 缺少 chatId，无法上传分块');
+        if (!this.chatId) throw new Error('[TelegramStorage] 缺少会话标识，无法上传分块');
         const { fileId, chunkIndex } = options;
         const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
         const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });
@@ -313,7 +313,7 @@ class TelegramStorage extends StorageProvider {
             blob, this.chatId, 'sendDocument', 'document', '', chunkName
         );
         const fileInfo = this.getFileInfo(responseData);
-        if (!fileInfo) throw new Error(`[TelegramStorage] 分块 ${chunkIndex} 上传后未能获取 file_id`);
+        if (!fileInfo) throw new Error(`[TelegramStorage] 分块 ${chunkIndex} 上传后未能获取文件标识`);
         return { storageKey: fileInfo.file_id, size: chunkBuffer.length };
     }
 }

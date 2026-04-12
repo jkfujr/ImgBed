@@ -34,11 +34,11 @@ const isRecoverableError = (error) => {
 
 process.on('uncaughtException', (error) => {
   if (isRecoverableError(error)) {
-    log.error({ err: error }, 'recoverable uncaught exception captured');
+    log.error({ err: error }, '已捕获可恢复的未捕获异常');
     return;
   }
 
-  log.fatal({ err: error }, 'fatal uncaught exception');
+  log.fatal({ err: error }, '发生致命未捕获异常');
   process.exit(1);
 });
 
@@ -46,11 +46,11 @@ process.on('unhandledRejection', (reason, promise) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
 
   if (isRecoverableError(error)) {
-    log.error({ reason, promise }, 'recoverable unhandled rejection captured');
+    log.error({ reason, promise }, '已捕获可恢复的未处理 Promise 拒绝');
     return;
   }
 
-  log.error({ reason, promise }, 'unhandled rejection');
+  log.error({ reason, promise }, '出现未处理的 Promise 拒绝');
 });
 
 const runtime = createApplicationRuntime({
@@ -77,6 +77,6 @@ try {
   await runtime.start();
   runtime.registerSignalHandlers(process);
 } catch (error) {
-  log.fatal({ err: error }, 'application boot failed');
+  log.fatal({ err: error }, '应用启动失败');
   process.exit(1);
 }
