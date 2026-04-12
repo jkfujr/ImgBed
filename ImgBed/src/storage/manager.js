@@ -6,6 +6,7 @@ const log = createLogger('storage');
 
 import { QuotaProjectionService } from './quota/quota-projection-service.js';
 import { StorageOperationRecovery } from './recovery/storage-operation-recovery.js';
+import { StorageMaintenanceScheduler } from './runtime/storage-maintenance-scheduler.js';
 import { StorageRegistry } from './runtime/storage-registry.js';
 import { UploadSelector } from './runtime/upload-selector.js';
 
@@ -36,12 +37,16 @@ class StorageManager {
             storageManager: this,
             applyPendingQuotaEvents: (options) => this.applyPendingQuotaEvents(options),
         });
-        this._fullRebuildTimer = null;
-        this._compensationRetryTimer = null;
-        this._compensationBackoffMs = 5 * 60 * 1000;
+        this.maintenanceScheduler = new StorageMaintenanceScheduler({
+            db: this.db,
+            logger: log,
+            getUploadConfig: () => this.registry.getUploadConfig(),
+            verifyQuotaConsistency: () => this.verifyQuotaConsistency(),
+            rebuildQuotaStats: () => this.rebuildQuotaStats(),
+            recoverPendingOperations: () => this.recoverPendingOperations(),
+        });
         this._initializePromise = null;
         this._isInitialized = false;
-        this._maintenanceStarted = false;
     }
 
     async initialize() {
@@ -84,80 +89,11 @@ class StorageManager {
 
     async startMaintenance() {
         await this.initialize();
-
-        if (this._maintenanceStarted) {
-            return;
-        }
-
-        this._startFullRebuildTimer();
-        this._startCompensationRetryTimer();
-        this._maintenanceStarted = true;
+        await this.maintenanceScheduler.start();
     }
 
     stopMaintenance() {
-        this._stopFullRebuildTimer();
-        this._stopCompensationRetryTimer();
-        this._maintenanceStarted = false;
-    }
-
-    _startCompensationRetryTimer() {
-        const db = this.db;
-        const MIN_INTERVAL_MS = 5 * 60 * 1000;   // 5 鍒嗛挓
-        const MAX_INTERVAL_MS = 60 * 60 * 1000;  // 60 鍒嗛挓涓婇檺
-
-        if (this._compensationRetryTimer) {
-            return;
-        }
-
-        const scheduleNext = () => {
-            this._compensationRetryTimer = setTimeout(async () => {
-                try {
-                    const pending = db.prepare(`
-                        SELECT COUNT(*) AS count FROM storage_operations
-                        WHERE status IN ('remote_done', 'committed', 'compensation_pending')
-                    `).get();
-
-                    if (pending.count > 0) {
-                        log.info({ count: pending.count, nextIntervalMs: this._compensationBackoffMs }, '瀹氭椂鎭㈠: 鍙戠幇寮傚父鎿嶄綔');
-                        const result = await this.recoveryService.recoverPendingOperations();
-                        if (result.recovered > 0) {
-                            // 鏈夋垚鍔熸仮澶嶅垯閲嶇疆閫€閬?
-                            this._compensationBackoffMs = MIN_INTERVAL_MS;
-                        } else {
-                            // 鍏ㄩ儴澶辫触鍒欐寚鏁板姞鍊嶏紝涓嶈秴杩囦笂闄?
-                            this._compensationBackoffMs = Math.min(
-                                this._compensationBackoffMs * 2,
-                                MAX_INTERVAL_MS
-                            );
-                        }
-                    } else {
-                        // 鏃犲緟澶勭悊鎿嶄綔锛岄噸缃€€閬?
-                        this._compensationBackoffMs = MIN_INTERVAL_MS;
-                    }
-                } catch (err) {
-                    log.error({ err }, '瀹氭椂鎭㈠澶辫触');
-                    this._compensationBackoffMs = Math.min(
-                        this._compensationBackoffMs * 2,
-                        MAX_INTERVAL_MS
-                    );
-                } finally {
-                    if (this._compensationRetryTimer !== null) {
-                        scheduleNext();
-                    }
-                }
-            }, this._compensationBackoffMs);
-
-            this._compensationRetryTimer.unref();
-        };
-
-        scheduleNext();
-    }
-
-    _stopCompensationRetryTimer() {
-        if (this._compensationRetryTimer) {
-            clearTimeout(this._compensationRetryTimer);
-            this._compensationRetryTimer = null;
-        }
+        this.maintenanceScheduler.stop();
     }
 
     async getQuotaHistory(storageId, limit = 100) {
@@ -210,12 +146,7 @@ class StorageManager {
 
     async reload() {
         await this.registry.reload();
-
-        if (this._fullRebuildTimer) {
-            this.quotaProjectionService.rebuildAllQuotaStats().catch(() => {});
-            this._stopFullRebuildTimer();
-            this._startFullRebuildTimer();
-        }
+        await this.maintenanceScheduler.refresh();
     }
 
     async testConnection(type, instanceConfig) {
@@ -244,34 +175,6 @@ class StorageManager {
 
     async verifyQuotaConsistency() {
         return this.quotaProjectionService.verifyQuotaConsistency();
-    }
-
-    _startFullRebuildTimer() {
-        const intervalHours = this.registry.getUploadConfig()?.fullCheckIntervalHours || 6;
-        const intervalMs = intervalHours * 60 * 60 * 1000;
-
-        this._fullRebuildTimer = setInterval(async () => {
-            try {
-                log.info('scheduled quota consistency check started');
-                const result = await this.quotaProjectionService.verifyQuotaConsistency();
-
-                if (!result.consistent) {
-                    log.warn({ count: result.inconsistencies.length }, 'quota consistency drift detected, rebuilding');
-                    await this.quotaProjectionService.rebuildAllQuotaStats();
-                }
-            } catch (err) {
-                log.error({ err }, 'scheduled quota maintenance failed');
-            }
-        }, intervalMs);
-
-        this._fullRebuildTimer.unref();
-    }
-
-    _stopFullRebuildTimer() {
-        if (this._fullRebuildTimer) {
-            clearInterval(this._fullRebuildTimer);
-            this._fullRebuildTimer = null;
-        }
     }
 
     getUsedBytes(storageId) {

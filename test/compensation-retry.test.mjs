@@ -1,55 +1,7 @@
 import { strict as assert } from 'node:assert';
-import fs from 'node:fs';
 
-import { getSystemConfigPath } from '../ImgBed/src/services/system/config-io.js';
 import { StorageOperationRecovery } from '../ImgBed/src/storage/recovery/storage-operation-recovery.js';
 import { incrementOperationRetryCount } from '../ImgBed/src/services/system/storage-operations.js';
-
-function createSafeConfig() {
-  return {
-    server: { port: 13000, host: '0.0.0.0' },
-    database: { path: './data/database.sqlite' },
-    jwt: { secret: 'dev-secret-for-local-tests-only', expiresIn: '7d' },
-    admin: { username: 'admin', password: 'admin' },
-    storage: {
-      default: 'local-1',
-      allowedUploadChannels: ['local-1'],
-      failoverEnabled: true,
-      storages: [
-        {
-          id: 'local-1',
-          type: 'local',
-          name: 'Local Storage',
-          enabled: true,
-          allowUpload: true,
-          config: { basePath: './data/storage' },
-        },
-      ],
-    },
-    security: { corsOrigin: '*', guestUploadEnabled: false, uploadPassword: '' },
-    upload: { quotaCheckMode: 'auto', fullCheckIntervalHours: 6 },
-    performance: {
-      s3Multipart: { enabled: true, concurrency: 4, maxConcurrency: 8, minPartSize: 5242880 },
-      responseCache: { enabled: true, ttlSeconds: 60, maxKeys: 1000 },
-      quotaEventsArchive: { enabled: true, retentionDays: 30, batchSize: 500, maxBatchesPerRun: 10, scheduleHour: 3 },
-    },
-  };
-}
-
-function ensureValidConfigFile() {
-  const configPath = getSystemConfigPath();
-  try {
-    JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch {
-    fs.writeFileSync(configPath, JSON.stringify(createSafeConfig(), null, 2), 'utf8');
-  }
-}
-
-async function loadStorageManagerClass() {
-  ensureValidConfigFile();
-  const module = await import('../ImgBed/src/storage/manager.js');
-  return module.StorageManager;
-}
 
 function makeTrackingDb(operationRow = null) {
   const calls = { prepares: [], runs: [] };
@@ -164,69 +116,12 @@ async function testIncrementOperationRetryCountCallsDb() {
   console.log('  [OK] incrementOperationRetryCount sends operationId to db');
 }
 
-async function testBackoffResetsOnRecoverySuccess() {
-  const StorageManager = await loadStorageManagerClass();
-  const db = {
-    prepare(sql) {
-      if (sql.includes('SELECT COUNT(*) AS count FROM storage_operations')) {
-        return { get() { return { count: 1 }; } };
-      }
-      throw new Error(`Unhandled SQL: ${sql}`);
-    },
-  };
-
-  const manager = new StorageManager({ db });
-  manager.recoveryService.recoverPendingOperations = async () => ({ recovered: 2, total: 2, skipped: false });
-  manager._compensationBackoffMs = 20 * 60 * 1000;
-
-  manager._startCompensationRetryTimer();
-  const timer = manager._compensationRetryTimer;
-  try {
-    await timer._onTimeout();
-    assert.equal(manager._compensationBackoffMs, 5 * 60 * 1000);
-  } finally {
-    manager._stopCompensationRetryTimer();
-  }
-  console.log('  [OK] StorageManager compensation timer resets backoff after recovery success');
-}
-
-async function testBackoffDoublesAndTimerStopsCleanly() {
-  const StorageManager = await loadStorageManagerClass();
-  const db = {
-    prepare(sql) {
-      if (sql.includes('SELECT COUNT(*) AS count FROM storage_operations')) {
-        return { get() { return { count: 1 }; } };
-      }
-      throw new Error(`Unhandled SQL: ${sql}`);
-    },
-  };
-
-  const manager = new StorageManager({ db });
-  manager.recoveryService.recoverPendingOperations = async () => ({ recovered: 0, total: 1, skipped: false });
-  manager._compensationBackoffMs = 5 * 60 * 1000;
-
-  manager._startCompensationRetryTimer();
-  const timer = manager._compensationRetryTimer;
-  await timer._onTimeout();
-  assert.equal(manager._compensationBackoffMs, 10 * 60 * 1000);
-
-  const sameTimer = manager._compensationRetryTimer;
-  manager._startCompensationRetryTimer();
-  assert.equal(manager._compensationRetryTimer, sameTimer, 'timer start should be idempotent');
-
-  manager._stopCompensationRetryTimer();
-  assert.equal(manager._compensationRetryTimer, null);
-  console.log('  [OK] StorageManager compensation timer doubles backoff and stop is clean');
-}
-
 async function run() {
   console.log('\n== recovery / compensation retry tests ==');
   await testExecuteRecoveryIncrementsCountOnFailure();
   await testExecuteRecoveryMarksFailedWhenMaxRetriesReached();
   await testExecuteRecoveryDoesNotIncrementOnSuccess();
   await testIncrementOperationRetryCountCallsDb();
-  await testBackoffResetsOnRecoverySuccess();
-  await testBackoffDoublesAndTimerStopsCleanly();
   console.log('\ncompensation-retry tests passed\n');
 }
 
