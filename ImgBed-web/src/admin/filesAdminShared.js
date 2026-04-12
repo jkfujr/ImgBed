@@ -1,5 +1,5 @@
-import { FileDocs, DirectoryDocs } from '../api';
-import { DEFAULT_PAGE_SIZE } from '../utils/constants';
+import { FileDocs, DirectoryDocs } from '../api.js';
+import { DEFAULT_PAGE_SIZE } from '../utils/constants.js';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 export const ROOT_DIR = '/';
@@ -109,4 +109,38 @@ export async function fetchListPage(dir) {
   const params = { page: 1, pageSize: PAGE_SIZE, directory: normalizedDir };
   const pageRes = await FileDocs.list(params);
   return parseListResponse(pageRes);
+}
+
+export async function loadFilesAdminPageData({
+  currentDir,
+  cached = null,
+  keepDirectories = false,
+  fetchDirectoriesImpl = fetchDirectories,
+  fetchListPageImpl = fetchListPage,
+  loggerImpl = console,
+}) {
+  const directoryPromise = keepDirectories && cached
+    ? Promise.resolve({ allDirs: null, directories: cached.directories || [] })
+    : Promise.resolve(fetchDirectoriesImpl(currentDir)).catch((error) => {
+      loggerImpl?.warn?.('目录加载失败，继续加载文件列表', error);
+      return {
+        allDirs: null,
+        directories: cached?.directories || [],
+      };
+    });
+
+  const [directoryResult, listResult] = await Promise.all([
+    directoryPromise,
+    fetchListPageImpl(currentDir),
+  ]);
+
+  return {
+    nextList: {
+      data: listResult.data,
+      total: listResult.total,
+      hasMore: listResult.hasMore,
+      directories: directoryResult.directories,
+    },
+    allDirs: directoryResult.allDirs,
+  };
 }

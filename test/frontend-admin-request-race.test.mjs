@@ -22,10 +22,28 @@ function testDisposedGuardRejectsLateResponse() {
   console.log('  [OK] frontend-admin-request-race: disposed page ignores late response');
 }
 
+function testGuardCanBeReusedAfterStrictModeCleanupCycle() {
+  const guard = createRequestGuard();
+  const firstRequest = guard.begin();
+
+  guard.dispose();
+
+  const secondRequest = guard.begin();
+
+  assert.equal(guard.isCurrent(firstRequest), false);
+  assert.equal(
+    guard.isCurrent(secondRequest),
+    true,
+    'guard should accept a new current request after a cleanup/restart cycle',
+  );
+  console.log('  [OK] frontend-admin-request-race: guard survives strict-mode cleanup cycle');
+}
+
 function main() {
   console.log('running frontend-admin-request-race tests...');
   testLatestRequestWins();
   testDisposedGuardRejectsLateResponse();
+  testGuardCanBeReusedAfterStrictModeCleanupCycle();
   console.log('frontend-admin-request-race tests passed');
 }
 

@@ -4,6 +4,7 @@ export function createRequestGuard() {
 
   return {
     begin() {
+      disposed = false;
       currentRequestId += 1;
       return currentRequestId;
     },

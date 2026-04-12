@@ -3,23 +3,21 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { FileDocs } from '../api';
 import { useRefresh } from '../contexts/RefreshContext';
 import logger from '../utils/logger';
+import { createRequestGuard } from '../utils/request-guard';
 import {
   EMPTY_DELETE,
   EMPTY_LIST,
-  ROOT_DIR,
   areAllTelegramFilesOlderThan24h,
   buildFilesAdminPath,
   fetchDirectories,
   fetchListPage,
   getCacheKey,
   getDirectoryPathFromSearch,
+  loadFilesAdminPageData,
   normalizeDirectoryPath,
   updateCachedDirectories,
 } from '../admin/filesAdminShared';
 
-/**
- * FilesAdmin 核心业务 Hook — 管理文件列表、目录、选择、删除、迁移等状态
- */
 export function useFilesAdmin() {
   const { refreshTrigger } = useRefresh();
   const location = useLocation();
@@ -36,6 +34,7 @@ export function useFilesAdmin() {
 
   const pageRef = useRef(0);
   const cacheRef = useRef(new Map());
+  const requestGuardRef = useRef(createRequestGuard());
   const currentDir = useMemo(() => getDirectoryPathFromSearch(location.search), [location.search]);
 
   const handleOpenDetail = useCallback((item) => setDetailItem(item), []);
@@ -51,7 +50,11 @@ export function useFilesAdmin() {
     forceReload = false,
     keepDirectories = false,
   } = {}) => {
-    if (showLoading) setLoading(true);
+    const requestId = requestGuardRef.current.begin();
+
+    if (showLoading) {
+      setLoading(true);
+    }
     clearSelection();
     setError(null);
     pageRef.current = 0;
@@ -61,38 +64,53 @@ export function useFilesAdmin() {
 
     try {
       if (!forceReload && cached) {
-        setListData(cached);
-        pageRef.current = cached.data.length > 0 ? 1 : 0;
+        if (requestGuardRef.current.isCurrent(requestId)) {
+          setListData(cached);
+          pageRef.current = cached.data.length > 0 ? 1 : 0;
+        }
         return;
       }
 
-      const directoryResult = keepDirectories && cached
-        ? { allDirs: null, directories: cached.directories }
-        : await fetchDirectories(currentDir);
+      const { nextList, allDirs } = await loadFilesAdminPageData({
+        currentDir,
+        cached,
+        keepDirectories,
+        fetchDirectoriesImpl: fetchDirectories,
+        fetchListPageImpl: fetchListPage,
+        loggerImpl: logger,
+      });
 
-      const listResult = await fetchListPage(currentDir);
-      const nextList = {
-        data: listResult.data,
-        total: listResult.total,
-        hasMore: listResult.hasMore,
-        directories: directoryResult.directories,
-      };
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
 
       setListData(nextList);
       cacheRef.current.set(cacheKey, nextList);
-      pageRef.current = listResult.data.length > 0 ? 1 : 0;
+      pageRef.current = nextList.data.length > 0 ? 1 : 0;
 
-      if (directoryResult.allDirs) {
-        updateCachedDirectories(cacheRef.current, directoryResult.allDirs);
+      if (allDirs) {
+        updateCachedDirectories(cacheRef.current, allDirs);
       }
     } catch (err) {
-      logger.error('加载失败', err);
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      logger.error('加载文件列表失败', err);
       setError('加载失败');
       setListData(EMPTY_LIST);
     } finally {
-      if (showLoading) setLoading(false);
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
   }, [clearSelection, currentDir]);
+
+  useEffect(() => {
+    return () => {
+      requestGuardRef.current.dispose();
+    };
+  }, []);
 
   useEffect(() => {
     const normalizedPath = getDirectoryPathFromSearch(location.search);
@@ -107,7 +125,9 @@ export function useFilesAdmin() {
   }, [loadDirectoryData]);
 
   useEffect(() => {
-    if (refreshTrigger > 0) loadDirectoryData({ forceReload: true });
+    if (refreshTrigger > 0) {
+      loadDirectoryData({ forceReload: true });
+    }
   }, [refreshTrigger, loadDirectoryData]);
 
   const handleRefresh = useCallback(() => {
@@ -121,24 +141,37 @@ export function useFilesAdmin() {
   const toggleSelect = (id) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
 
   const triggerDelete = (ids, label, items = []) => {
-    if (deleteDialog.open || !ids.length) return;
+    if (deleteDialog.open || !ids.length) {
+      return;
+    }
+
     const effectiveMode = areAllTelegramFilesOlderThan24h(items) ? 'index_only' : 'remote_and_index';
     setDeleteDialog({ open: true, ids, label, saving: false, deleteMode: effectiveMode, errorMessage: '' });
   };
 
   const closeDeleteDialog = () => {
-    if (!deleteDialog.saving) setDeleteDialog(EMPTY_DELETE);
+    if (!deleteDialog.saving) {
+      setDeleteDialog(EMPTY_DELETE);
+    }
   };
 
   const confirmDelete = async () => {
-    if (!deleteDialog.ids.length) return;
+    if (!deleteDialog.ids.length) {
+      return;
+    }
+
     setDeleteDialog((prev) => ({ ...prev, saving: true }));
+
     try {
       const { ids, deleteMode } = deleteDialog;
       if (ids.length === 1) {
@@ -148,8 +181,8 @@ export function useFilesAdmin() {
       }
       setDeleteDialog(EMPTY_DELETE);
       refreshAfterMutation();
-    } catch (e) { 
-      logger.error(e);
+    } catch (error) {
+      logger.error(error);
       setDeleteDialog((prev) => ({ ...prev, saving: false, errorMessage: '删除失败，请重试' }));
     }
   };
@@ -169,20 +202,31 @@ export function useFilesAdmin() {
     total: listData.total,
     hasMore: listData.hasMore,
     directories: listData.directories,
-    loading, currentDir, selected, error,
-    deleteDialog, deleting: deleteDialog.saving,
+    loading,
+    currentDir,
+    selected,
+    error,
+    deleteDialog,
+    deleting: deleteDialog.saving,
     migrateDialog,
     moveDialog,
     detailOpen: detailItem !== null,
     selectedItem: detailItem,
     pageRef,
-    handleOpenDetail, handleCloseDetail,
-    clearSelection, selectAll,
-    handleRefresh, refreshAfterMutation,
+    handleOpenDetail,
+    handleCloseDetail,
+    clearSelection,
+    selectAll,
+    handleRefresh,
+    refreshAfterMutation,
     toggleSelect,
-    triggerDelete, closeDeleteDialog, confirmDelete,
+    triggerDelete,
+    closeDeleteDialog,
+    confirmDelete,
     navigateToDir,
-    openMigrate, closeMigrate,
-    openMove, closeMove,
+    openMigrate,
+    closeMigrate,
+    openMove,
+    closeMove,
   };
 }
