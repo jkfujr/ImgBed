@@ -1,17 +1,53 @@
 import { SignJWT, jwtVerify } from 'jose';
+
 import config from '../config/index.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('jwt');
-
-// 将配置中的密钥转换为 Uint8Array
 const secretKey = new TextEncoder().encode(config.jwt?.secret || 'fallback-secret-key-12345678');
 
-/**
- * 生成 JWT
- * @param {Object} payload 载荷信息
- * @returns {Promise<string>} 生成的 Token
- */
+function classifyJwtVerificationError(error) {
+  const code = error?.code || '';
+  const name = error?.name || '';
+
+  if (code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' || name === 'JWSSignatureVerificationFailed') {
+    return {
+      level: 'info',
+      message: 'Token 验签失败，需重新登录',
+      context: { code, name },
+    };
+  }
+
+  if (code === 'ERR_JWT_EXPIRED' || name === 'JWTExpired') {
+    return {
+      level: 'info',
+      message: 'Token 已过期，需重新登录',
+      context: { code, name },
+    };
+  }
+
+  if (
+    code === 'ERR_JWS_INVALID' ||
+    code === 'ERR_JWT_INVALID' ||
+    code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' ||
+    name === 'JWSInvalid' ||
+    name === 'JWTInvalid' ||
+    name === 'JWTClaimValidationFailed'
+  ) {
+    return {
+      level: 'info',
+      message: 'Token 无效，需重新登录',
+      context: { code, name },
+    };
+  }
+
+  return {
+    level: 'error',
+    message: 'Token 解析失败',
+    context: { err: error },
+  };
+}
+
 async function signToken(payload) {
   const expiresIn = config.jwt?.expiresIn || '7d';
   return await new SignJWT(payload)
@@ -21,20 +57,20 @@ async function signToken(payload) {
     .sign(secretKey);
 }
 
-/**
- * 验证和解析 JWT
- * @param {string} token 客户端传入的 Bearer Token
- * @returns {Promise<Object|null>} 若成功返回载荷对象，否则返回 null
- */
 async function verifyToken(token) {
   try {
     const { payload } = await jwtVerify(token, secretKey);
-    return payload; // 解析成功，返回其中的数据
+    return payload;
   } catch (error) {
-    log.error({ err: error }, 'Token 解析失败或已变质/过期');
-    return null; // 验证失败
+    const classification = classifyJwtVerificationError(error);
+    const loggerMethod = typeof log[classification.level] === 'function' ? log[classification.level] : log.error;
+    loggerMethod.call(log, classification.context, classification.message);
+    return null;
   }
 }
 
-export { signToken,
-  verifyToken };
+export {
+  classifyJwtVerificationError,
+  signToken,
+  verifyToken,
+};
