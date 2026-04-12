@@ -6,6 +6,72 @@ import { StorageRegistry } from '../ImgBed/src/storage/runtime/storage-registry.
 
 const configPath = getSystemConfigPath();
 
+function createSafeConfig() {
+  return {
+    server: {
+      port: 13000,
+      host: '0.0.0.0',
+    },
+    database: {
+      path: './data/database.sqlite',
+    },
+    jwt: {
+      secret: 'dev-secret-for-local-tests-only',
+      expiresIn: '7d',
+    },
+    admin: {
+      username: 'admin',
+      password: 'admin',
+    },
+    storage: {
+      default: 'local-1',
+      allowedUploadChannels: ['local-1'],
+      failoverEnabled: true,
+      storages: [
+        {
+          id: 'local-1',
+          type: 'local',
+          name: 'Local Storage',
+          enabled: true,
+          allowUpload: true,
+          config: {
+            basePath: './data/storage',
+          },
+        },
+      ],
+    },
+    security: {
+      corsOrigin: '*',
+      guestUploadEnabled: false,
+      uploadPassword: '',
+    },
+    upload: {
+      quotaCheckMode: 'auto',
+      fullCheckIntervalHours: 6,
+    },
+    performance: {
+      s3Multipart: {
+        enabled: true,
+        concurrency: 4,
+        maxConcurrency: 8,
+        minPartSize: 5242880,
+      },
+      responseCache: {
+        enabled: true,
+        ttlSeconds: 60,
+        maxKeys: 1000,
+      },
+      quotaEventsArchive: {
+        enabled: true,
+        retentionDays: 30,
+        batchSize: 500,
+        maxBatchesPerRun: 10,
+        scheduleHour: 3,
+      },
+    },
+  };
+}
+
 function makeLogger() {
   return {
     info() {},
@@ -51,7 +117,13 @@ class TestStorageRegistry extends StorageRegistry {
 }
 
 async function withConfig(config, fn) {
-  const original = fs.readFileSync(configPath, 'utf8');
+  const originalRaw = fs.readFileSync(configPath, 'utf8');
+  let original;
+  try {
+    original = JSON.parse(originalRaw);
+  } catch {
+    original = createSafeConfig();
+  }
   try {
     if (typeof config === 'string') {
       fs.writeFileSync(configPath, config, 'utf8');
@@ -60,7 +132,7 @@ async function withConfig(config, fn) {
     }
     await fn();
   } finally {
-    fs.writeFileSync(configPath, original, 'utf8');
+    writeConfig(original);
   }
 }
 

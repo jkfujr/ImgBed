@@ -109,14 +109,17 @@ function testFilesSchemaKeepsBothStorageColumns() {
 
 function testStorageManagerDelegatesRuntimeState() {
   const source = read('ImgBed/src/storage/manager.js');
+  assert.match(source, /import \{ QuotaProjectionService \} from '\.\/quota\/quota-projection-service\.js';/);
   assert.match(source, /import \{ StorageRegistry \} from '\.\/runtime\/storage-registry\.js';/);
   assert.match(source, /import \{ UploadSelector \} from '\.\/runtime\/upload-selector\.js';/);
   assert.ok(!source.includes('this.instances = new Map()'));
   assert.ok(!source.includes('this.roundRobinIndex = 0'));
   assert.ok(!source.includes('this.config = config.storage || {}'));
   assert.ok(!source.includes('this.uploadConfig = config.upload || {}'));
+  assert.ok(!source.includes('this.quotaProjection = new Map()'));
+  assert.ok(!source.includes('this.usageStats = new Map()'));
   assert.ok(!source.includes('_selectRoundRobin('));
-  console.log('  [OK] manager.js: runtime state now delegates to registry and selector');
+  console.log('  [OK] manager.js: runtime state now delegates to registry, selector, and quota service');
 }
 
 function runStaticChecks() {
