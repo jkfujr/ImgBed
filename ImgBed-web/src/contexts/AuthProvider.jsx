@@ -1,76 +1,187 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AuthDocs, api } from '../api';
+import {
+  applySessionInvalidationFallback,
+  AUTH_REASON_SESSION_INVALID,
+  readStoredAuthToken,
+  setActiveSessionToken,
+  setSessionInvalidationHandler,
+  shouldApplySessionCheck,
+  writeStoredAuthToken,
+} from '../auth/session.js';
 import { AuthContext } from '../hooks/useAuth';
 
-/**
- * 身份验证提供者组件：
- * 仅导出此组件以满足 Fast Refresh 规则
- */
 export const AuthProvider = ({ children }) => {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const sessionVersionRef = useRef(0);
+  const activeTokenRef = useRef(null);
 
-    const checkLoginState = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-             setIsAuthenticated(false);
-             setUser(null);
-             setLoading(false);
-             return;
-        }
+  const syncActiveSessionToken = (token) => {
+    const normalizedToken = token || null;
+    activeTokenRef.current = normalizedToken;
+    setActiveSessionToken(normalizedToken);
+    writeStoredAuthToken(normalizedToken);
 
-        try {
-             const res = await AuthDocs.me();
-             if (res.code === 0) {
-                 setIsAuthenticated(true);
-                 setUser(res.data);
-             } else {
-                 throw new Error('User not admin');
-             }
-        } catch {
-             localStorage.removeItem('token');
-             setIsAuthenticated(false);
-             setUser(null);
-        } finally {
-             setLoading(false);
-        }
-    };
+    if (normalizedToken) {
+      api.defaults.headers.common.Authorization = `Bearer ${normalizedToken}`;
+      return;
+    }
 
-    useEffect(() => {
-        checkLoginState();
-    }, []);
+    delete api.defaults.headers.common.Authorization;
+  };
 
-    const login = async (credentials) => {
-        const res = await AuthDocs.login(credentials);
-        if (res.code !== 0) {
-            throw new Error(res.message);
-        }
-        
-        const token = res.data?.token;
-        if (token) {
-            localStorage.setItem('token', token);
-            api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-            await checkLoginState();
-        }
-    };
+  const invalidateSession = ({
+    reason = null,
+    requestToken = null,
+    message = null,
+    shouldRedirect = false,
+    storeNotice = reason === AUTH_REASON_SESSION_INVALID,
+  } = {}) => {
+    const currentToken = activeTokenRef.current;
 
-    const logout = async () => {
-         try {
-            await AuthDocs.logout();
-         } catch {
-            // 忽略失败
-         }
-         
-         localStorage.removeItem('token');
-         delete api.defaults.headers.common['Authorization'];
-         setIsAuthenticated(false);
-         setUser(null);
-    };
+    if (requestToken && currentToken && requestToken !== currentToken) {
+      return false;
+    }
 
-    return (
-        <AuthContext.Provider value={{ isAuthenticated, user, loading, login, logout }}>
-             {children}
-        </AuthContext.Provider>
-    );
+    sessionVersionRef.current += 1;
+    syncActiveSessionToken(null);
+    setIsAuthenticated(false);
+    setUser(null);
+    setLoading(false);
+
+    if (storeNotice || shouldRedirect) {
+      applySessionInvalidationFallback({
+        message,
+        shouldRedirect,
+      });
+    }
+
+    return true;
+  };
+
+  const canApplySessionResult = ({ token, version }) => {
+    return shouldApplySessionCheck({
+      requestVersion: version,
+      activeVersion: sessionVersionRef.current,
+      requestToken: token,
+      activeToken: activeTokenRef.current,
+    });
+  };
+
+  const checkLoginState = async ({ token, version }) => {
+    if (!token) {
+      if (canApplySessionResult({ token, version })) {
+        setIsAuthenticated(false);
+        setUser(null);
+        setLoading(false);
+      }
+      return;
+    }
+
+    try {
+      const res = await AuthDocs.me();
+      if (!canApplySessionResult({ token, version })) {
+        return;
+      }
+
+      if (res.code !== 0) {
+        throw new Error(res.message || '获取登录状态失败');
+      }
+
+      setIsAuthenticated(true);
+      setUser(res.data);
+    } catch (error) {
+      if (!canApplySessionResult({ token, version })) {
+        return;
+      }
+
+      const payload = error?.response?.data;
+      if (payload?.reason === AUTH_REASON_SESSION_INVALID) {
+        invalidateSession({
+          reason: payload.reason,
+          requestToken: token,
+          message: payload.message,
+          shouldRedirect: false,
+        });
+        return;
+      }
+
+      setIsAuthenticated(false);
+      setUser(null);
+    } finally {
+      if (canApplySessionResult({ token, version })) {
+        setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const cleanup = setSessionInvalidationHandler((context) => invalidateSession(context));
+    return cleanup;
+  }, []);
+
+  useEffect(() => {
+    const token = readStoredAuthToken();
+    syncActiveSessionToken(token);
+
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    void checkLoginState({
+      token,
+      version: sessionVersionRef.current,
+    });
+  }, []);
+
+  const login = async (credentials) => {
+    const res = await AuthDocs.login(credentials);
+    if (res.code !== 0) {
+      throw new Error(res.message);
+    }
+
+    const token = res.data?.token;
+    if (!token) {
+      throw new Error('登录失败：服务端未返回令牌');
+    }
+
+    sessionVersionRef.current += 1;
+    syncActiveSessionToken(token);
+    setIsAuthenticated(true);
+    setUser({
+      username: res.data?.username || credentials.username,
+      role: res.data?.role || 'admin',
+    });
+    setLoading(false);
+
+    void checkLoginState({
+      token,
+      version: sessionVersionRef.current,
+    });
+  };
+
+  const logout = async () => {
+    const requestToken = activeTokenRef.current;
+
+    try {
+      await AuthDocs.logout();
+    } catch {
+    }
+
+    invalidateSession({
+      requestToken,
+      shouldRedirect: false,
+      storeNotice: false,
+    });
+  };
+
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, user, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

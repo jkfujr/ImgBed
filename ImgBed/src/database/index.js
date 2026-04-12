@@ -1,16 +1,17 @@
 import fs from 'fs';
-import path from 'path';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
+import path from 'path';
 
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
+import { resolveAppPath } from '../config/app-root.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('database');
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
 
-const dbPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../', config.database.path);
+const config = getLastKnownGoodConfig();
+const dbPath = resolveAppPath(config.database.path || './data/database.sqlite');
 const dbDir = path.dirname(dbPath);
 
 if (!fs.existsSync(dbDir)) {

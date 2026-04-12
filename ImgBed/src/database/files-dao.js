@@ -190,6 +190,26 @@ function freezeFilesByStorageInstance(db, storageInstanceId) {
 }
 
 /**
+ * 冻结所有指向缺失渠道或已逻辑删除渠道的 active 文件。
+ * 用于修复历史漂移，避免列表和直链继续暴露失效文件。
+ * @param {import('better-sqlite3').Database} db
+ */
+function freezeFilesByMissingOrDeletedStorageChannels(db) {
+  return db.prepare(`
+    UPDATE files
+    SET status = 'channel_deleted'
+    WHERE status = 'active'
+      AND storage_instance_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM storage_channels
+        WHERE storage_channels.id = files.storage_instance_id
+          AND storage_channels.deleted_at IS NULL
+      )
+  `).run();
+}
+
+/**
  * 批量将文件移动到指定目录。
  * @param {import('better-sqlite3').Database} db
  * @param {string[]} ids
@@ -250,6 +270,7 @@ export {
   updateFileMigrationFields,
   updateFileImageMetadata,
   freezeFilesByStorageInstance,
+  freezeFilesByMissingOrDeletedStorageChannels,
   moveFilesToDirectory,
   renameFileDirectory,
   insertAccessLog,

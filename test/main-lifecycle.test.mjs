@@ -81,6 +81,45 @@ async function testRuntimeStartUsesExplicitLifecycleOrder() {
   console.log('  [OK] main lifecycle: start uses explicit init order before listening');
 }
 
+async function testRuntimeStartupFailsBeforeInitWhenConfigLoadThrows() {
+  const events = [];
+  const runtime = createApplicationRuntime({
+    loadStartupConfig() {
+      events.push('loadStartupConfig');
+      throw new Error('invalid config');
+    },
+    sqlite: {},
+    dbPath: '/tmp/test.sqlite',
+    initSchema() { events.push('initSchema'); },
+    runMigrations() { events.push('runMigrations'); },
+    syncAllStorageChannels: async () => { events.push('syncAllStorageChannels'); },
+    initResponseCache() { events.push('initResponseCache'); },
+    initQuotaEventsArchive() { events.push('initQuotaEventsArchive'); },
+    initArchiveScheduler() { events.push('initArchiveScheduler'); },
+    stopArchiveScheduler() {},
+    storageManager: {
+      async initialize() { events.push('storage.initialize'); },
+      async startMaintenance() { events.push('storage.startMaintenance'); },
+      stopMaintenance() {},
+    },
+    loadApp: async () => ({
+      listen() {
+        events.push('listen');
+        return { on() {}, close() {} };
+      },
+    }),
+    createLogger: () => makeLogger(),
+    flushLogs: async () => {},
+    processExit() {
+      throw new Error('processExit should not be called by start() rejection path');
+    },
+  });
+
+  await assert.rejects(() => runtime.start(), /invalid config/);
+  assert.deepEqual(events, ['loadStartupConfig']);
+  console.log('  [OK] main lifecycle: startup config failure stops before database initialization');
+}
+
 async function testRuntimeShutdownStopsSchedulersAndFlushesLogs() {
   const events = [];
   let timeoutMs = null;
@@ -163,6 +202,7 @@ async function testRuntimeShutdownStopsSchedulersAndFlushesLogs() {
 
 async function main() {
   console.log('running main lifecycle tests...');
+  await testRuntimeStartupFailsBeforeInitWhenConfigLoadThrows();
   await testRuntimeStartUsesExplicitLifecycleOrder();
   await testRuntimeShutdownStopsSchedulersAndFlushesLogs();
   console.log('main lifecycle tests passed');

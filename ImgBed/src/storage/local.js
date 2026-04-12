@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import { fileURLToPath } from 'url';
 
+import { resolveAppPath } from '../config/app-root.js';
 import { createLogger } from '../utils/logger.js';
 import StorageProvider from './base.js';
 
@@ -11,11 +11,7 @@ const log = createLogger('local');
 class LocalStorage extends StorageProvider {
   constructor(config) {
     super();
-    this.basePath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../',
-      config.basePath || './data/storage'
-    );
+    this.basePath = resolveAppPath(config.basePath || './data/storage');
 
     if (!fs.existsSync(this.basePath)) {
       fs.mkdirSync(this.basePath, { recursive: true });
@@ -34,7 +30,7 @@ class LocalStorage extends StorageProvider {
   async put(file, options) {
     const { id } = options;
     if (!id) {
-      throw new Error('[LocalStorage] 上传必须提供明确的文件 ID');
+      throw new Error('上传必须提供明确的文件 ID');
     }
 
     const filePath = this._getPhysicalPath(id);
@@ -53,7 +49,7 @@ class LocalStorage extends StorageProvider {
       const buf = Buffer.from(await file.arrayBuffer());
       await fs.promises.writeFile(filePath, buf);
     } else {
-      throw new Error('[LocalStorage] 不支持的上传文件对象格式');
+      throw new Error('不支持的上传文件对象格式');
     }
 
     return {
@@ -65,7 +61,7 @@ class LocalStorage extends StorageProvider {
   async getStream(id, options = {}) {
     const filePath = this._getPhysicalPath(id);
     if (!fs.existsSync(filePath)) {
-      throw new Error(`[LocalStorage] 文件不存在: ${id}`);
+      throw new Error(`文件不存在: ${id}`);
     }
 
     const { start, end } = options;

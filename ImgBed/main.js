@@ -1,13 +1,6 @@
 import { createApplicationRuntime } from './src/bootstrap/application-runtime.js';
-import config from './src/config/index.js';
-import { sqlite, dbPath } from './src/database/index.js';
-import { runMigrations } from './src/database/migrate.js';
-import { initSchema } from './src/database/schema.js';
-import { initArchiveScheduler, stopArchiveScheduler } from './src/services/archive/archive-scheduler.js';
-import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
-import { initResponseCache } from './src/services/cache/response-cache.js';
-import { syncAllStorageChannels } from './src/services/system/storage-channel-sync.js';
-import storageManager from './src/storage/manager.js';
+import { loadStartupConfig } from './src/config/index.js';
+import { ConfigFileError } from './src/errors/AppError.js';
 import { createLogger, flushLogs } from './src/utils/logger.js';
 
 const log = createLogger('main');
@@ -53,30 +46,68 @@ process.on('unhandledRejection', (reason, promise) => {
   log.error({ reason, promise }, '出现未处理的 Promise 拒绝');
 });
 
-const runtime = createApplicationRuntime({
-  config,
-  sqlite,
-  dbPath,
-  initSchema,
-  runMigrations,
-  syncAllStorageChannels,
-  initResponseCache,
-  initQuotaEventsArchive,
-  initArchiveScheduler,
-  stopArchiveScheduler,
-  storageManager,
-  loadApp: async () => {
-    const { default: app } = await import('./src/app.js');
-    return app;
-  },
-  createLogger,
-  flushLogs,
-});
+function logConfigStartupFailure(error) {
+  if (error instanceof ConfigFileError) {
+    log.fatal({
+      kind: error.kind,
+      configPath: error.configPath,
+      backupPath: error.backupPath,
+      err: error.cause || error,
+    }, error.message);
+    return;
+  }
+
+  log.fatal({ err: error }, '应用启动失败');
+}
+
+async function createRuntime() {
+  const config = loadStartupConfig();
+  const [
+    databaseModule,
+    migrateModule,
+    schemaModule,
+    archiveSchedulerModule,
+    quotaArchiveModule,
+    responseCacheModule,
+    storageSyncModule,
+    storageManagerModule,
+  ] = await Promise.all([
+    import('./src/database/index.js'),
+    import('./src/database/migrate.js'),
+    import('./src/database/schema.js'),
+    import('./src/services/archive/archive-scheduler.js'),
+    import('./src/services/archive/quota-events-archive.js'),
+    import('./src/services/cache/response-cache.js'),
+    import('./src/services/system/storage-channel-sync.js'),
+    import('./src/storage/manager.js'),
+  ]);
+
+  return createApplicationRuntime({
+    config,
+    sqlite: databaseModule.sqlite,
+    dbPath: databaseModule.dbPath,
+    initSchema: schemaModule.initSchema,
+    runMigrations: migrateModule.runMigrations,
+    syncAllStorageChannels: storageSyncModule.syncAllStorageChannels,
+    initResponseCache: responseCacheModule.initResponseCache,
+    initQuotaEventsArchive: quotaArchiveModule.initQuotaEventsArchive,
+    initArchiveScheduler: archiveSchedulerModule.initArchiveScheduler,
+    stopArchiveScheduler: archiveSchedulerModule.stopArchiveScheduler,
+    storageManager: storageManagerModule.default,
+    loadApp: async () => {
+      const { default: app } = await import('./src/app.js');
+      return app;
+    },
+    createLogger,
+    flushLogs,
+  });
+}
 
 try {
+  const runtime = await createRuntime();
   await runtime.start();
   runtime.registerSignalHandlers(process);
 } catch (error) {
-  log.fatal({ err: error }, '应用启动失败');
+  logConfigStartupFailure(error);
   process.exit(1);
 }

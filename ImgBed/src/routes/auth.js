@@ -1,5 +1,5 @@
 import express from 'express';
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
 import { signToken } from '../utils/jwt.js';
 import { adminAuth } from '../middleware/auth.js';
 import { sqlite } from '../database/index.js';
@@ -18,6 +18,7 @@ authApp.post('/login', asyncHandler(async (req, res) => {
   const body = req.body || {};
   const { username, password } = body;
 
+  const config = getLastKnownGoodConfig();
   const adminConfig = config.admin || {};
 
   if (!username || !password) {

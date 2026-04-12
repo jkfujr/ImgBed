@@ -1,4 +1,4 @@
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
 import { sqlite } from '../database/index.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -12,6 +12,7 @@ const log = createLogger('storage');
 
 class StorageManager {
   constructor({ db = sqlite } = {}) {
+    const config = getLastKnownGoodConfig();
     this.db = db;
     this.registry = new StorageRegistry({
       db: this.db,

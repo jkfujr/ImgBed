@@ -1,21 +1,37 @@
 export const ErrorResponse = {
   UNAUTHORIZED: {
     code: 401,
-    message: '未授权：缺失有效的 Bearer 令牌',
+    reason: 'AUTH_MISSING',
+    message: '未授权：缺少有效的 Bearer 令牌',
+  },
+
+  UNAUTHORIZED_SESSION_INVALID: {
+    code: 401,
+    reason: 'AUTH_SESSION_INVALID',
+    message: '登录态已失效，请重新登录',
+  },
+
+  UNAUTHORIZED_ROLE_INVALID: {
+    code: 401,
+    reason: 'AUTH_ROLE_INVALID',
+    message: '鉴权失败：需要管理员身份',
   },
 
   UNAUTHORIZED_GUEST_DISABLED: {
     code: 401,
+    reason: 'AUTH_GUEST_UPLOAD_DISABLED',
     message: '未授权：请登录后上传，或联系管理员开启访客上传功能',
   },
 
   UNAUTHORIZED_PASSWORD_REQUIRED: {
     code: 401,
+    reason: 'AUTH_UPLOAD_PASSWORD_REQUIRED',
     message: '未授权：需要上传密码',
   },
 
   UNAUTHORIZED_PASSWORD_WRONG: {
     code: 401,
+    reason: 'AUTH_UPLOAD_PASSWORD_WRONG',
     message: '未授权：上传密码错误',
   },
 

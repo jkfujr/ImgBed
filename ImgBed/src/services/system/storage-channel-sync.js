@@ -1,21 +1,38 @@
-import { freezeFilesByStorageInstance } from '../../database/files-dao.js';
+import {
+  freezeFilesByMissingOrDeletedStorageChannels,
+  freezeFilesByStorageInstance,
+} from '../../database/files-dao.js';
 
 /**
  * 在数据库中插入新的存储渠道元数据
  */
 function insertStorageChannelMeta(storage, db) {
-  db.prepare(`INSERT OR REPLACE INTO storage_channels (
-    id, name, type, enabled, allow_upload, weight, quota_limit_gb
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(
-      storage.id,
-      storage.name,
-      storage.type,
-      storage.enabled ? 1 : 0,
-      storage.allowUpload ? 1 : 0,
-      storage.weight,
-      storage.quotaLimitGB
-    );
+  db.prepare(`
+    INSERT INTO storage_channels (
+      id, name, type, enabled, allow_upload, weight, quota_limit_gb
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      type = excluded.type,
+      enabled = CASE
+        WHEN storage_channels.deleted_at IS NULL THEN excluded.enabled
+        ELSE 0
+      END,
+      allow_upload = CASE
+        WHEN storage_channels.deleted_at IS NULL THEN excluded.allow_upload
+        ELSE 0
+      END,
+      weight = excluded.weight,
+      quota_limit_gb = excluded.quota_limit_gb
+  `).run(
+    storage.id,
+    storage.name,
+    storage.type,
+    storage.enabled ? 1 : 0,
+    storage.allowUpload ? 1 : 0,
+    storage.weight,
+    storage.quotaLimitGB
+  );
 }
 
 /**
@@ -54,14 +71,18 @@ function deleteStorageChannelMeta(id, db) {
  */
 function markStorageChannelDeleted(id, db) {
   db.transaction(() => {
-    db.prepare(`
-      UPDATE storage_channels
-      SET deleted_at = CURRENT_TIMESTAMP, enabled = 0, allow_upload = 0
-      WHERE id = ?
-    `).run(id);
-
-    freezeFilesByStorageInstance(db, id);
+    markStorageChannelDeletedInPlace(id, db);
   })();
+}
+
+function markStorageChannelDeletedInPlace(id, db) {
+  db.prepare(`
+    UPDATE storage_channels
+    SET deleted_at = CURRENT_TIMESTAMP, enabled = 0, allow_upload = 0
+    WHERE id = ?
+  `).run(id);
+
+  freezeFilesByStorageInstance(db, id);
 }
 
 /**
@@ -69,9 +90,22 @@ function markStorageChannelDeleted(id, db) {
  */
 function syncAllStorageChannels(config, db) {
   const storages = config.storage?.storages || [];
-  for (const storage of storages) {
-    insertStorageChannelMeta(storage, db);
-  }
+  const configuredIds = new Set(storages.map((storage) => storage.id));
+
+  db.transaction(() => {
+    for (const storage of storages) {
+      insertStorageChannelMeta(storage, db);
+    }
+
+    const dbChannels = db.prepare('SELECT id, deleted_at FROM storage_channels').all();
+    for (const channel of dbChannels) {
+      if (!configuredIds.has(channel.id) && channel.deleted_at == null) {
+        markStorageChannelDeletedInPlace(channel.id, db);
+      }
+    }
+
+    freezeFilesByMissingOrDeletedStorageChannels(db);
+  })();
 }
 
 export { insertStorageChannelMeta,
@@ -79,4 +113,3 @@ export { insertStorageChannelMeta,
   deleteStorageChannelMeta,
   markStorageChannelDeleted,
   syncAllStorageChannels, };
-

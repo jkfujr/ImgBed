@@ -1,7 +1,5 @@
-import fs from 'fs';
-
+import { readRuntimeConfig } from '../../config/index.js';
 import { createLogger } from '../../utils/logger.js';
-import { getSystemConfigPath } from '../../services/system/config-io.js';
 import DiscordStorage from '../discord.js';
 import ExternalStorage from '../external.js';
 import HuggingFaceStorage from '../huggingface.js';
@@ -80,8 +78,7 @@ class StorageRegistry {
     const db = this.db;
 
     try {
-      const cfgPath = getSystemConfigPath();
-      const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      const fileCfg = readRuntimeConfig();
       const storagesInFile = fileCfg.storage?.storages || [];
       const dbChannels = db.prepare('SELECT * FROM storage_channels').all();
       const dbMap = new Map(dbChannels.map((channel) => [channel.id, channel]));

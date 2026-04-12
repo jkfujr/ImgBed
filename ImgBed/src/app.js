@@ -2,7 +2,7 @@ import express from 'express';
 import pinoHttp from 'pino-http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import config from './config/index.js';
+import { getLastKnownGoodConfig } from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
 import { createLogger } from './utils/logger.js';
 import authRouter from './routes/auth.js';
@@ -29,6 +29,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(pinoHttp({ logger }));
 
 app.use((req, res, next) => {
+  const config = getLastKnownGoodConfig();
   const origin = config.security?.corsOrigin || '*';
   res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');

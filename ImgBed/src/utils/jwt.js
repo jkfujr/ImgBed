@@ -1,10 +1,18 @@
 import { SignJWT, jwtVerify } from 'jose';
 
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('jwt');
-const secretKey = new TextEncoder().encode(config.jwt?.secret || 'fallback-secret-key-12345678');
+
+function getJwtSettings() {
+  return getLastKnownGoodConfig().jwt || {};
+}
+
+function getSecretKey() {
+  const secret = getJwtSettings().secret || 'fallback-secret-key-12345678';
+  return new TextEncoder().encode(secret);
+}
 
 function classifyJwtVerificationError(error) {
   const code = error?.code || '';
@@ -12,6 +20,8 @@ function classifyJwtVerificationError(error) {
 
   if (code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' || name === 'JWSSignatureVerificationFailed') {
     return {
+      ok: false,
+      reason: 'signature_invalid',
       level: 'info',
       message: 'Token 验签失败，需重新登录',
       context: { code, name },
@@ -20,6 +30,8 @@ function classifyJwtVerificationError(error) {
 
   if (code === 'ERR_JWT_EXPIRED' || name === 'JWTExpired') {
     return {
+      ok: false,
+      reason: 'expired',
       level: 'info',
       message: 'Token 已过期，需重新登录',
       context: { code, name },
@@ -35,6 +47,8 @@ function classifyJwtVerificationError(error) {
     name === 'JWTClaimValidationFailed'
   ) {
     return {
+      ok: false,
+      reason: 'malformed',
       level: 'info',
       message: 'Token 无效，需重新登录',
       context: { code, name },
@@ -42,6 +56,8 @@ function classifyJwtVerificationError(error) {
   }
 
   return {
+    ok: false,
+    reason: 'unexpected',
     level: 'error',
     message: 'Token 解析失败',
     context: { err: error },
@@ -49,23 +65,27 @@ function classifyJwtVerificationError(error) {
 }
 
 async function signToken(payload) {
-  const expiresIn = config.jwt?.expiresIn || '7d';
-  return await new SignJWT(payload)
+  const expiresIn = getJwtSettings().expiresIn || '7d';
+  return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(expiresIn)
-    .sign(secretKey);
+    .sign(getSecretKey());
 }
 
 async function verifyToken(token) {
   try {
-    const { payload } = await jwtVerify(token, secretKey);
-    return payload;
+    const { payload } = await jwtVerify(token, getSecretKey());
+    return {
+      ok: true,
+      payload,
+    };
   } catch (error) {
     const classification = classifyJwtVerificationError(error);
     const loggerMethod = typeof log[classification.level] === 'function' ? log[classification.level] : log.error;
+
     loggerMethod.call(log, classification.context, classification.message);
-    return null;
+    return classification;
   }
 }
 

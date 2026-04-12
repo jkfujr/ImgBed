@@ -1,5 +1,6 @@
 export function createApplicationRuntime({
-  config,
+  config: initialConfig = null,
+  loadStartupConfig = null,
   sqlite,
   dbPath,
   initSchema,
@@ -17,16 +18,26 @@ export function createApplicationRuntime({
   processExit = (code) => process.exit(code),
 } = {}) {
   const log = createLogger('main');
-  const port = config.server?.port || 13000;
-  const host = config.server?.host || '0.0.0.0';
-  const displayHost = host === '0.0.0.0' ? 'localhost' : host;
-  const cacheConfig = config.performance?.responseCache || {};
-  const archiveConfig = config.performance?.quotaEventsArchive || {};
 
+  let config = initialConfig;
   let server = null;
   let shutdownPromise = null;
 
+  const getRuntimeConfig = () => {
+    if (config) {
+      return config;
+    }
+    if (typeof loadStartupConfig === 'function') {
+      config = loadStartupConfig();
+      return config;
+    }
+    throw new Error('启动配置尚未提供');
+  };
+
   const handleServerError = (error) => {
+    const runtimeConfig = getRuntimeConfig();
+    const port = runtimeConfig.server?.port || 13000;
+
     if (error && error.code === 'EADDRINUSE') {
       log.fatal({ port, err: error }, `端口 ${port} 已被占用`);
       processExit(1);
@@ -38,9 +49,16 @@ export function createApplicationRuntime({
   };
 
   async function start() {
+    const runtimeConfig = getRuntimeConfig();
+    const port = runtimeConfig.server?.port || 13000;
+    const host = runtimeConfig.server?.host || '0.0.0.0';
+    const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+    const cacheConfig = runtimeConfig.performance?.responseCache || {};
+    const archiveConfig = runtimeConfig.performance?.quotaEventsArchive || {};
+
     initSchema(sqlite);
     runMigrations(sqlite, dbPath);
-    await syncAllStorageChannels(config, sqlite);
+    await syncAllStorageChannels(runtimeConfig, sqlite);
     log.info('存储渠道已同步到数据库');
 
     initResponseCache({

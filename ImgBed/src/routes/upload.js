@@ -7,7 +7,7 @@ import { sqlite } from '../database/index.js';
 import { insertFile } from '../database/files-dao.js';
 import { requirePermission } from '../middleware/auth.js';
 import { guestUploadAuth } from '../middleware/guestUpload.js';
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
 import path from 'path';
 import ChunkManager from '../storage/chunk-manager.js';
 import { resolveUploadChannel } from '../services/upload/resolve-upload.js';
@@ -177,6 +177,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
   validateUploadFile(file);
 
   const directory = normalizeUploadDirectory(body.directory);
+  const config = getLastKnownGoodConfig();
   const { channelId } = resolveUploadChannel(body, storageManager, config);
   const quotaAllowed = storageManager.isUploadAllowed(channelId);
   if (!quotaAllowed) {

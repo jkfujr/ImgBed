@@ -49,7 +49,7 @@ function testDeleteStorageChannelMetaIsUnusedExport() {
   assert.match(systemSource, /markStorageChannelDeleted\(id, sqlite\);/);
   assert.match(mainSource, /createApplicationRuntime/);
   assert.match(mainSource, /syncAllStorageChannels,/);
-  assert.match(runtimeSource, /await syncAllStorageChannels\(config, sqlite\);/);
+  assert.match(runtimeSource, /await syncAllStorageChannels\(runtimeConfig, sqlite\);/);
 
   const files = collectJsFiles(SRC_ROOT).filter((file) => !file.endsWith(path.join('services', 'system', 'storage-channel-sync.js')));
   const hits = files.filter((file) => fs.readFileSync(file, 'utf8').includes('deleteStorageChannelMeta'));

@@ -1,4 +1,4 @@
-import { AppError } from '../errors/AppError.js';
+import { AppError, ConfigFileError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('errorHandler');
@@ -6,6 +6,7 @@ const log = createLogger('errorHandler');
 const registerErrorHandlers = (app) => {
   app.use((err, _req, res, _next) => {
     const status = err instanceof AppError ? err.status : (err.status || 500);
+    const isConfigFileError = err instanceof ConfigFileError;
 
     if (status >= 500) {
       log.error({ err }, '应用错误');
@@ -13,7 +14,7 @@ const registerErrorHandlers = (app) => {
 
     res.status(status).json({
       code: status,
-      message: err.message || '内部服务器错误'
+      message: isConfigFileError ? '配置文件不可用，请修复后重试' : (err.message || '内部服务器错误'),
     });
   });
 };
@@ -21,7 +22,7 @@ const registerErrorHandlers = (app) => {
 const notFoundHandler = (_req, res) => {
   res.status(404).json({
     code: 404,
-    message: '未找到请求的资源'
+    message: '未找到请求的资源',
   });
 };
 

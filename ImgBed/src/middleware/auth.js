@@ -1,32 +1,43 @@
-import { verifyToken } from '../utils/jwt.js';
+import { AppError } from '../errors/AppError.js';
 import { verifyApiToken } from '../utils/apiToken.js';
+import { verifyToken } from '../utils/jwt.js';
 import { ErrorResponse } from '../utils/response.js';
+
+const SESSION_INVALID_JWT_REASONS = new Set(['expired', 'signature_invalid', 'malformed']);
 
 const extractBearerToken = (req) => {
   const authHeader = req.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
-  return authHeader.split(' ')[1];
+
+  return authHeader.slice('Bearer '.length);
 };
 
-const unauthorized = (message) => {
-  if (!message) {
-    return ErrorResponse.UNAUTHORIZED;
+const looksLikeJwt = (token) => {
+  return typeof token === 'string' && token.split('.').length === 3;
+};
+
+const buildUnauthorizedResponse = (reason) => {
+  switch (reason) {
+    case 'AUTH_SESSION_INVALID':
+      return ErrorResponse.UNAUTHORIZED_SESSION_INVALID;
+    case 'AUTH_ROLE_INVALID':
+      return ErrorResponse.UNAUTHORIZED_ROLE_INVALID;
+    case 'AUTH_MISSING':
+    default:
+      return ErrorResponse.UNAUTHORIZED;
   }
-  return {
-    code: 401,
-    message
-  };
 };
 
-const forbidden = (message) => {
+const buildForbiddenResponse = (message) => {
   if (!message) {
     return ErrorResponse.FORBIDDEN;
   }
+
   return {
     code: 403,
-    message
+    message,
   };
 };
 
@@ -34,71 +45,118 @@ const getRequestIp = (req) => {
   return req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown';
 };
 
-const resolveAuth = async (req) => {
-  const rawToken = extractBearerToken(req);
+const resolveJwtFailureReason = ({ rawToken, jwtResult }) => {
   if (!rawToken) {
-    return null;
+    return 'AUTH_MISSING';
   }
 
-  const jwtPayload = await verifyToken(rawToken);
-  if (jwtPayload && jwtPayload.role === 'admin') {
-    const auth = {
-      type: 'admin_jwt',
-      role: 'admin',
-      username: jwtPayload.username,
-      permissions: ['*']
-    };
-    req.auth = auth;
-    req.user = jwtPayload;
-    return auth;
-  }
-
-  const apiTokenAuth = await verifyApiToken(rawToken, getRequestIp(req));
-  if (apiTokenAuth) {
-    req.auth = apiTokenAuth;
-    return apiTokenAuth;
+  if (looksLikeJwt(rawToken) && SESSION_INVALID_JWT_REASONS.has(jwtResult?.reason)) {
+    return 'AUTH_SESSION_INVALID';
   }
 
   return null;
 };
 
-/**
- * 拦截请求，解析并鉴权管理员 Token 中间件
- */
+const resolveAuth = async (req) => {
+  const rawToken = extractBearerToken(req);
+  if (!rawToken) {
+    return {
+      auth: null,
+      failureReason: 'AUTH_MISSING',
+    };
+  }
+
+  const jwtResult = await verifyToken(rawToken);
+  if (jwtResult.ok) {
+    if (jwtResult.payload.role !== 'admin') {
+      return {
+        auth: null,
+        failureReason: 'AUTH_ROLE_INVALID',
+      };
+    }
+
+    const auth = {
+      type: 'admin_jwt',
+      role: 'admin',
+      username: jwtResult.payload.username,
+      permissions: ['*'],
+    };
+
+    req.auth = auth;
+    req.user = jwtResult.payload;
+    return {
+      auth,
+      failureReason: null,
+    };
+  }
+
+  if (jwtResult.reason === 'unexpected' && looksLikeJwt(rawToken)) {
+    throw new AppError(500, '鉴权系统异常，请稍后重试');
+  }
+
+  const jwtFailureReason = resolveJwtFailureReason({
+    rawToken,
+    jwtResult,
+  });
+  if (jwtFailureReason) {
+    return {
+      auth: null,
+      failureReason: jwtFailureReason,
+    };
+  }
+
+  const apiTokenAuth = await verifyApiToken(rawToken, getRequestIp(req));
+  if (apiTokenAuth) {
+    req.auth = apiTokenAuth;
+    return {
+      auth: apiTokenAuth,
+      failureReason: null,
+    };
+  }
+
+  return {
+    auth: null,
+    failureReason: 'AUTH_MISSING',
+  };
+};
+
 const adminAuth = async (req, res, next) => {
-  const auth = await resolveAuth(req);
+  const { auth, failureReason } = await resolveAuth(req);
 
   if (!auth) {
-    return res.status(401).json(unauthorized());
+    return res.status(401).json(buildUnauthorizedResponse(failureReason));
   }
 
   if (auth.role !== 'admin') {
-    return res.status(401).json(unauthorized('鉴权失败：需要管理员身份'));
+    return res.status(401).json(buildUnauthorizedResponse('AUTH_ROLE_INVALID'));
   }
 
   return next();
 };
 
 const requireAuth = async (req, res, next) => {
-  const auth = await resolveAuth(req);
+  const { auth, failureReason } = await resolveAuth(req);
+
   if (!auth) {
-    return res.status(401).json(unauthorized());
+    return res.status(401).json(buildUnauthorizedResponse(failureReason));
   }
+
   return next();
 };
 
 const requirePermission = (permission) => {
   return async (req, res, next) => {
-    // 优先使用已存在的 req.auth（由 guestUploadAuth 设置）
     let auth = req.auth;
+    let failureReason = null;
 
-    // 如果 req.auth 不存在，尝试解析 Token
     if (!auth) {
-      auth = await resolveAuth(req);
+      const resolved = await resolveAuth(req);
+      auth = resolved.auth;
+      failureReason = resolved.failureReason;
     }
 
     if (!auth) {
-      return res.status(401).json(unauthorized());
+      return res.status(401).json(buildUnauthorizedResponse(failureReason));
     }
 
     const permissions = auth.permissions || [];
@@ -106,12 +164,16 @@ const requirePermission = (permission) => {
       return next();
     }
 
-    return res.status(403).json(forbidden(`缺少权限：${permission}`));
+    return res.status(403).json(buildForbiddenResponse(`缺少权限：${permission}`));
   };
 };
 
-export { adminAuth,
+export {
+  adminAuth,
+  buildUnauthorizedResponse,
   extractBearerToken,
+  looksLikeJwt,
   resolveAuth,
   requireAuth,
-  requirePermission };
+  requirePermission,
+};

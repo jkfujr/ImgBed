@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { sqlite } from '../database/index.js';
 import { getActiveFileById, insertAccessLog } from '../database/files-dao.js';
-import config from '../config/index.js';
+import { getLastKnownGoodConfig } from '../config/index.js';
 import storageManager from '../storage/manager.js';
 import ChunkManager from '../storage/chunk-manager.js';
 import { resolveFileStorage, parseRangeHeader } from '../services/view/resolve-file-storage.js';
@@ -52,6 +52,7 @@ const checkCache = (req, fileRecord, etag) => {
  * 校验反盗链逻辑
  */
 const checkReferer = (req) => {
+    const config = getLastKnownGoodConfig();
     const security = config.security || {};
     const allowed = security.allowedDomains;
 

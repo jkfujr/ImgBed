@@ -1,17 +1,26 @@
-import { useState } from 'react';
-import { Box, Paper, Typography, TextField, Button, CircularProgress, Alert, Tabs, Tab } from '@mui/material';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Paper,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+} from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import KeyIcon from '@mui/icons-material/Key';
-import { useAuth } from '../hooks/useAuth';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { consumeSessionInvalidationNotice } from '../auth/session.js';
+import { useAuth } from '../hooks/useAuth';
 import { BORDER_RADIUS } from '../utils/constants';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-
-  // 从 URL 参数获取默认 tab（guest 或 admin）
   const searchParams = new URLSearchParams(location.search);
   const defaultTab = searchParams.get('tab') === 'admin' ? 1 : 0;
 
@@ -22,10 +31,18 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleAdminLogin = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    const message = consumeSessionInvalidationNotice();
+    if (message) {
+      setError(message);
+    }
+  }, []);
+
+  const handleAdminLogin = async (event) => {
+    event.preventDefault();
     setLoading(true);
     setError(null);
+
     try {
       await login({ username, password });
       navigate('/admin/files');
@@ -36,8 +53,9 @@ export default function LoginPage() {
     }
   };
 
-  const handleGuestPasswordSubmit = async (e) => {
-    e.preventDefault();
+  const handleGuestPasswordSubmit = async (event) => {
+    event.preventDefault();
+
     if (!guestPassword.trim()) {
       setError('请输入访客上传密码');
       return;
@@ -47,11 +65,9 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // 保存密码到 sessionStorage
       sessionStorage.setItem('uploadPassword', guestPassword.trim());
-      // 跳转回首页
       navigate('/');
-    } catch (err) {
+    } catch {
       setError('保存密码失败');
     } finally {
       setLoading(false);
@@ -62,17 +78,27 @@ export default function LoginPage() {
     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Paper elevation={3} sx={{ p: 5, maxWidth: 400, width: '100%', borderRadius: BORDER_RADIUS.lg }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-           <Box sx={{ m: 1, bgcolor: 'secondary.main', p: 1, borderRadius: BORDER_RADIUS.circle, color: 'white', display: 'flex', alignItems: 'center' }}>
-              {tabIndex === 0 ? <KeyIcon /> : <LockOutlinedIcon />}
-           </Box>
-           <Typography component="h1" variant="h5" fontWeight="bold">
-              {tabIndex === 0 ? '访客上传' : '管理后台'}
-           </Typography>
+          <Box
+            sx={{
+              m: 1,
+              bgcolor: 'secondary.main',
+              p: 1,
+              borderRadius: BORDER_RADIUS.circle,
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {tabIndex === 0 ? <KeyIcon /> : <LockOutlinedIcon />}
+          </Box>
+          <Typography component="h1" variant="h5" fontWeight="bold">
+            {tabIndex === 0 ? '访客上传' : '管理后台'}
+          </Typography>
         </Box>
 
         <Tabs
           value={tabIndex}
-          onChange={(e, newValue) => {
+          onChange={(_event, newValue) => {
             setTabIndex(newValue);
             setError(null);
           }}
@@ -86,7 +112,6 @@ export default function LoginPage() {
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         {tabIndex === 0 ? (
-          // 访客密码表单
           <form onSubmit={handleGuestPasswordSubmit} style={{ width: '100%' }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               管理员已开启访客上传密码保护，请输入密码后继续上传
@@ -101,7 +126,7 @@ export default function LoginPage() {
               type="password"
               autoFocus
               value={guestPassword}
-              onChange={(e) => setGuestPassword(e.target.value)}
+              onChange={(event) => setGuestPassword(event.target.value)}
               disabled={loading}
             />
             <Button
@@ -117,7 +142,6 @@ export default function LoginPage() {
             </Button>
           </form>
         ) : (
-          // 管理员登录表单
           <form onSubmit={handleAdminLogin} style={{ width: '100%' }}>
             <TextField
               variant="outlined"
@@ -128,7 +152,7 @@ export default function LoginPage() {
               name="username"
               autoFocus
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(event) => setUsername(event.target.value)}
               disabled={loading}
             />
             <TextField
@@ -140,7 +164,7 @@ export default function LoginPage() {
               name="password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(event) => setPassword(event.target.value)}
               disabled={loading}
             />
             <Button
