@@ -15,13 +15,12 @@ import { createStorageQuotaCacheSchema } from './schemas/storage-quota-cache.js'
 const log = createLogger('database:schema');
 
 /**
- * 按依赖顺序初始化所有表结构（等价于原 initDb）。
- *
+ * 按依赖顺序初始化所有表结构（等价于旧 initDb）。
  * 建表顺序约束：
- * 1. files — 最先，chunks/access_logs/quota_cache 触发器依赖它
- * 2. 中间各表 — 无外键约束，顺序灵活
- * 3. chunks、access_logs — 外键引用 files(id)
- * 4. storage_quota_cache — 最后，触发器挂在 files 表上
+ * 1. files - 最先，chunks/access_logs 依赖它
+ * 2. 中间各表 - 无外键约束，顺序灵活
+ * 3. chunks、access_logs - 外键引用 files(id)
+ * 4. storage_quota_cache - 独立投影表，由 QuotaProjectionService 写入
  *
  * @param {import('better-sqlite3').Database} db
  */

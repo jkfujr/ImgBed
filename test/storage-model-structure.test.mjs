@@ -131,11 +131,27 @@ function testStorageManagerDelegatesRuntimeState() {
   console.log('  [OK] manager.js: runtime state now delegates to registry, selector, quota, recovery, and scheduler services');
 }
 
+function testQuotaCacheMaintenanceMovesOutOfSchemaTriggers() {
+  const schemaSource = read('ImgBed/src/database/schemas/storage-quota-cache.js');
+  const v003Source = read('ImgBed/src/database/migrations/v003.js');
+  const migrateSource = read('ImgBed/src/database/migrate.js');
+
+  assert.ok(!schemaSource.includes('CREATE TRIGGER'), 'storage-quota-cache schema should not define triggers');
+  assert.ok(!schemaSource.includes('trg_quota_cache_after_insert'));
+  assert.ok(!schemaSource.includes('trg_quota_cache_after_delete'));
+  assert.ok(!schemaSource.includes('trg_quota_cache_after_update'));
+  assert.ok(!v003Source.includes('rebuildQuotaCacheTriggers'));
+  assert.match(migrateSource, /import \{ migrateV004 \} from '\.\/migrations\/v004\.js';/);
+  assert.match(migrateSource, /\{ version: 4, migrate: migrateV004 \}/);
+  console.log('  [OK] quota cache maintenance: schema and migrations no longer keep trigger-based projection');
+}
+
 function runStaticChecks() {
   testUploadRecordUsesFacadeInsteadOfInstancesMap();
   testResolveFileStoragePrefersStorageInstanceId();
   testFilesSchemaKeepsBothStorageColumns();
   testStorageManagerDelegatesRuntimeState();
+  testQuotaCacheMaintenanceMovesOutOfSchemaTriggers();
 }
 
 async function main() {

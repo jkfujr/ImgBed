@@ -56,6 +56,7 @@ async function testLoadQuotaFromCacheFallsBackToHistory() {
 async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
   const appliedIds = [];
   const snapshots = [];
+  const cacheUpdates = [];
 
   const service = new QuotaProjectionService({
     db: makeDb([
@@ -68,7 +69,7 @@ async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
           ];
         },
       })],
-      [/SET applied_at = CURRENT_TIMESTAMP WHERE id = \\?/, () => ({
+      [/SET applied_at = CURRENT_TIMESTAMP WHERE id = \?/, () => ({
         run(id) {
           appliedIds.push(id);
         },
@@ -76,6 +77,11 @@ async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
       [/INSERT INTO storage_quota_history/, () => ({
         run(storageId, usedBytes) {
           snapshots.push({ storageId, usedBytes });
+        },
+      })],
+      [/INSERT INTO storage_quota_cache/, () => ({
+        run(record) {
+          cacheUpdates.push(record);
         },
       })],
     ]),
@@ -99,6 +105,10 @@ async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
     { storageId: 's1', usedBytes: 13 },
     { storageId: 's2', usedBytes: 9 },
   ]);
+  assert.deepEqual(cacheUpdates, [
+    { storage_id: 's1', used_bytes: 13, file_count: 4 },
+    { storage_id: 's2', used_bytes: 9, file_count: 1 },
+  ]);
   console.log('  [OK] quota-projection-service: pending quota events update bytes, usage stats, and snapshots');
 }
 
@@ -109,7 +119,7 @@ async function testRebuildAllQuotaStatsReplacesProjectionState() {
 
   const service = new QuotaProjectionService({
     db: makeDb([
-      [/FROM files\\s+WHERE storage_instance_id IS NOT NULL AND status = 'active'/, () => ({
+      [/FROM files\s+WHERE storage_instance_id IS NOT NULL AND status = 'active'/, () => ({
         all() {
           return [
             { storage_instance_id: 'a', used_bytes: 11, file_count: 2 },
@@ -122,12 +132,12 @@ async function testRebuildAllQuotaStatsReplacesProjectionState() {
           markedPendingEvents++;
         },
       })],
-      [/INSERT INTO storage_quota_history \\(storage_id, used_bytes\\) VALUES \\(@storage_id, @used_bytes\\)/, () => ({
+      [/INSERT INTO storage_quota_history \(storage_id, used_bytes\) VALUES \(@storage_id, @used_bytes\)/, () => ({
         run(record) {
           historyRecords.push(record);
         },
       })],
-      [/INSERT INTO storage_quota_cache \\(storage_id, used_bytes, file_count, last_updated\\)/, () => ({
+      [/INSERT INTO storage_quota_cache \(storage_id, used_bytes, file_count, last_updated\)/, () => ({
         run(record) {
           cacheRecords.push(record);
         },
@@ -161,7 +171,7 @@ async function testRebuildAllQuotaStatsReplacesProjectionState() {
 async function testVerifyQuotaConsistencyReportsAllMismatchTypes() {
   const service = new QuotaProjectionService({
     db: makeDb([
-      [/FROM files\\s+WHERE storage_instance_id IS NOT NULL AND status = 'active'/, () => ({
+      [/FROM files\s+WHERE storage_instance_id IS NOT NULL AND status = 'active'/, () => ({
         all() {
           return [
             { storage_instance_id: 'match', used_bytes: 10, file_count: 1 },

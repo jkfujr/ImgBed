@@ -151,10 +151,27 @@ class QuotaProjectionService {
             const insertSnapshotStmt = db.prepare(
                 'INSERT INTO storage_quota_history (storage_id, used_bytes) VALUES (?, ?)'
             );
+            const upsertCacheStmt = db.prepare(`
+                INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
+                VALUES (@storage_id, @used_bytes, @file_count, CURRENT_TIMESTAMP)
+                ON CONFLICT(storage_id) DO UPDATE SET
+                    used_bytes = @used_bytes,
+                    file_count = @file_count,
+                    last_updated = CURRENT_TIMESTAMP
+            `);
 
             const persistProjection = db.transaction((events, storageIds) => {
                 for (const event of events) {
                     markAppliedStmt.run(event.id);
+                }
+
+                for (const storageId of storageIds) {
+                    const usageStat = nextUsageStats.get(storageId) || { uploadCount: 0, fileCount: 0 };
+                    upsertCacheStmt.run({
+                        storage_id: storageId,
+                        used_bytes: nextProjection.get(storageId) || 0,
+                        file_count: usageStat.fileCount || 0,
+                    });
                 }
 
                 if (recordSnapshots) {

@@ -1,4 +1,4 @@
-import { migrateStorageChannelsDeletedAt, migrateFilesStatus, rebuildQuotaCacheTriggers } from './v001.js';
+import { migrateStorageChannelsDeletedAt, migrateFilesStatus } from './v001.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('database:migrations:v003');
@@ -24,6 +24,5 @@ export function migrateDropRedundantFilesIndexes(db) {
 export function migrateV003(db) {
   migrateStorageChannelsDeletedAt(db);
   migrateFilesStatus(db);
-  rebuildQuotaCacheTriggers(db);
   migrateDropRedundantFilesIndexes(db);
 }

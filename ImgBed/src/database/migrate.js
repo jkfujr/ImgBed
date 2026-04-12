@@ -3,26 +3,25 @@ import { createLogger } from '../utils/logger.js';
 import { migrateV001 } from './migrations/v001.js';
 import { migrateV002 } from './migrations/v002.js';
 import { migrateV003 } from './migrations/v003.js';
+import { migrateV004 } from './migrations/v004.js';
 
 const log = createLogger('database:migrate');
 
 /**
- * 迁移版本列表（按版本号升序）。
- * 新增迁移版本时，在此处追加 { version: N, migrate: migrateVN }，不修改已有条目。
+ * 迁移版本列表，按版本号升序执行。
+ * 新增迁移时，只追加新版本，不修改既有步骤。
  */
 const MIGRATION_STEPS = [
   { version: 1, migrate: migrateV001 },
   { version: 2, migrate: migrateV002 },
   { version: 3, migrate: migrateV003 },
+  { version: 4, migrate: migrateV004 },
 ];
 
 const CURRENT_VERSION = MIGRATION_STEPS[MIGRATION_STEPS.length - 1].version;
 
 /**
  * 执行数据库增量迁移。
- *
- * - 以 schema_migrations 表记录已完成的迁移版本，避免重复执行
- * - 迁移前自动备份数据库文件（带时间戳后缀），已是最新版本时跳过
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string} dbPath 数据库文件绝对路径，用于备份
@@ -40,9 +39,8 @@ export function runMigrations(db, dbPath) {
     )`);
 
     if (isNewDb) {
-      // 新库由 initSchema 建立，表结构已是最新版本，直接标记无需迁移
       db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(CURRENT_VERSION);
-      log.info({ version: CURRENT_VERSION }, '新数据库，表结构已是最新版本，跳过迁移');
+      log.info({ version: CURRENT_VERSION }, '新数据库已直接初始化到最新结构，跳过迁移');
       return;
     }
 
@@ -50,7 +48,7 @@ export function runMigrations(db, dbPath) {
     const currentVersion = row?.v ?? 0;
 
     if (currentVersion >= CURRENT_VERSION) {
-      log.info({ version: currentVersion }, '数据库已是最新版本，跳过迁移');
+      log.info({ version: currentVersion }, '数据库已经是最新版本，跳过迁移');
       return;
     }
 
@@ -58,10 +56,10 @@ export function runMigrations(db, dbPath) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const backupPath = `${dbPath}.backup-v${currentVersion}-${ts}`;
       fs.copyFileSync(dbPath, backupPath);
-      log.info({ backupPath }, '迁移前数据库已备份');
+      log.info({ backupPath }, '迁移前已创建数据库备份');
     }
 
-    log.info({ from: currentVersion, to: CURRENT_VERSION }, '开始数据库迁移');
+    log.info({ from: currentVersion, to: CURRENT_VERSION }, '开始执行数据库迁移');
 
     for (const step of MIGRATION_STEPS) {
       if (currentVersion < step.version) {
