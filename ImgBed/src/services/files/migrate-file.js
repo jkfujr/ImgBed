@@ -42,7 +42,7 @@ function validateMigrationTarget(targetChannel, storageManager) {
     throw createFilesError(400, '迁移操作必须指定 target_channel（目标渠道ID）');
   }
 
-  const targetEntry = storageManager.instances.get(targetChannel);
+  const targetEntry = storageManager.getStorageMeta(targetChannel);
   if (!targetEntry) {
     throw createFilesError(404, `目标渠道不存在: ${targetChannel}`);
   }
@@ -85,7 +85,7 @@ async function readSourceFileAsStream(fileRecord, storageManager) {
     };
   }
 
-  const sourceEntry = storageManager.instances.get(sourceInstanceId);
+  const sourceEntry = storageManager.getStorageMeta(sourceInstanceId);
   if (!sourceEntry) {
     throw new Error('源渠道不存在');
   }
@@ -106,7 +106,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     return { status: 'skipped' };
   }
 
-  const sourceEntry = storageManager.instances.get(sourceInstanceId);
+  const sourceEntry = storageManager.getStorageMeta(sourceInstanceId);
   if (!sourceEntry) {
     return { status: 'failed', reason: '源渠道不存在' };
   }

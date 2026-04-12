@@ -1,5 +1,4 @@
 import sharp from 'sharp';
-import { parseStorageConfig } from './storage-artifacts.js';
 import { updateFileImageMetadata, getImageFilesForMetadataRebuild } from '../../database/files-dao.js';
 import { streamToBuffer } from '../../utils/stream.js';
 
@@ -8,8 +7,7 @@ function sleep(ms) {
 }
 
 function resolveFileStorageId(file) {
-  const config = parseStorageConfig(file.storage_config);
-  return config.instance_id || file.storage_channel;
+  return file.storage_instance_id || null;
 }
 
 async function extractImageMetadata(buffer) {

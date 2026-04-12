@@ -111,13 +111,14 @@ async function extractFileMetadata(file) {
 }
 
 function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSize, body, directory, finalChannelId, storageResult, isChunked, chunkCount, width, height, exif, auth, clientIp }) {
+  const storageMeta = storageManager.getStorageMeta(finalChannelId);
   return {
     id: String(fileId),
     file_name: String(newFileName),
     original_name: String(originalName),
     mime_type: String(mimeType),
     size: Number(fileSize),
-    storage_channel: String(storageManager.instances.get(finalChannelId)?.type || 'unknown'),
+    storage_channel: String(storageMeta?.type || 'unknown'),
     storage_key: String(storageResult.id || newFileName),
     storage_config: JSON.stringify({
       extra_result: storageResult,

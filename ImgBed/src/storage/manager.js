@@ -27,7 +27,7 @@ import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 import { getSystemConfigPath } from '../services/system/config-io.js';
 
 class StorageManager {
-    constructor({ db = sqlite, autoInit = true } = {}) {
+    constructor({ db = sqlite } = {}) {
         this.db = db;
         this.config = config.storage || {};
         this.uploadConfig = config.upload || {};
@@ -38,26 +38,66 @@ class StorageManager {
         this._fullRebuildTimer = null;
         this._compensationRetryTimer = null;
         this._isRecoveryRunning = false;
-        this._compensationBackoffMs = 5 * 60 * 1000; // 初始 5 分钟，指数退避
-
-        if (autoInit) {
-            this._init().catch((err) => log.error({ err }, '初始化失败'));
-        }
+        this._compensationBackoffMs = 5 * 60 * 1000;
+        this._initializePromise = null;
+        this._isInitialized = false;
+        this._maintenanceStarted = false;
     }
 
-    async _init() {
-        await this.reload();
-        await this._loadQuotaFromCache();
-        await this._initUsageStats();
-        await this.applyPendingQuotaEvents({ adjustUsageStats: false, recordSnapshots: true });
+    async initialize() {
+        if (this._isInitialized) {
+            return;
+        }
 
-        this._rebuildAllQuotaStats().catch((err) =>
-            log.error({ err }, '初始化容量全量校正失败'));
+        if (this._initializePromise) {
+            return this._initializePromise;
+        }
+
+        this._initializePromise = (async () => {
+            await this.reload();
+            await this._loadQuotaFromCache();
+            await this._initUsageStats();
+            await this.applyPendingQuotaEvents({ adjustUsageStats: false, recordSnapshots: true });
+
+            const consistency = await this.verifyQuotaConsistency().catch((err) => {
+                log.warn({ err }, 'initialize quota consistency check failed, rebuilding projection');
+                return { consistent: false };
+            });
+
+            if (!consistency.consistent) {
+                await this.rebuildQuotaStats();
+            }
+
+            await this.recoverPendingOperations();
+            this._isInitialized = true;
+        })();
+
+        try {
+            await this._initializePromise;
+        } catch (err) {
+            this._initializePromise = null;
+            throw err;
+        }
+
+        this._initializePromise = null;
+    }
+
+    async startMaintenance() {
+        await this.initialize();
+
+        if (this._maintenanceStarted) {
+            return;
+        }
 
         this._startFullRebuildTimer();
-        this._recoverStaleOperations().catch((err) =>
-            log.error({ err }, '启动恢复失败'));
         this._startCompensationRetryTimer();
+        this._maintenanceStarted = true;
+    }
+
+    stopMaintenance() {
+        this._stopFullRebuildTimer();
+        this._stopCompensationRetryTimer();
+        this._maintenanceStarted = false;
     }
 
     _parseOperationPayload(rawPayload) {
@@ -93,7 +133,7 @@ class StorageManager {
                 return { recovered: 0, total: 0, skipped: false };
             }
 
-            log.info({ count: operations.length }, '恢复调度: 发现异常操作');
+            log.info({ count: operations.length }, '鎭㈠璋冨害: 鍙戠幇寮傚父鎿嶄綔');
 
             let recovered = 0;
             for (const operation of operations) {
@@ -121,8 +161,8 @@ class StorageManager {
         const retryCount = operation.retry_count ?? 0;
 
         if (retryCount >= MAX_RETRIES) {
-            markOperationFailed(db, operation.id, new Error(`超过最大重试次数 ${MAX_RETRIES}`));
-            log.warn({ operationId: operation.id, retryCount }, '恢复已达最大重试次数，标记失败');
+            markOperationFailed(db, operation.id, new Error(`瓒呰繃鏈€澶ч噸璇曟鏁?${MAX_RETRIES}`));
+            log.warn({ operationId: operation.id, retryCount }, '鎭㈠宸茶揪鏈€澶ч噸璇曟鏁帮紝鏍囪澶辫触');
             return;
         }
 
@@ -142,7 +182,7 @@ class StorageManager {
             }
         } catch (err) {
             incrementOperationRetryCount(db, operation.id);
-            log.error({ operationId: operation.id, retryCount: retryCount + 1, err }, '恢复失败，已递增重试计数');
+            log.error({ operationId: operation.id, retryCount: retryCount + 1, err }, '鎭㈠澶辫触锛屽凡閫掑閲嶈瘯璁℃暟');
         }
     }
 
@@ -198,7 +238,7 @@ class StorageManager {
         persistDelete();
         await this.applyPendingQuotaEvents({ operationId: operation.id, adjustUsageStats: true });
         markOperationCompleted(db, operation.id);
-        log.info({ operationId: operation.id }, '恢复成功 (remote_done -> completed)');
+        log.info({ operationId: operation.id }, '鎭㈠鎴愬姛 (remote_done -> completed)');
     }
 
     async _recoverCommittedOperation(operation) {
@@ -218,7 +258,7 @@ class StorageManager {
         }
 
         markOperationCompleted(db, operation.id);
-        log.info({ operationId: operation.id }, '恢复成功 (committed -> completed)');
+        log.info({ operationId: operation.id }, '鎭㈠鎴愬姛 (committed -> completed)');
     }
 
     async _executeCompensation(operation, { payloadField = 'compensation_payload' } = {}) {
@@ -238,13 +278,13 @@ class StorageManager {
         });
 
         markOperationCompensated(db, operation.id, { compensationPayload: payload });
-        log.info({ operationId: operation.id }, '补偿成功');
+        log.info({ operationId: operation.id }, '琛ュ伩鎴愬姛');
     }
 
     _startCompensationRetryTimer() {
         const db = this.db;
-        const MIN_INTERVAL_MS = 5 * 60 * 1000;   // 5 分钟
-        const MAX_INTERVAL_MS = 60 * 60 * 1000;  // 60 分钟上限
+        const MIN_INTERVAL_MS = 5 * 60 * 1000;   // 5 鍒嗛挓
+        const MAX_INTERVAL_MS = 60 * 60 * 1000;  // 60 鍒嗛挓涓婇檺
 
         if (this._compensationRetryTimer) {
             return;
@@ -259,24 +299,24 @@ class StorageManager {
                     `).get();
 
                     if (pending.count > 0) {
-                        log.info({ count: pending.count, nextIntervalMs: this._compensationBackoffMs }, '定时恢复: 发现异常操作');
+                        log.info({ count: pending.count, nextIntervalMs: this._compensationBackoffMs }, '瀹氭椂鎭㈠: 鍙戠幇寮傚父鎿嶄綔');
                         const result = await this._recoverStaleOperations();
                         if (result.recovered > 0) {
-                            // 有成功恢复则重置退避
+                            // 鏈夋垚鍔熸仮澶嶅垯閲嶇疆閫€閬?
                             this._compensationBackoffMs = MIN_INTERVAL_MS;
                         } else {
-                            // 全部失败则指数加倍，不超过上限
+                            // 鍏ㄩ儴澶辫触鍒欐寚鏁板姞鍊嶏紝涓嶈秴杩囦笂闄?
                             this._compensationBackoffMs = Math.min(
                                 this._compensationBackoffMs * 2,
                                 MAX_INTERVAL_MS
                             );
                         }
                     } else {
-                        // 无待处理操作，重置退避
+                        // 鏃犲緟澶勭悊鎿嶄綔锛岄噸缃€€閬?
                         this._compensationBackoffMs = MIN_INTERVAL_MS;
                     }
                 } catch (err) {
-                    log.error({ err }, '定时恢复失败');
+                    log.error({ err }, '瀹氭椂鎭㈠澶辫触');
                     this._compensationBackoffMs = Math.min(
                         this._compensationBackoffMs * 2,
                         MAX_INTERVAL_MS
@@ -302,8 +342,9 @@ class StorageManager {
     }
 
     async _loadQuotaFromCache() {
+        const db = this.db;
         try {
-            const cacheRecords = sqlite.prepare(`
+            const cacheRecords = db.prepare(`
                 SELECT storage_id, used_bytes
                 FROM storage_quota_cache
             `).all();
@@ -317,14 +358,15 @@ class StorageManager {
                 log.info({ count: cacheRecords.length }, '已从缓存表加载渠道容量');
             }
         } catch (err) {
-            log.warn({ err }, '从缓存表加载容量失败，回退到历史表');
+            log.warn({ err }, '浠庣紦瀛樿〃鍔犺浇瀹归噺澶辫触锛屽洖閫€鍒板巻鍙茶〃');
             await this._loadQuotaFromHistory();
         }
     }
 
     async _loadQuotaFromHistory() {
+        const db = this.db;
         try {
-            const latestRecords = sqlite.prepare(`
+            const latestRecords = db.prepare(`
                 SELECT h.storage_id, h.used_bytes
                 FROM storage_quota_history h
                 INNER JOIN (
@@ -343,17 +385,18 @@ class StorageManager {
                 log.info({ count: latestRecords.length }, '已从数据库加载渠道容量快照');
             }
         } catch (err) {
-            log.error({ err }, '从数据库加载容量快照失败');
+            log.error({ err }, '浠庢暟鎹簱鍔犺浇瀹归噺蹇収澶辫触');
         }
     }
 
     async getQuotaHistory(storageId, limit = 100) {
+        const db = this.db;
         try {
-            return sqlite.prepare(
+            return db.prepare(
                 'SELECT * FROM storage_quota_history WHERE storage_id = ? ORDER BY recorded_at DESC LIMIT ?'
             ).all(storageId, limit);
         } catch (err) {
-            log.error({ err, storageId }, '获取容量历史失败');
+            log.error({ err, storageId }, '鑾峰彇瀹归噺鍘嗗彶澶辫触');
             return [];
         }
     }
@@ -373,13 +416,18 @@ class StorageManager {
             case 'external':
                 return new ExternalStorage(instanceConfig);
             default:
-                throw new Error(`[StorageManager] 此版本不支持或未知存储类型: ${type}`);
+                throw new Error(`[StorageManager] 姝ょ増鏈笉鏀寔鎴栨湭鐭ュ瓨鍌ㄧ被鍨? ${type}`);
         }
     }
 
     getStorage(storageId) {
         const entry = this.instances.get(storageId);
         return entry ? entry.instance : null;
+    }
+
+    getStorageMeta(storageId) {
+        const entry = this.instances.get(storageId);
+        return entry ? { ...entry } : null;
     }
 
     isUploadAllowed(storageId) {
@@ -422,14 +470,14 @@ class StorageManager {
     }
 
     async reload() {
+        const db = this.db;
         try {
             const cfgPath = getSystemConfigPath();
             const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
             const storagesInFile = fileCfg.storage?.storages || [];
-            const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
+            const dbChannels = db.prepare('SELECT * FROM storage_channels').all();
             const dbMap = new Map(dbChannels.map((channel) => [channel.id, channel]));
-
-            this.instances.clear();
+            const nextInstances = new Map();
             this.config = fileCfg.storage || {};
             this.uploadConfig = fileCfg.upload || {};
 
@@ -442,7 +490,7 @@ class StorageManager {
 
                 try {
                     const instance = await this._createInstance(sFile.type, sFile.config || {});
-                    this.instances.set(sFile.id, {
+                    nextInstances.set(sFile.id, {
                         type: sFile.type,
                         name: sDb ? sDb.name : sFile.name,
                         allowUpload: sDb ? Boolean(sDb.allow_upload) : Boolean(sFile.allowUpload),
@@ -459,12 +507,13 @@ class StorageManager {
                         instance,
                     });
                 } catch (err) {
-                    log.error({ storageId: sFile.id, err }, '加载实例失败');
+                    log.error({ storageId: sFile.id, err }, '鍔犺浇瀹炰緥澶辫触');
                 }
             }
 
+            this.instances = nextInstances;
             const instanceIds = [...this.instances.keys()].join(', ');
-            log.info({ count: this.instances.size }, `存储渠道配置已加载: ${instanceIds}`);
+            log.info({ count: this.instances.size }, `瀛樺偍娓犻亾閰嶇疆宸插姞杞? ${instanceIds}`);
 
             if (this._fullRebuildTimer) {
                 this._rebuildAllQuotaStats().catch(() => {});
@@ -472,7 +521,7 @@ class StorageManager {
                 this._startFullRebuildTimer();
             }
         } catch (err) {
-            log.error({ err }, 'reload 失败');
+            log.error({ err }, 'reload 澶辫触');
         }
     }
 
@@ -486,8 +535,9 @@ class StorageManager {
     }
 
     async _initUsageStats() {
+        const db = this.db;
         try {
-            const stats = sqlite.prepare(`
+            const stats = db.prepare(`
                 SELECT storage_instance_id, COUNT(*) AS file_count
                 FROM files
                 WHERE storage_instance_id IS NOT NULL
@@ -606,12 +656,13 @@ class StorageManager {
     }
 
     async applyPendingQuotaEvents({ operationId = null, adjustUsageStats = true, recordSnapshots = true } = {}) {
+        const db = this.db;
         try {
             const rows = operationId
-                ? sqlite.prepare(
+                ? db.prepare(
                     'SELECT * FROM storage_quota_events WHERE applied_at IS NULL AND operation_id = ? ORDER BY id ASC'
                 ).all(operationId)
-                : sqlite.prepare(
+                : db.prepare(
                     'SELECT * FROM storage_quota_events WHERE applied_at IS NULL ORDER BY id ASC'
                 ).all();
 
@@ -645,14 +696,14 @@ class StorageManager {
                 }
             }
 
-            const markAppliedStmt = sqlite.prepare(
+            const markAppliedStmt = db.prepare(
                 'UPDATE storage_quota_events SET applied_at = CURRENT_TIMESTAMP WHERE id = ?'
             );
-            const insertSnapshotStmt = sqlite.prepare(
+            const insertSnapshotStmt = db.prepare(
                 'INSERT INTO storage_quota_history (storage_id, used_bytes) VALUES (?, ?)'
             );
 
-            const persistProjection = sqlite.transaction((events, storageIds) => {
+            const persistProjection = db.transaction((events, storageIds) => {
                 for (const event of events) {
                     markAppliedStmt.run(event.id);
                 }
@@ -669,27 +720,28 @@ class StorageManager {
                 this.quotaProjection = nextProjection;
                 this.usageStats = nextUsageStats;
             } catch (projectionErr) {
-                // 回滚：将已标记的事件恢复为未应用状态
+                // 鍥炴粴锛氬皢宸叉爣璁扮殑浜嬩欢鎭㈠涓烘湭搴旂敤鐘舵€?
                 const eventIds = rows.map(r => r.id);
                 if (eventIds.length > 0) {
                     const placeholders = eventIds.map(() => '?').join(',');
-                    sqlite.prepare(`UPDATE storage_quota_events SET applied_at = NULL WHERE id IN (${placeholders})`)
+                    db.prepare(`UPDATE storage_quota_events SET applied_at = NULL WHERE id IN (${placeholders})`)
                         .run(...eventIds);
                 }
-                log.error({ err: projectionErr }, '应用容量事件失败，已回滚');
+                log.error({ err: projectionErr }, '搴旂敤瀹归噺浜嬩欢澶辫触锛屽凡鍥炴粴');
                 throw projectionErr;
             }
 
             return { applied: rows.length, storageIds: [...affectedStorageIds] };
         } catch (err) {
-            log.error({ err }, '应用容量事件失败');
+            log.error({ err }, '搴旂敤瀹归噺浜嬩欢澶辫触');
             throw err;
         }
     }
 
     async _rebuildAllQuotaStats() {
+        const db = this.db;
         try {
-            const rows = sqlite.prepare(`
+            const rows = db.prepare(`
                 SELECT storage_instance_id, SUM(size) AS used_bytes, COUNT(*) AS file_count
                 FROM files
                 WHERE storage_instance_id IS NOT NULL AND status = 'active'
@@ -711,13 +763,13 @@ class StorageManager {
                 cacheRecords.push({ storage_id: storageId, used_bytes: usedBytes, file_count: fileCount });
             }
 
-            const rebuildProjection = sqlite.transaction((records, cacheRecs) => {
-                sqlite.prepare(
+            const rebuildProjection = db.transaction((records, cacheRecs) => {
+                db.prepare(
                     'UPDATE storage_quota_events SET applied_at = CURRENT_TIMESTAMP WHERE applied_at IS NULL'
                 ).run();
 
                 if (records.length > 0) {
-                    const insertHistoryStmt = sqlite.prepare(
+                    const insertHistoryStmt = db.prepare(
                         'INSERT INTO storage_quota_history (storage_id, used_bytes) VALUES (@storage_id, @used_bytes)'
                     );
                     for (const record of records) {
@@ -725,9 +777,9 @@ class StorageManager {
                     }
                 }
 
-                // 更新缓存表
+                // 鏇存柊缂撳瓨琛?
                 if (cacheRecs.length > 0) {
-                    const upsertCacheStmt = sqlite.prepare(`
+                    const upsertCacheStmt = db.prepare(`
                         INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
                         VALUES (@storage_id, @used_bytes, @file_count, CURRENT_TIMESTAMP)
                         ON CONFLICT(storage_id) DO UPDATE SET
@@ -745,24 +797,25 @@ class StorageManager {
             this.quotaProjection = nextProjection;
             this.usageStats = nextUsageStats;
 
-            log.info({ count: historyRecords.length }, '容量缓存全量校正完成');
+            log.info({ count: historyRecords.length }, '瀹归噺缂撳瓨鍏ㄩ噺鏍℃瀹屾垚');
         } catch (err) {
-            log.error({ err }, '容量缓存全量校正失败');
+            log.error({ err }, '瀹归噺缂撳瓨鍏ㄩ噺鏍℃澶辫触');
         }
     }
 
     async verifyQuotaConsistency() {
+        const db = this.db;
         try {
-            // 从 files 表聚合真实数据
-            const actualStats = sqlite.prepare(`
+            // 浠?files 琛ㄨ仛鍚堢湡瀹炴暟鎹?
+            const actualStats = db.prepare(`
                 SELECT storage_instance_id, SUM(size) AS used_bytes, COUNT(*) AS file_count
                 FROM files
                 WHERE storage_instance_id IS NOT NULL AND status = 'active'
                 GROUP BY storage_instance_id
             `).all();
 
-            // 从缓存表读取
-            const cachedStats = sqlite.prepare(`
+            // 浠庣紦瀛樿〃璇诲彇
+            const cachedStats = db.prepare(`
                 SELECT storage_id, used_bytes, file_count
                 FROM storage_quota_cache
             `).all();
@@ -772,7 +825,7 @@ class StorageManager {
 
             const inconsistencies = [];
 
-            // 检查缓存表中的每个存储实例
+            // 妫€鏌ョ紦瀛樿〃涓殑姣忎釜瀛樺偍瀹炰緥
             for (const [storageId, cached] of cachedMap) {
                 const actual = actualMap.get(storageId);
                 if (!actual) {
@@ -792,7 +845,7 @@ class StorageManager {
                 }
             }
 
-            // 检查实际数据中存在但缓存中缺失的
+            // 妫€鏌ュ疄闄呮暟鎹腑瀛樺湪浣嗙紦瀛樹腑缂哄け鐨?
             for (const [storageId, actual] of actualMap) {
                 if (!cachedMap.has(storageId)) {
                     inconsistencies.push({
@@ -805,11 +858,11 @@ class StorageManager {
             }
 
             if (inconsistencies.length > 0) {
-                log.warn({ inconsistencies }, '容量缓存不一致检测到');
+                log.warn({ inconsistencies }, '瀹归噺缂撳瓨涓嶄竴鑷存娴嬪埌');
                 return { consistent: false, inconsistencies };
             }
 
-            log.info('容量缓存一致性校验通过');
+            log.info('瀹归噺缂撳瓨涓€鑷存€ф牎楠岄€氳繃');
             return { consistent: true, inconsistencies: [] };
         } catch (err) {
             log.error({ err }, '容量缓存一致性校验失败');
@@ -818,7 +871,7 @@ class StorageManager {
     }
 
     _startFullRebuildTimer() {
-        const intervalHours = config.upload?.fullCheckIntervalHours || 6;
+        const intervalHours = this.uploadConfig?.fullCheckIntervalHours || 6;
         const intervalMs = intervalHours * 60 * 60 * 1000;
 
         this._fullRebuildTimer = setInterval(async () => {
@@ -827,11 +880,11 @@ class StorageManager {
                 const result = await this.verifyQuotaConsistency();
 
                 if (!result.consistent) {
-                    log.warn({ count: result.inconsistencies.length }, '检测到容量不一致，执行自动修复');
+                    log.warn({ count: result.inconsistencies.length }, '妫€娴嬪埌瀹归噺涓嶄竴鑷达紝鎵ц鑷姩淇');
                     await this._rebuildAllQuotaStats();
                 }
             } catch (err) {
-                log.error({ err }, '定时容量校验失败');
+                log.error({ err }, '瀹氭椂瀹归噺鏍￠獙澶辫触');
             }
         }, intervalMs);
 
@@ -855,6 +908,14 @@ class StorageManager {
             stats[id] = bytes;
         }
         return stats;
+    }
+
+    async rebuildQuotaStats() {
+        return this._rebuildAllQuotaStats();
+    }
+
+    async recoverPendingOperations(options = {}) {
+        return this._recoverStaleOperations(options);
     }
 
     getEffectiveUploadLimits(storageId) {
@@ -900,3 +961,5 @@ class StorageManager {
 const storageManager = new StorageManager();
 export { StorageManager };
 export default storageManager;
+
+

@@ -4,8 +4,9 @@ import { initSchema } from './src/database/schema.js';
 import { runMigrations } from './src/database/migrate.js';
 import { initResponseCache } from './src/services/cache/response-cache.js';
 import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
-import { initArchiveScheduler } from './src/services/archive/archive-scheduler.js';
+import { initArchiveScheduler, stopArchiveScheduler } from './src/services/archive/archive-scheduler.js';
 import { syncAllStorageChannels } from './src/services/system/storage-channel-sync.js';
+import storageManager from './src/storage/manager.js';
 import { createLogger, flushLogs } from './src/utils/logger.js';
 
 const log = createLogger('main');
@@ -109,6 +110,9 @@ initArchiveScheduler({
   scheduleHour: archiveConfig.scheduleHour || 3
 });
 
+await storageManager.initialize();
+await storageManager.startMaintenance();
+
 const { default: app } = await import('./src/app.js');
 
 const displayHost = host === '0.0.0.0' ? 'localhost' : host;
@@ -123,6 +127,9 @@ server.on('error', handleServerError);
 // 优雅关闭：确保日志缓冲区在进程退出前完全写入
 const gracefulShutdown = async (signal) => {
   log.info({ signal }, `收到 ${signal} 信号，开始优雅关闭`);
+
+  storageManager.stopMaintenance();
+  stopArchiveScheduler();
 
   server.close(async () => {
     log.info('HTTP 服务已关闭');

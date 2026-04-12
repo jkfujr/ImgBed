@@ -39,6 +39,11 @@ async function drainReadable(readable) {
   return Buffer.concat(chunks);
 }
 
+function withStorageMeta(storageManager) {
+  storageManager.getStorageMeta = (id) => storageManager.instances.get(id) || null;
+  return storageManager;
+}
+
 // ─────────────────────────────────────────────
 // 从 migrate-file.js 中抽取内部函数供测试
 // 由于是 ESM，通过动态 import 获取导出，
@@ -74,7 +79,7 @@ async function testReadSourceFileAsStream_nonChunked() {
   };
 
   // storageManager stub
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map([
       ['src-id', { instance: fakeSourceStorage, type: 'local' }],
       ['dst-id', { instance: null, type: 'local' }],
@@ -82,7 +87,7 @@ async function testReadSourceFileAsStream_nonChunked() {
     isUploadAllowed: () => true,
     getEffectiveUploadLimits: () => ({ enableSizeLimit: false, enableChunking: false }),
     applyPendingQuotaEvents: async () => {},
-  };
+  });
 
   // 在 migrateFileRecord 内部，readSourceFileAsStream 被调用后
   // 非分块文件会调用 targetEntry.instance.put(stream, ...)
@@ -156,17 +161,17 @@ async function testMigrateFileRecord_skipSameChannel() {
     mime_type: 'image/png',
   };
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map([
       ['same-id', { instance: {}, type: 'local' }],
     ]),
     isUploadAllowed: () => true,
     getEffectiveUploadLimits: () => ({ enableSizeLimit: false }),
-  };
+  });
 
   const result = await migrateFileRecord(fileRecord, {
     targetChannel: 'same-id',
-    targetEntry: storageManager.instances.get('same-id'),
+    targetEntry: storageManager.getStorageMeta('same-id'),
     db: {},
     storageManager,
   });
@@ -191,11 +196,11 @@ async function testMigrateFileRecord_missingSourceChannel() {
     mime_type: 'image/png',
   };
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map(), // 空 Map：找不到 ghost-src
     isUploadAllowed: () => true,
     getEffectiveUploadLimits: () => ({ enableSizeLimit: false }),
-  };
+  });
 
   const result = await migrateFileRecord(fileRecord, {
     targetChannel: 'dst-id',
@@ -213,10 +218,10 @@ async function testMigrateFileRecord_missingSourceChannel() {
 async function testValidateMigrationTarget_missingTarget() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map(),
     isUploadAllowed: () => true,
-  };
+  });
 
   assert.throws(
     () => validateMigrationTarget('missing-channel', storageManager),
@@ -229,7 +234,7 @@ async function testValidateMigrationTarget_missingTarget() {
 async function testValidateMigrationTarget_noChannel() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = { instances: new Map(), isUploadAllowed: () => true };
+  const storageManager = withStorageMeta({ instances: new Map(), isUploadAllowed: () => true });
 
   assert.throws(
     () => validateMigrationTarget(null, storageManager),
@@ -242,12 +247,12 @@ async function testValidateMigrationTarget_noChannel() {
 async function testValidateMigrationTarget_nonWritableType() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map([
       ['discord-id', { instance: {}, type: 'discord' }],
     ]),
     isUploadAllowed: () => true,
-  };
+  });
 
   assert.throws(
     () => validateMigrationTarget('discord-id', storageManager),
@@ -279,7 +284,7 @@ async function testMigrateNonChunked_streamPassThrough() {
     getStream: async () => makeNodeReadable(content),
   };
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map([
       ['src', { instance: fakeSourceStorage, type: 'local' }],
       ['dst', { instance: fakeTargetStorage, type: 'local' }],
@@ -291,7 +296,7 @@ async function testMigrateNonChunked_streamPassThrough() {
       enableMaxLimit: false,
     }),
     applyPendingQuotaEvents: async () => {},
-  };
+  });
 
   const fileRecord = {
     id: 'file-004',
@@ -353,7 +358,7 @@ async function testMigrateChunked_usesBuffer() {
     getStream: async () => makeNodeReadable(content),
   };
 
-  const storageManager = {
+  const storageManager = withStorageMeta({
     instances: new Map([
       ['src', { instance: fakeSourceStorage, type: 'local' }],
       ['dst', { instance: fakeTargetStorage, type: 'local' }],
@@ -369,7 +374,7 @@ async function testMigrateChunked_usesBuffer() {
       enableMaxLimit: false,
     }),
     applyPendingQuotaEvents: async () => {},
-  };
+  });
 
   const fileRecord = {
     id: 'file-005',

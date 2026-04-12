@@ -395,7 +395,7 @@ systemApp.post('/maintenance/rebuild-quota-stats', asyncHandler(async (_req, res
   (async () => {
     try {
       log.info('手动触发容量校正任务');
-      await storageManager._rebuildAllQuotaStats();
+      await storageManager.rebuildQuotaStats();
       log.info('容量校正任务完成');
     } catch (err) {
       log.error({ err }, '容量校正任务失败');
