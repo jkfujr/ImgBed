@@ -28,6 +28,7 @@ import { getResponseCache } from '../services/cache/response-cache.js';
 import { getQuotaEventsArchive } from '../services/archive/quota-events-archive.js';
 import { getArchiveScheduler } from '../services/archive/archive-scheduler.js';
 import { success } from '../utils/response.js';
+import { sanitizeSystemConfig } from '../services/system/sanitize-system-config.js';
 
 const log = createLogger('system');
 const systemApp = express.Router();
@@ -52,8 +53,7 @@ systemApp.use(adminAuth);
  */
 systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
   const cfg = readSystemConfig(configPath);
-  if (cfg.jwt) cfg.jwt.secret = '******';
-  return res.json(success(cfg));
+  return res.json(success(sanitizeSystemConfig(cfg)));
 }));
 
 /**

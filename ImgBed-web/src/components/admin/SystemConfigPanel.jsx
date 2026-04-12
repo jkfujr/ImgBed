@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Box, TextField, Button, CircularProgress, Alert, Divider, Typography
+  Box, TextField, Button, CircularProgress, Alert, Divider, Typography,
 } from '@mui/material';
 import { SystemConfigDocs } from '../../api';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { createRequestGuard } from '../../utils/request-guard';
 
 export default function SystemConfigPanel() {
   const [loading, setLoading] = useState(true);
@@ -12,29 +13,46 @@ export default function SystemConfigPanel() {
   const [corsOrigin, setCorsOrigin] = useState('');
   const [serverPort, setServerPort] = useState('');
   const [initialConfig, setInitialConfig] = useState(null);
+  const requestGuardRef = useRef(createRequestGuard());
+
+  useEffect(() => {
+    return () => {
+      requestGuardRef.current.dispose();
+    };
+  }, []);
 
   useEffect(() => {
     const loadConfig = async () => {
+      const requestId = requestGuardRef.current.begin();
       setLoading(true);
+
       try {
         const res = await SystemConfigDocs.get();
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         if (res.code === 0) {
           const corsValue = res.data.security?.corsOrigin || '*';
           const portValue = String(res.data.server?.port || 3000);
 
           setCorsOrigin(corsValue);
           setServerPort(portValue);
-
-          // 保存初始配置用于重置
           setInitialConfig({
             corsOrigin: corsValue,
             serverPort: portValue,
           });
         }
       } catch {
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
       } finally {
-        setLoading(false);
+        if (requestGuardRef.current.isCurrent(requestId)) {
+          setLoading(false);
+        }
       }
     };
 
@@ -42,33 +60,47 @@ export default function SystemConfigPanel() {
   }, []);
 
   const handleReset = () => {
-    if (initialConfig) {
-      setCorsOrigin(initialConfig.corsOrigin);
-      setServerPort(initialConfig.serverPort);
-      setResult(null);
+    if (!initialConfig) {
+      return;
     }
+
+    setCorsOrigin(initialConfig.corsOrigin);
+    setServerPort(initialConfig.serverPort);
+    setResult(null);
   };
 
   const handleSave = async () => {
+    const requestId = requestGuardRef.current.begin();
     setResult(null);
     setSaving(true);
+
     try {
       const payload = {
         security: {
           corsOrigin,
         },
-        server: { port: parseInt(serverPort) },
+        server: { port: parseInt(serverPort, 10) },
       };
       const res = await SystemConfigDocs.update(payload);
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       if (res.code === 0) {
         setResult({ type: 'success', msg: res.message });
       } else {
         setResult({ type: 'error', msg: res.message || '保存失败' });
       }
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });
     } finally {
-      setSaving(false);
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setSaving(false);
+      }
     }
   };
 
@@ -91,11 +123,11 @@ export default function SystemConfigPanel() {
         size="small"
         type="number"
         value={serverPort}
-        onChange={(e) => setServerPort(e.target.value)}
+        onChange={(event) => setServerPort(event.target.value)}
         sx={{ maxWidth: 200 }}
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1.5 }}>
-        修改后需重启后端服务生效
+        修改后需要重启后端服务生效
       </Typography>
 
       <Divider sx={{ my: 1 }} />
@@ -108,25 +140,17 @@ export default function SystemConfigPanel() {
         label="CORS 允许来源"
         size="small"
         value={corsOrigin}
-        onChange={(e) => setCorsOrigin(e.target.value)}
+        onChange={(event) => setCorsOrigin(event.target.value)}
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1.5 }}>
-        填 * 表示允许所有来源，生产环境建议填写具体域名
+        填 `*` 表示允许所有来源，生产环境建议填写具体域名
       </Typography>
 
       <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          disabled={saving}
-        >
+        <Button variant="contained" onClick={handleSave} disabled={saving}>
           {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
         </Button>
-        <Button
-          variant="outlined"
-          onClick={handleReset}
-          disabled={saving}
-        >
+        <Button variant="outlined" onClick={handleReset} disabled={saving}>
           重置
         </Button>
       </Box>

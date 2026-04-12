@@ -7,6 +7,23 @@ import { ConfigFileError } from '../errors/AppError.js';
 const DEFAULT_CONFIG_CACHE_TTL_MS = 5000;
 const LOCAL_TEST_JWT_SECRET = 'dev-secret-for-local-tests-only';
 
+function cloneConfig(value) {
+  return structuredClone(value);
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) {
+    return value;
+  }
+
+  Object.freeze(value);
+  for (const nestedValue of Object.values(value)) {
+    deepFreeze(nestedValue);
+  }
+
+  return value;
+}
+
 export function generateRandomString(length, randomBytes = crypto.randomBytes) {
   return randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
 }
@@ -112,7 +129,10 @@ function warnIfUsingLocalTestSecret({ config, logger, configPath, env = process.
   }
 
   if (config?.jwt?.secret === LOCAL_TEST_JWT_SECRET) {
-    logger.warn({ configPath }, '当前运行配置使用了测试专用 JWT 密钥，请检查是否有测试链路污染了真实配置');
+    logger.warn(
+      { configPath },
+      '当前运行配置使用了测试专用 JWT 密钥，请检查是否有测试链路污染了真实配置',
+    );
   }
 }
 
@@ -173,12 +193,13 @@ export function createConfigRepository({
   let cacheEntry = null;
 
   function setCache(value, stats) {
+    const snapshot = deepFreeze(cloneConfig(value));
     cacheEntry = {
-      value,
+      value: snapshot,
       mtimeMs: Number(stats?.mtimeMs || 0),
       expireAt: dateNow() + cacheTtlMs,
     };
-    return value;
+    return snapshot;
   }
 
   function getFileStats() {
@@ -237,7 +258,7 @@ export function createConfigRepository({
 
     readRuntimeConfig() {
       if (!fsImpl.existsSync(configPath)) {
-        return this.loadStartupConfig();
+        return cloneConfig(this.loadStartupConfig());
       }
 
       try {
@@ -248,33 +269,34 @@ export function createConfigRepository({
           cacheEntry.expireAt > currentTime &&
           cacheEntry.mtimeMs === Number(stats.mtimeMs || 0)
         ) {
-          return cacheEntry.value;
+          return cloneConfig(cacheEntry.value);
         }
 
         const rawData = fsImpl.readFileSync(configPath, 'utf8');
         const value = parseConfigText(rawData);
         warnIfUsingLocalTestSecret({ config: value, logger, configPath });
-        return setCache(value, stats);
+        return cloneConfig(setCache(value, stats));
       } catch (cause) {
         if (cacheEntry?.value) {
           logger.warn({ err: cause, configPath }, '配置文件读取失败，继续使用最近一次有效配置');
-          return cacheEntry.value;
+          return cloneConfig(cacheEntry.value);
         }
 
         throw createInvalidConfigError({
           kind: 'runtime_invalid',
           configPath,
           cause,
-          message: '配置文件损坏，且当前进程没有可用的有效配置快照',
+          message: '配置文件已损坏，且当前进程没有可用的有效配置快照',
         });
       }
     },
 
     writeRuntimeConfig(nextConfig) {
       ensureDataRoot();
-      writeConfigFile({ fsImpl, configPath, config: nextConfig });
-      warnIfUsingLocalTestSecret({ config: nextConfig, logger, configPath });
-      return setCache(nextConfig, getFileStats());
+      const snapshot = cloneConfig(nextConfig);
+      writeConfigFile({ fsImpl, configPath, config: snapshot });
+      warnIfUsingLocalTestSecret({ config: snapshot, logger, configPath });
+      return cloneConfig(setCache(snapshot, getFileStats()));
     },
 
     getLastKnownGoodConfig() {

@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StorageDocs, SystemConfigDocs } from '../api';
+import { createRequestGuard } from '../utils/request-guard';
 
-/**
- * 负载均衡配置 Hook — 封装 LoadBalancePanel 的全部状态与操作
- */
 export function useLoadBalance() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
   const [availableChannels, setAvailableChannels] = useState([]);
+  const requestGuardRef = useRef(createRequestGuard());
 
   const [config, setConfig] = useState({
     uploadStrategy: 'default',
@@ -21,24 +20,36 @@ export function useLoadBalance() {
   });
 
   useEffect(() => {
+    return () => {
+      requestGuardRef.current.dispose();
+    };
+  }, []);
+
+  useEffect(() => {
     const loadConfig = async () => {
+      const requestId = requestGuardRef.current.begin();
       setLoading(true);
+
       try {
         const [lbRes, channelsRes, configRes] = await Promise.all([
           StorageDocs.getLoadBalance().catch(() => ({
             code: -1,
-            data: { strategy: 'default' }
+            data: { strategy: 'default' },
           })),
           StorageDocs.list().catch(() => ({
             code: -1,
-            data: { list: [] }
+            data: { list: [] },
           })),
           SystemConfigDocs.get().catch(() => ({ code: -1, data: {} })),
         ]);
 
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         if (lbRes.code === 0) {
           const strategy = lbRes.data.strategy || 'default';
-          setConfig(prev => ({
+          setConfig((prev) => ({
             ...prev,
             lbStrategy: strategy === 'default' ? 'round-robin' : strategy,
             lbWeights: lbRes.data.weights || {},
@@ -49,11 +60,11 @@ export function useLoadBalance() {
         }
 
         if (configRes.code === 0) {
-          const u = configRes.data.upload || {};
-          setConfig(prev => ({
+          const uploadConfig = configRes.data.upload || {};
+          setConfig((prev) => ({
             ...prev,
-            enableFullCheckInterval: (u.fullCheckIntervalHours ?? 0) > 0,
-            fullCheckIntervalHours: u.fullCheckIntervalHours || 6,
+            enableFullCheckInterval: (uploadConfig.fullCheckIntervalHours ?? 0) > 0,
+            fullCheckIntervalHours: uploadConfig.fullCheckIntervalHours || 6,
           }));
         }
 
@@ -61,9 +72,15 @@ export function useLoadBalance() {
           setAvailableChannels(channelsRes.data.list || []);
         }
       } catch {
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
       } finally {
-        setLoading(false);
+        if (requestGuardRef.current.isCurrent(requestId)) {
+          setLoading(false);
+        }
       }
     };
 
@@ -71,8 +88,10 @@ export function useLoadBalance() {
   }, []);
 
   const handleSave = useCallback(async () => {
+    const requestId = requestGuardRef.current.begin();
     setResult(null);
     setSaving(true);
+
     try {
       const finalStrategy = config.uploadStrategy === 'default' ? 'default' : config.lbStrategy;
       const [lbRes, sysRes] = await Promise.all([
@@ -88,25 +107,36 @@ export function useLoadBalance() {
           },
         }),
       ]);
+
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       if (lbRes.code === 0 && (sysRes.code === 0 || sysRes.response?.status === 200)) {
         setResult({ type: 'success', msg: '存储策略配置已保存' });
       } else {
         setResult({ type: 'error', msg: lbRes.message || sysRes.message || '保存失败' });
       }
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });
     } finally {
-      setSaving(false);
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setSaving(false);
+      }
     }
   }, [config]);
 
   const clearResult = useCallback(() => setResult(null), []);
 
   const toggleType = useCallback((type) => {
-    setConfig(prev => ({
+    setConfig((prev) => ({
       ...prev,
       lbEnabledTypes: prev.lbEnabledTypes.includes(type)
-        ? prev.lbEnabledTypes.filter(t => t !== type)
+        ? prev.lbEnabledTypes.filter((item) => item !== type)
         : [...prev.lbEnabledTypes, type],
     }));
   }, []);

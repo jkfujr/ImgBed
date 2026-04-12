@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box, Typography, Button, CircularProgress, Alert, Divider,
-  FormControlLabel, Switch, TextField
+  FormControlLabel, Switch, TextField,
 } from '@mui/material';
 import { SystemConfigDocs } from '../../api';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { createRequestGuard } from '../../utils/request-guard';
 
 export default function SecurityConfigPanel() {
   const [loading, setLoading] = useState(true);
@@ -13,28 +14,46 @@ export default function SecurityConfigPanel() {
   const [guestUploadEnabled, setGuestUploadEnabled] = useState(false);
   const [uploadPassword, setUploadPassword] = useState('');
   const [initialConfig, setInitialConfig] = useState(null);
+  const requestGuardRef = useRef(createRequestGuard());
+
+  useEffect(() => {
+    return () => {
+      requestGuardRef.current.dispose();
+    };
+  }, []);
 
   useEffect(() => {
     const loadConfig = async () => {
+      const requestId = requestGuardRef.current.begin();
       setLoading(true);
+
       try {
         const res = await SystemConfigDocs.get();
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         if (res.code === 0) {
           const guestEnabled = res.data.security?.guestUploadEnabled || false;
           const password = res.data.security?.uploadPassword || '';
 
           setGuestUploadEnabled(guestEnabled);
           setUploadPassword(password);
-
           setInitialConfig({
             guestUploadEnabled: guestEnabled,
             uploadPassword: password,
           });
         }
       } catch {
+        if (!requestGuardRef.current.isCurrent(requestId)) {
+          return;
+        }
+
         setResult({ type: 'error', msg: '加载配置失败，请检查网络或后端服务' });
       } finally {
-        setLoading(false);
+        if (requestGuardRef.current.isCurrent(requestId)) {
+          setLoading(false);
+        }
       }
     };
 
@@ -42,16 +61,20 @@ export default function SecurityConfigPanel() {
   }, []);
 
   const handleReset = () => {
-    if (initialConfig) {
-      setGuestUploadEnabled(initialConfig.guestUploadEnabled);
-      setUploadPassword(initialConfig.uploadPassword);
-      setResult(null);
+    if (!initialConfig) {
+      return;
     }
+
+    setGuestUploadEnabled(initialConfig.guestUploadEnabled);
+    setUploadPassword(initialConfig.uploadPassword);
+    setResult(null);
   };
 
   const handleSave = async () => {
+    const requestId = requestGuardRef.current.begin();
     setResult(null);
     setSaving(true);
+
     try {
       const payload = {
         security: {
@@ -60,6 +83,10 @@ export default function SecurityConfigPanel() {
         },
       };
       const res = await SystemConfigDocs.update(payload);
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       if (res.code === 0) {
         setResult({ type: 'success', msg: res.message || '保存成功' });
         setInitialConfig({
@@ -70,9 +97,15 @@ export default function SecurityConfigPanel() {
         setResult({ type: 'error', msg: res.message || '保存失败' });
       }
     } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       setResult({ type: 'error', msg: err.response?.data?.message || '网络错误' });
     } finally {
-      setSaving(false);
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setSaving(false);
+      }
     }
   };
 
@@ -94,7 +127,7 @@ export default function SecurityConfigPanel() {
         control={
           <Switch
             checked={guestUploadEnabled}
-            onChange={(e) => setGuestUploadEnabled(e.target.checked)}
+            onChange={(event) => setGuestUploadEnabled(event.target.checked)}
           />
         }
         label="允许访客上传"
@@ -116,7 +149,7 @@ export default function SecurityConfigPanel() {
             size="small"
             type="password"
             value={uploadPassword}
-            onChange={(e) => setUploadPassword(e.target.value)}
+            onChange={(event) => setUploadPassword(event.target.value)}
             placeholder="留空表示无需密码"
             sx={{ maxWidth: 400 }}
           />
@@ -127,18 +160,10 @@ export default function SecurityConfigPanel() {
       )}
 
       <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          disabled={saving}
-        >
+        <Button variant="contained" onClick={handleSave} disabled={saving}>
           {saving ? <CircularProgress size={18} color="inherit" /> : '保存配置'}
         </Button>
-        <Button
-          variant="outlined"
-          onClick={handleReset}
-          disabled={saving}
-        >
+        <Button variant="outlined" onClick={handleReset} disabled={saving}>
           重置
         </Button>
       </Box>

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DashboardAPI, SystemConfigDocs, StorageDocs } from '../api';
+import { createRequestGuard } from '../utils/request-guard';
 
 export function useDashboard() {
   const [overview, setOverview] = useState(null);
@@ -11,23 +12,33 @@ export function useDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [trendDays, setTrendDays] = useState(30);
+  const requestGuardRef = useRef(createRequestGuard());
+
+  useEffect(() => {
+    return () => {
+      requestGuardRef.current.dispose();
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
+    const requestId = requestGuardRef.current.begin();
     setLoading(true);
     setError(null);
-    try {
-      // 并行请求所有接口
-      const [overviewRes, trendRes, accessRes, storagesRes, quotaRes, cacheRes] =
-        await Promise.all([
-          DashboardAPI.getOverview(),
-          DashboardAPI.getUploadTrend(trendDays),
-          DashboardAPI.getAccessStats(),
-          StorageDocs.list(),
-          SystemConfigDocs.quotaStats(),
-          SystemConfigDocs.cacheStats()
-        ]);
 
-      // 更新状态
+    try {
+      const [overviewRes, trendRes, accessRes, storagesRes, quotaRes, cacheRes] = await Promise.all([
+        DashboardAPI.getOverview(),
+        DashboardAPI.getUploadTrend(trendDays),
+        DashboardAPI.getAccessStats(),
+        StorageDocs.list(),
+        SystemConfigDocs.quotaStats(),
+        SystemConfigDocs.cacheStats(),
+      ]);
+
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
       setOverview(overviewRes.data || overviewRes);
       setUploadTrend(trendRes.data?.trend || trendRes.trend || []);
       setAccessStats(accessRes.data || accessRes);
@@ -35,16 +46,21 @@ export function useDashboard() {
       setQuotaStats(quotaRes.data?.stats || quotaRes.stats || {});
       setCacheStats(cacheRes.data || cacheRes);
     } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      console.error('加载仪表盘数据失败:', err);
       setError(err.message || '加载数据失败');
     } finally {
-      setLoading(false);
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
   }, [trendDays]);
 
   useEffect(() => {
     fetchData();
-    // 30秒自动刷新
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
@@ -60,6 +76,6 @@ export function useDashboard() {
     error,
     trendDays,
     setTrendDays,
-    refresh: fetchData
+    refresh: fetchData,
   };
 }

@@ -125,11 +125,65 @@ function testWriteRuntimeConfigRefreshesSnapshot() {
   }
 }
 
+function testRuntimeReadReturnsIsolatedMutableCopy() {
+  const appRoot = createTempDir('isolated-copy');
+  const logger = makeLogger();
+
+  try {
+    const repo = createConfigRepository({
+      appRoot,
+      logger,
+      randomBytes: () => Buffer.from('a'.repeat(64)),
+      now: () => '2026-04-12T21-00-00',
+    });
+
+    repo.loadStartupConfig();
+    const runtimeConfig = repo.readRuntimeConfig();
+    const originalSecret = repo.getLastKnownGoodConfig().jwt.secret;
+
+    runtimeConfig.jwt.secret = 'tampered-secret';
+    runtimeConfig.server.port = 14001;
+
+    assert.equal(repo.getLastKnownGoodConfig().jwt.secret, originalSecret);
+    assert.notEqual(repo.getLastKnownGoodConfig().server.port, 14001);
+    console.log('  [OK] config-repository: readRuntimeConfig returns isolated mutable copy');
+  } finally {
+    cleanupTempDir(appRoot);
+  }
+}
+
+function testLastKnownGoodConfigIsReadOnlySnapshot() {
+  const appRoot = createTempDir('readonly-snapshot');
+  const logger = makeLogger();
+
+  try {
+    const repo = createConfigRepository({
+      appRoot,
+      logger,
+      randomBytes: () => Buffer.from('b'.repeat(64)),
+      now: () => '2026-04-12T21-01-00',
+    });
+
+    repo.loadStartupConfig();
+    const snapshot = repo.getLastKnownGoodConfig();
+
+    assert.throws(() => {
+      snapshot.jwt.secret = 'tampered-secret';
+    }, TypeError);
+    assert.notEqual(repo.getLastKnownGoodConfig().jwt.secret, 'tampered-secret');
+    console.log('  [OK] config-repository: last known good config is read-only');
+  } finally {
+    cleanupTempDir(appRoot);
+  }
+}
+
 function main() {
   console.log('running config-repository tests...');
   testRuntimeReadFallsBackToLastKnownGoodConfig();
   testRuntimeReadThrowsWhenNoSnapshotExists();
   testWriteRuntimeConfigRefreshesSnapshot();
+  testRuntimeReadReturnsIsolatedMutableCopy();
+  testLastKnownGoodConfigIsReadOnlySnapshot();
   console.log('config-repository tests passed');
 }
 

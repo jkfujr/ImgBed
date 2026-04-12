@@ -9,6 +9,11 @@ import {
   shouldApplySessionCheck,
   writeStoredAuthToken,
 } from '../auth/session.js';
+import {
+  AUTH_PROBE_ACTION_INVALIDATE,
+  getBootstrapAuthState,
+  resolveAuthProbeFailureAction,
+} from '../auth/auth-session-state.js';
 import { AuthContext } from '../hooks/useAuth';
 
 export const AuthProvider = ({ children }) => {
@@ -93,23 +98,23 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setUser(res.data);
     } catch (error) {
-      if (!canApplySessionResult({ token, version })) {
-        return;
-      }
-
       const payload = error?.response?.data;
-      if (payload?.reason === AUTH_REASON_SESSION_INVALID) {
+      const action = resolveAuthProbeFailureAction({
+        payloadReason: payload?.reason || null,
+        requestToken: token,
+        activeToken: activeTokenRef.current,
+        requestVersion: version,
+        activeVersion: sessionVersionRef.current,
+      });
+
+      if (action === AUTH_PROBE_ACTION_INVALIDATE) {
         invalidateSession({
-          reason: payload.reason,
+          reason: payload?.reason,
           requestToken: token,
-          message: payload.message,
+          message: payload?.message,
           shouldRedirect: false,
         });
-        return;
       }
-
-      setIsAuthenticated(false);
-      setUser(null);
     } finally {
       if (canApplySessionResult({ token, version })) {
         setLoading(false);
@@ -127,11 +132,16 @@ export const AuthProvider = ({ children }) => {
     syncActiveSessionToken(token);
 
     if (!token) {
+      setIsAuthenticated(false);
+      setUser(null);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    const bootstrapState = getBootstrapAuthState(token);
+    setIsAuthenticated(bootstrapState.isAuthenticated);
+    setLoading(bootstrapState.loading);
+
     void checkLoginState({
       token,
       version: sessionVersionRef.current,
