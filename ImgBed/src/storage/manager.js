@@ -5,19 +5,9 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('storage');
 
 import { QuotaProjectionService } from './quota/quota-projection-service.js';
+import { StorageOperationRecovery } from './recovery/storage-operation-recovery.js';
 import { StorageRegistry } from './runtime/storage-registry.js';
 import { UploadSelector } from './runtime/upload-selector.js';
-import {
-    buildQuotaEvent,
-    incrementOperationRetryCount,
-    insertQuotaEvents,
-    markOperationCommitted,
-    markOperationCompensated,
-    markOperationCompleted,
-    markOperationCompensationPending,
-    markOperationFailed,
-} from '../services/system/storage-operations.js';
-import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 
 class StorageManager {
     constructor({ db = sqlite } = {}) {
@@ -40,9 +30,14 @@ class StorageManager {
             isUploadAllowed: (storageId) => this.isUploadAllowed(storageId),
             getUsageStats: () => this.quotaProjectionService.getUsageStatsMap(),
         });
+        this.recoveryService = new StorageOperationRecovery({
+            db: this.db,
+            logger: log,
+            storageManager: this,
+            applyPendingQuotaEvents: (options) => this.applyPendingQuotaEvents(options),
+        });
         this._fullRebuildTimer = null;
         this._compensationRetryTimer = null;
-        this._isRecoveryRunning = false;
         this._compensationBackoffMs = 5 * 60 * 1000;
         this._initializePromise = null;
         this._isInitialized = false;
@@ -105,187 +100,6 @@ class StorageManager {
         this._maintenanceStarted = false;
     }
 
-    _parseOperationPayload(rawPayload) {
-        if (!rawPayload) {
-            return {};
-        }
-
-        try {
-            return JSON.parse(rawPayload);
-        } catch {
-            return {};
-        }
-    }
-
-    async _recoverStaleOperations({ limit = 50 } = {}) {
-        const db = this.db;
-
-        if (this._isRecoveryRunning) {
-            return { recovered: 0, total: 0, skipped: true };
-        }
-
-        this._isRecoveryRunning = true;
-
-        try {
-            const operations = db.prepare(`
-                SELECT * FROM storage_operations
-                WHERE status IN ('remote_done', 'committed', 'compensation_pending')
-                ORDER BY created_at ASC
-                LIMIT ?
-            `).all(limit);
-
-            if (operations.length === 0) {
-                return { recovered: 0, total: 0, skipped: false };
-            }
-
-            log.info({ count: operations.length }, '鎭㈠璋冨害: 鍙戠幇寮傚父鎿嶄綔');
-
-            let recovered = 0;
-            for (const operation of operations) {
-                const current = db.prepare(
-                    'SELECT status FROM storage_operations WHERE id = ? LIMIT 1'
-                ).get(operation.id);
-
-                if (!current || current.status !== operation.status) {
-                    continue;
-                }
-
-                await this._executeRecovery(operation);
-                recovered++;
-            }
-
-            return { recovered, total: operations.length, skipped: false };
-        } finally {
-            this._isRecoveryRunning = false;
-        }
-    }
-
-    async _executeRecovery(operation) {
-        const db = this.db;
-        const MAX_RETRIES = 5;
-        const retryCount = operation.retry_count ?? 0;
-
-        if (retryCount >= MAX_RETRIES) {
-            markOperationFailed(db, operation.id, new Error(`瓒呰繃鏈€澶ч噸璇曟鏁?${MAX_RETRIES}`));
-            log.warn({ operationId: operation.id, retryCount }, '鎭㈠宸茶揪鏈€澶ч噸璇曟鏁帮紝鏍囪澶辫触');
-            return;
-        }
-
-        try {
-            switch (operation.status) {
-                case 'remote_done':
-                    await this._recoverRemoteDoneOperation(operation);
-                    break;
-                case 'committed':
-                    await this._recoverCommittedOperation(operation);
-                    break;
-                case 'compensation_pending':
-                    await this._executeCompensation(operation);
-                    break;
-                default:
-                    break;
-            }
-        } catch (err) {
-            incrementOperationRetryCount(db, operation.id);
-            log.error({ operationId: operation.id, retryCount: retryCount + 1, err }, '鎭㈠澶辫触锛屽凡閫掑閲嶈瘯璁℃暟');
-        }
-    }
-
-    async _recoverRemoteDoneOperation(operation) {
-        const db = this.db;
-
-        if (operation.operation_type !== 'delete') {
-            await this._executeCompensation(operation, { payloadField: 'remote_payload' });
-            return;
-        }
-
-        const fileRecord = db.prepare('SELECT * FROM files WHERE id = ? LIMIT 1').get(operation.file_id);
-        if (!fileRecord) {
-            markOperationCompleted(db, operation.id);
-            return;
-        }
-
-        const instanceId = operation.source_storage_id || fileRecord.storage_instance_id || null;
-        const fileSize = Number(fileRecord.size) || 0;
-        const chunkRecords = fileRecord.is_chunked
-            ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)
-            : [];
-
-        const compensationPayload = {
-            storageId: instanceId,
-            storageKey: fileRecord.storage_key,
-            isChunked: Boolean(fileRecord.is_chunked),
-            chunkRecords,
-        };
-
-        const persistDelete = db.transaction(() => {
-            db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
-            db.prepare('DELETE FROM files WHERE id = ?').run(fileRecord.id);
-
-            if (instanceId) {
-                insertQuotaEvents(db, [buildQuotaEvent({
-                    operationId: operation.id,
-                    fileId: fileRecord.id,
-                    storageId: instanceId,
-                    eventType: 'delete',
-                    bytesDelta: -fileSize,
-                    fileCountDelta: -1,
-                    payload: { storageKey: fileRecord.storage_key },
-                })]);
-            }
-
-            markOperationCommitted(db, operation.id, {
-                sourceStorageId: instanceId,
-                compensationPayload,
-            });
-        });
-
-        persistDelete();
-        await this.applyPendingQuotaEvents({ operationId: operation.id, adjustUsageStats: true });
-        markOperationCompleted(db, operation.id);
-        log.info({ operationId: operation.id }, '鎭㈠鎴愬姛 (remote_done -> completed)');
-    }
-
-    async _recoverCommittedOperation(operation) {
-        const db = this.db;
-
-        await this.applyPendingQuotaEvents({ operationId: operation.id, adjustUsageStats: true });
-
-        if (operation.operation_type === 'migrate' && operation.compensation_payload) {
-            const payload = this._parseOperationPayload(operation.compensation_payload);
-            await removeStoredArtifacts({
-                storageManager: this,
-                storageId: payload.storageId || payload.sourceStorageId,
-                storageKey: payload.storageKey || payload.sourceStorageKey,
-                isChunked: Boolean(payload.isChunked),
-                chunkRecords: payload.chunkRecords || [],
-            });
-        }
-
-        markOperationCompleted(db, operation.id);
-        log.info({ operationId: operation.id }, '鎭㈠鎴愬姛 (committed -> completed)');
-    }
-
-    async _executeCompensation(operation, { payloadField = 'compensation_payload' } = {}) {
-        const db = this.db;
-        const payload = this._parseOperationPayload(operation[payloadField]);
-        if (!payload || Object.keys(payload).length === 0) {
-            markOperationCompensated(db, operation.id, { compensationPayload: payload });
-            return;
-        }
-
-        await removeStoredArtifacts({
-            storageManager: this,
-            storageId: payload.storageId || payload.sourceStorageId || payload.targetStorageId,
-            storageKey: payload.storageKey || payload.sourceStorageKey || payload.targetStorageKey,
-            isChunked: Boolean(payload.isChunked),
-            chunkRecords: payload.chunkRecords || [],
-        });
-
-        markOperationCompensated(db, operation.id, { compensationPayload: payload });
-        log.info({ operationId: operation.id }, '琛ュ伩鎴愬姛');
-    }
-
     _startCompensationRetryTimer() {
         const db = this.db;
         const MIN_INTERVAL_MS = 5 * 60 * 1000;   // 5 鍒嗛挓
@@ -305,7 +119,7 @@ class StorageManager {
 
                     if (pending.count > 0) {
                         log.info({ count: pending.count, nextIntervalMs: this._compensationBackoffMs }, '瀹氭椂鎭㈠: 鍙戠幇寮傚父鎿嶄綔');
-                        const result = await this._recoverStaleOperations();
+                        const result = await this.recoveryService.recoverPendingOperations();
                         if (result.recovered > 0) {
                             // 鏈夋垚鍔熸仮澶嶅垯閲嶇疆閫€閬?
                             this._compensationBackoffMs = MIN_INTERVAL_MS;
@@ -469,7 +283,7 @@ class StorageManager {
     }
 
     async recoverPendingOperations(options = {}) {
-        return this._recoverStaleOperations(options);
+        return this.recoveryService.recoverPendingOperations(options);
     }
 
     getEffectiveUploadLimits(storageId) {

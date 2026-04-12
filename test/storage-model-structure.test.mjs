@@ -110,6 +110,7 @@ function testFilesSchemaKeepsBothStorageColumns() {
 function testStorageManagerDelegatesRuntimeState() {
   const source = read('ImgBed/src/storage/manager.js');
   assert.match(source, /import \{ QuotaProjectionService \} from '\.\/quota\/quota-projection-service\.js';/);
+  assert.match(source, /import \{ StorageOperationRecovery \} from '\.\/recovery\/storage-operation-recovery\.js';/);
   assert.match(source, /import \{ StorageRegistry \} from '\.\/runtime\/storage-registry\.js';/);
   assert.match(source, /import \{ UploadSelector \} from '\.\/runtime\/upload-selector\.js';/);
   assert.ok(!source.includes('this.instances = new Map()'));
@@ -118,8 +119,10 @@ function testStorageManagerDelegatesRuntimeState() {
   assert.ok(!source.includes('this.uploadConfig = config.upload || {}'));
   assert.ok(!source.includes('this.quotaProjection = new Map()'));
   assert.ok(!source.includes('this.usageStats = new Map()'));
+  assert.ok(!source.includes('this._isRecoveryRunning = false'));
+  assert.ok(!source.includes('_executeRecovery('));
   assert.ok(!source.includes('_selectRoundRobin('));
-  console.log('  [OK] manager.js: runtime state now delegates to registry, selector, and quota service');
+  console.log('  [OK] manager.js: runtime state now delegates to registry, selector, quota, and recovery services');
 }
 
 function runStaticChecks() {
