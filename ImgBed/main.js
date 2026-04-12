@@ -1,152 +1,82 @@
+import { createApplicationRuntime } from './src/bootstrap/application-runtime.js';
 import config from './src/config/index.js';
 import { sqlite, dbPath } from './src/database/index.js';
-import { initSchema } from './src/database/schema.js';
 import { runMigrations } from './src/database/migrate.js';
-import { initResponseCache } from './src/services/cache/response-cache.js';
-import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
+import { initSchema } from './src/database/schema.js';
 import { initArchiveScheduler, stopArchiveScheduler } from './src/services/archive/archive-scheduler.js';
+import { initQuotaEventsArchive } from './src/services/archive/quota-events-archive.js';
+import { initResponseCache } from './src/services/cache/response-cache.js';
 import { syncAllStorageChannels } from './src/services/system/storage-channel-sync.js';
 import storageManager from './src/storage/manager.js';
 import { createLogger, flushLogs } from './src/utils/logger.js';
 
 const log = createLogger('main');
 
-const port = config.server?.port || 13000;
-const host = config.server?.host || '0.0.0.0';
-
-const handleServerError = (error) => {
-  if (error && error.code === 'EADDRINUSE') {
-    log.fatal({ port, err: error }, `端口 ${port} 已被占用，请停止现有进程或修改配置后重试`);
-    process.exit(1);
-  }
-
-  log.fatal({ err: error }, '服务启动失败');
-  process.exit(1);
-};
-
-// 可恢复错误模式列表
 const RECOVERABLE_ERROR_PATTERNS = [
-  'Checksum mismatch',           // S3 校验和错误
-  'ECONNRESET',                  // 连接重置
-  'ETIMEDOUT',                   // 超时
-  'ENOTFOUND',                   // DNS 解析失败
-  'ECONNREFUSED',                // 连接被拒绝（外部服务）
-  'socket hang up',              // Socket 挂起
-  'premature close',             // 连接提前关闭
-  'aborted',                     // 请求中止
-  'Client network socket disconnected', // 客户端断开
-  'write EPIPE',                 // 管道写入错误
-  'read ECONNRESET',             // 读取连接重置
+  'Checksum mismatch',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ECONNREFUSED',
+  'socket hang up',
+  'premature close',
+  'aborted',
+  'Client network socket disconnected',
+  'write EPIPE',
+  'read ECONNRESET',
 ];
 
-/**
- * 判断是否为可恢复错误
- */
 const isRecoverableError = (error) => {
-  const message = error.message || '';
-  const code = error.code || '';
-
-  return RECOVERABLE_ERROR_PATTERNS.some(pattern =>
-    message.includes(pattern) || code.includes(pattern)
-  );
+  const message = error?.message || '';
+  const code = error?.code || '';
+  return RECOVERABLE_ERROR_PATTERNS.some((pattern) => message.includes(pattern) || code.includes(pattern));
 };
 
-// 捕获未处理的异常，区分可恢复错误和致命错误
 process.on('uncaughtException', (error) => {
   if (isRecoverableError(error)) {
-    log.error({ err: error }, '可恢复错误（已捕获，服务继续运行）');
+    log.error({ err: error }, 'recoverable uncaught exception captured');
     return;
   }
 
-  // 致命错误：记录并退出
-  log.fatal({ err: error }, '致命错误，服务即将退出');
-  handleServerError(error);
+  log.fatal({ err: error }, 'fatal uncaught exception');
+  process.exit(1);
 });
 
-// 捕获未处理的 Promise 拒绝
 process.on('unhandledRejection', (reason, promise) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
 
   if (isRecoverableError(error)) {
-    log.error({ reason, promise }, '可恢复的 Promise 拒绝（已捕获）');
+    log.error({ reason, promise }, 'recoverable unhandled rejection captured');
     return;
   }
 
-  log.error({ reason, promise }, '未处理的 Promise 拒绝');
+  log.error({ reason, promise }, 'unhandled rejection');
 });
 
-// 在加载应用模块前初始化数据库，避免模块初始化阶段访问尚未建好的表
+const runtime = createApplicationRuntime({
+  config,
+  sqlite,
+  dbPath,
+  initSchema,
+  runMigrations,
+  syncAllStorageChannels,
+  initResponseCache,
+  initQuotaEventsArchive,
+  initArchiveScheduler,
+  stopArchiveScheduler,
+  storageManager,
+  loadApp: async () => {
+    const { default: app } = await import('./src/app.js');
+    return app;
+  },
+  createLogger,
+  flushLogs,
+});
+
 try {
-  initSchema(sqlite);
-  runMigrations(sqlite, dbPath);
-  // 同步配置文件中的存储渠道到数据库
-  await syncAllStorageChannels(config, sqlite);
-  log.info('存储渠道已同步到数据库');
+  await runtime.start();
+  runtime.registerSignalHandlers(process);
 } catch (error) {
-  log.fatal({ err: error }, '数据库初始化失败，应用终止启动');
+  log.fatal({ err: error }, 'application boot failed');
   process.exit(1);
 }
-
-// 初始化响应缓存服务
-const cacheConfig = config.performance?.responseCache || {};
-initResponseCache({
-  enabled: cacheConfig.enabled !== false,
-  ttlSeconds: cacheConfig.ttlSeconds || 60,
-  maxKeys: cacheConfig.maxKeys || 1000
-});
-
-// 初始化事件归档服务
-const archiveConfig = config.performance?.quotaEventsArchive || {};
-initQuotaEventsArchive({
-  enabled: archiveConfig.enabled !== false,
-  retentionDays: archiveConfig.retentionDays || 30,
-  batchSize: archiveConfig.batchSize || 500,
-  maxBatchesPerRun: archiveConfig.maxBatchesPerRun || 10
-});
-
-// 初始化归档调度器
-initArchiveScheduler({
-  enabled: archiveConfig.enabled !== false,
-  scheduleHour: archiveConfig.scheduleHour || 3
-});
-
-await storageManager.initialize();
-await storageManager.startMaintenance();
-
-const { default: app } = await import('./src/app.js');
-
-const displayHost = host === '0.0.0.0' ? 'localhost' : host;
-log.info({ host, port }, `正在启动服务，地址: http://${displayHost}:${port}`);
-
-const server = app.listen(Number(port), host, () => {
-  log.info({ host, port }, `服务已启动，监听地址: http://${displayHost}:${port}`);
-});
-
-server.on('error', handleServerError);
-
-// 优雅关闭：确保日志缓冲区在进程退出前完全写入
-const gracefulShutdown = async (signal) => {
-  log.info({ signal }, `收到 ${signal} 信号，开始优雅关闭`);
-
-  storageManager.stopMaintenance();
-  stopArchiveScheduler();
-
-  server.close(async () => {
-    log.info('HTTP 服务已关闭');
-
-    // 刷新日志缓冲区
-    await flushLogs();
-    log.info('日志已刷新，进程即将退出');
-
-    process.exit(0);
-  });
-
-  // 超时强制退出
-  setTimeout(() => {
-    log.error('优雅关闭超时，强制退出');
-    process.exit(1);
-  }, 10000);
-};
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));

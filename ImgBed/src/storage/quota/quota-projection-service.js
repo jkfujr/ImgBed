@@ -151,6 +151,9 @@ class QuotaProjectionService {
             const insertSnapshotStmt = db.prepare(
                 'INSERT INTO storage_quota_history (storage_id, used_bytes) VALUES (?, ?)'
             );
+            const deleteCacheStmt = db.prepare(
+                'DELETE FROM storage_quota_cache WHERE storage_id = ?'
+            );
             const upsertCacheStmt = db.prepare(`
                 INSERT INTO storage_quota_cache (storage_id, used_bytes, file_count, last_updated)
                 VALUES (@storage_id, @used_bytes, @file_count, CURRENT_TIMESTAMP)
@@ -167,11 +170,15 @@ class QuotaProjectionService {
 
                 for (const storageId of storageIds) {
                     const usageStat = nextUsageStats.get(storageId) || { uploadCount: 0, fileCount: 0 };
-                    upsertCacheStmt.run({
-                        storage_id: storageId,
-                        used_bytes: nextProjection.get(storageId) || 0,
-                        file_count: usageStat.fileCount || 0,
-                    });
+                    if ((usageStat.fileCount || 0) > 0) {
+                        upsertCacheStmt.run({
+                            storage_id: storageId,
+                            used_bytes: nextProjection.get(storageId) || 0,
+                            file_count: usageStat.fileCount || 0,
+                        });
+                    } else {
+                        deleteCacheStmt.run(storageId);
+                    }
                 }
 
                 if (recordSnapshots) {
@@ -232,6 +239,7 @@ class QuotaProjectionService {
                 db.prepare(
                     'UPDATE storage_quota_events SET applied_at = CURRENT_TIMESTAMP WHERE applied_at IS NULL'
                 ).run();
+                db.prepare('DELETE FROM storage_quota_cache').run();
 
                 if (records.length > 0) {
                     const insertHistoryStmt = db.prepare(

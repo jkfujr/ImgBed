@@ -48,7 +48,7 @@ export function migrateFilesStatus(db) {
  * 对已是最新版本（含 status 过滤）的触发器，DROP + CREATE 仍是安全幂等的。
  * @param {import('better-sqlite3').Database} db
  */
-export function rebuildQuotaCacheTriggers(db) {
+function applyV001QuotaCacheTriggerMigration(db) {
   db.exec('DROP TRIGGER IF EXISTS trg_quota_cache_after_insert');
   db.exec('DROP TRIGGER IF EXISTS trg_quota_cache_after_delete');
   db.exec('DROP TRIGGER IF EXISTS trg_quota_cache_after_update');
@@ -159,5 +159,5 @@ export function rebuildQuotaCacheTriggers(db) {
 export function migrateV001(db) {
   migrateStorageChannelsDeletedAt(db);
   migrateFilesStatus(db);
-  rebuildQuotaCacheTriggers(db);
+  applyV001QuotaCacheTriggerMigration(db);
 }

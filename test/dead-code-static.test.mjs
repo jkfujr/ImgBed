@@ -40,13 +40,16 @@ function testRequireAuthIsUnusedExport() {
 
 function testDeleteStorageChannelMetaIsUnusedExport() {
   const syncSource = read('ImgBed/src/services/system/storage-channel-sync.js');
+  const runtimeSource = read('ImgBed/src/bootstrap/application-runtime.js');
   const systemSource = read('ImgBed/src/routes/system.js');
   const mainSource = read('ImgBed/main.js');
 
   assert.match(syncSource, /function deleteStorageChannelMeta\(id, db\) \{/);
   assert.match(syncSource, /export \{[\s\S]*deleteStorageChannelMeta,[\s\S]*\};/);
   assert.match(systemSource, /markStorageChannelDeleted\(id, sqlite\);/);
-  assert.match(mainSource, /await syncAllStorageChannels\(config, sqlite\);/);
+  assert.match(mainSource, /createApplicationRuntime/);
+  assert.match(mainSource, /syncAllStorageChannels,/);
+  assert.match(runtimeSource, /await syncAllStorageChannels\(config, sqlite\);/);
 
   const files = collectJsFiles(SRC_ROOT).filter((file) => !file.endsWith(path.join('services', 'system', 'storage-channel-sync.js')));
   const hits = files.filter((file) => fs.readFileSync(file, 'utf8').includes('deleteStorageChannelMeta'));

@@ -79,6 +79,11 @@ async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
           snapshots.push({ storageId, usedBytes });
         },
       })],
+      [/DELETE FROM storage_quota_cache WHERE storage_id = \?/, () => ({
+        run(storageId) {
+          throw new Error(`unexpected cache delete for ${storageId}`);
+        },
+      })],
       [/INSERT INTO storage_quota_cache/, () => ({
         run(record) {
           cacheUpdates.push(record);
@@ -112,9 +117,64 @@ async function testApplyPendingQuotaEventsProjectsBytesAndUsageStats() {
   console.log('  [OK] quota-projection-service: pending quota events update bytes, usage stats, and snapshots');
 }
 
+async function testApplyPendingQuotaEventsRemovesCacheRowsWhenStorageBecomesEmpty() {
+  const deletedCacheRows = [];
+  const cacheUpdates = [];
+  const snapshots = [];
+
+  const service = new QuotaProjectionService({
+    db: makeDb([
+      [/WHERE applied_at IS NULL ORDER BY id ASC/, () => ({
+        all() {
+          return [
+            { id: 11, storage_id: 's1', bytes_delta: -10, file_count_delta: -1, event_type: 'delete' },
+          ];
+        },
+      })],
+      [/SET applied_at = CURRENT_TIMESTAMP WHERE id = \?/, () => ({
+        run() {},
+      })],
+      [/DELETE FROM storage_quota_cache WHERE storage_id = \?/, () => ({
+        run(storageId) {
+          deletedCacheRows.push(storageId);
+        },
+      })],
+      [/INSERT INTO storage_quota_cache/, () => ({
+        run(record) {
+          cacheUpdates.push(record);
+        },
+      })],
+      [/INSERT INTO storage_quota_history/, () => ({
+        run(storageId, usedBytes) {
+          snapshots.push({ storageId, usedBytes });
+        },
+      })],
+    ]),
+    logger: makeLogger(),
+  });
+
+  service.quotaProjection = new Map([['s1', 10]]);
+  service.usageStats = new Map([['s1', { uploadCount: 1, fileCount: 1 }]]);
+
+  const result = await service.applyPendingQuotaEvents();
+
+  assert.deepEqual(result, { applied: 1, storageIds: ['s1'] });
+  assert.equal(service.getUsedBytes('s1'), 0);
+  assert.deepEqual(service.getUsageStats(), {
+    s1: { uploadCount: 1, fileCount: 0 },
+  });
+  assert.deepEqual(deletedCacheRows, ['s1']);
+  assert.deepEqual(cacheUpdates, []);
+  assert.deepEqual(snapshots, [
+    { storageId: 's1', usedBytes: 0 },
+  ]);
+  console.log('  [OK] quota-projection-service: pending delete events remove cache rows when storage becomes empty');
+}
+
 async function testRebuildAllQuotaStatsReplacesProjectionState() {
   const historyRecords = [];
   const cacheRecords = [];
+  let clearedCacheRows = 0;
   let markedPendingEvents = 0;
 
   const service = new QuotaProjectionService({
@@ -130,6 +190,11 @@ async function testRebuildAllQuotaStatsReplacesProjectionState() {
       [/SET applied_at = CURRENT_TIMESTAMP WHERE applied_at IS NULL/, () => ({
         run() {
           markedPendingEvents++;
+        },
+      })],
+      [/DELETE FROM storage_quota_cache/, () => ({
+        run() {
+          clearedCacheRows++;
         },
       })],
       [/INSERT INTO storage_quota_history \(storage_id, used_bytes\) VALUES \(@storage_id, @used_bytes\)/, () => ({
@@ -152,6 +217,7 @@ async function testRebuildAllQuotaStatsReplacesProjectionState() {
   await service.rebuildAllQuotaStats();
 
   assert.equal(markedPendingEvents, 1);
+  assert.equal(clearedCacheRows, 1);
   assert.deepEqual(service.getAllQuotaStats(), { a: 11, b: 7 });
   assert.deepEqual(service.getUsageStats(), {
     a: { uploadCount: 0, fileCount: 2 },
@@ -209,6 +275,7 @@ async function main() {
   console.log('running quota-projection-service tests...');
   await testLoadQuotaFromCacheFallsBackToHistory();
   await testApplyPendingQuotaEventsProjectsBytesAndUsageStats();
+  await testApplyPendingQuotaEventsRemovesCacheRowsWhenStorageBecomesEmpty();
   await testRebuildAllQuotaStatsReplacesProjectionState();
   await testVerifyQuotaConsistencyReportsAllMismatchTypes();
   console.log('quota-projection-service tests passed');

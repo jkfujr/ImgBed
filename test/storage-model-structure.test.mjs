@@ -146,12 +146,22 @@ function testQuotaCacheMaintenanceMovesOutOfSchemaTriggers() {
   console.log('  [OK] quota cache maintenance: schema and migrations no longer keep trigger-based projection');
 }
 
+function testQuotaCacheTriggerMigrationStaysInternalToV001() {
+  const v001Source = read('ImgBed/src/database/migrations/v001.js');
+
+  assert.ok(!v001Source.includes('export function rebuildQuotaCacheTriggers'));
+  assert.match(v001Source, /function applyV001QuotaCacheTriggerMigration\(db\)/);
+  assert.match(v001Source, /export function migrateV001\(db\) \{[\s\S]*applyV001QuotaCacheTriggerMigration\(db\);[\s\S]*\}/);
+  console.log('  [OK] v001 quota trigger migration: historical trigger rebuild logic is internal only');
+}
+
 function runStaticChecks() {
   testUploadRecordUsesFacadeInsteadOfInstancesMap();
   testResolveFileStoragePrefersStorageInstanceId();
   testFilesSchemaKeepsBothStorageColumns();
   testStorageManagerDelegatesRuntimeState();
   testQuotaCacheMaintenanceMovesOutOfSchemaTriggers();
+  testQuotaCacheTriggerMigrationStaysInternalToV001();
 }
 
 async function main() {
