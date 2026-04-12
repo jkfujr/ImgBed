@@ -107,10 +107,23 @@ function testFilesSchemaKeepsBothStorageColumns() {
   console.log('  [OK] files schema: 保留 storage_channel 和 storage_instance_id');
 }
 
+function testStorageManagerDelegatesRuntimeState() {
+  const source = read('ImgBed/src/storage/manager.js');
+  assert.match(source, /import \{ StorageRegistry \} from '\.\/runtime\/storage-registry\.js';/);
+  assert.match(source, /import \{ UploadSelector \} from '\.\/runtime\/upload-selector\.js';/);
+  assert.ok(!source.includes('this.instances = new Map()'));
+  assert.ok(!source.includes('this.roundRobinIndex = 0'));
+  assert.ok(!source.includes('this.config = config.storage || {}'));
+  assert.ok(!source.includes('this.uploadConfig = config.upload || {}'));
+  assert.ok(!source.includes('_selectRoundRobin('));
+  console.log('  [OK] manager.js: runtime state now delegates to registry and selector');
+}
+
 function runStaticChecks() {
   testUploadRecordUsesFacadeInsteadOfInstancesMap();
   testResolveFileStoragePrefersStorageInstanceId();
   testFilesSchemaKeepsBothStorageColumns();
+  testStorageManagerDelegatesRuntimeState();
 }
 
 async function main() {

@@ -1,18 +1,11 @@
 import config from '../config/index.js';
 import { sqlite } from '../database/index.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('storage');
 
-import LocalStorage from './local.js';
-import S3Storage from './s3.js';
-import TelegramStorage from './telegram.js';
-import DiscordStorage from './discord.js';
-import HuggingFaceStorage from './huggingface.js';
-import ExternalStorage from './external.js';
+import { StorageRegistry } from './runtime/storage-registry.js';
+import { UploadSelector } from './runtime/upload-selector.js';
 import {
     buildQuotaEvent,
     incrementOperationRetryCount,
@@ -24,17 +17,26 @@ import {
     markOperationFailed,
 } from '../services/system/storage-operations.js';
 import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
-import { getSystemConfigPath } from '../services/system/config-io.js';
 
 class StorageManager {
     constructor({ db = sqlite } = {}) {
         this.db = db;
-        this.config = config.storage || {};
-        this.uploadConfig = config.upload || {};
-        this.instances = new Map();
+        this.registry = new StorageRegistry({
+            db: this.db,
+            logger: log,
+            initialConfig: config.storage || {},
+            initialUploadConfig: config.upload || {},
+        });
+        this.uploadSelector = new UploadSelector({
+            logger: log,
+            getConfig: () => this.registry.getConfig(),
+            getDefaultStorageId: () => this.registry.getDefaultStorageId(),
+            listStorageEntries: () => this.registry.listEntries(),
+            isUploadAllowed: (storageId) => this.isUploadAllowed(storageId),
+            getUsageStats: () => this.usageStats,
+        });
         this.quotaProjection = new Map();
         this.usageStats = new Map();
-        this.roundRobinIndex = 0;
         this._fullRebuildTimer = null;
         this._compensationRetryTimer = null;
         this._isRecoveryRunning = false;
@@ -401,48 +403,28 @@ class StorageManager {
         }
     }
 
-    async _createInstance(type, instanceConfig) {
-        switch (type.toLowerCase()) {
-            case 'local':
-                return new LocalStorage(instanceConfig);
-            case 's3':
-                return new S3Storage(instanceConfig);
-            case 'telegram':
-                return new TelegramStorage(instanceConfig);
-            case 'discord':
-                return new DiscordStorage(instanceConfig);
-            case 'huggingface':
-                return new HuggingFaceStorage(instanceConfig);
-            case 'external':
-                return new ExternalStorage(instanceConfig);
-            default:
-                throw new Error(`[StorageManager] 姝ょ増鏈笉鏀寔鎴栨湭鐭ュ瓨鍌ㄧ被鍨? ${type}`);
-        }
-    }
-
     getStorage(storageId) {
-        const entry = this.instances.get(storageId);
-        return entry ? entry.instance : null;
+        return this.registry.getStorage(storageId);
     }
 
     getStorageMeta(storageId) {
-        const entry = this.instances.get(storageId);
-        return entry ? { ...entry } : null;
+        return this.registry.getStorageMeta(storageId);
     }
 
     isUploadAllowed(storageId) {
-        const entry = this.instances.get(storageId);
+        const entry = this.registry.getStorageMeta(storageId);
         if (!entry) return false;
 
-        const isWhitelisted = Array.isArray(this.config.allowedUploadChannels)
-            ? this.config.allowedUploadChannels.includes(storageId)
+        const storageConfig = this.registry.getConfig();
+        const isWhitelisted = Array.isArray(storageConfig.allowedUploadChannels)
+            ? storageConfig.allowedUploadChannels.includes(storageId)
             : true;
 
         return Boolean(entry.allowUpload) && isWhitelisted && !this.isQuotaExceeded(storageId);
     }
 
     isQuotaExceeded(storageId) {
-        const entry = this.instances.get(storageId);
+        const entry = this.registry.getStorageMeta(storageId);
         if (!entry) return true;
 
         if (!entry.quotaLimitGB || entry.quotaLimitGB <= 0) {
@@ -458,80 +440,25 @@ class StorageManager {
     }
 
     listEnabledStorages() {
-        return Array.from(this.instances.entries()).map(([id, entry]) => ({
-            id,
-            type: entry.type,
-            allowUpload: entry.allowUpload,
-        }));
+        return this.registry.listEnabledStorages();
     }
 
     getDefaultStorageId() {
-        return this.config.default || null;
+        return this.registry.getDefaultStorageId();
     }
 
     async reload() {
-        const db = this.db;
-        try {
-            const cfgPath = getSystemConfigPath();
-            const fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-            const storagesInFile = fileCfg.storage?.storages || [];
-            const dbChannels = db.prepare('SELECT * FROM storage_channels').all();
-            const dbMap = new Map(dbChannels.map((channel) => [channel.id, channel]));
-            const nextInstances = new Map();
-            this.config = fileCfg.storage || {};
-            this.uploadConfig = fileCfg.upload || {};
+        await this.registry.reload();
 
-            for (const sFile of storagesInFile) {
-                const sDb = dbMap.get(sFile.id);
-                const enabled = sDb ? Boolean(sDb.enabled) : Boolean(sFile.enabled);
-                if (!enabled) {
-                    continue;
-                }
-
-                try {
-                    const instance = await this._createInstance(sFile.type, sFile.config || {});
-                    nextInstances.set(sFile.id, {
-                        type: sFile.type,
-                        name: sDb ? sDb.name : sFile.name,
-                        allowUpload: sDb ? Boolean(sDb.allow_upload) : Boolean(sFile.allowUpload),
-                        weight: sDb ? Number(sDb.weight) : (sFile.weight || 1),
-                        quotaLimitGB: sDb ? sDb.quota_limit_gb : sFile.quotaLimitGB,
-                        disableThresholdPercent: sFile.disableThresholdPercent || 95,
-                        enableSizeLimit: Boolean(sFile.enableSizeLimit),
-                        sizeLimitMB: sFile.sizeLimitMB,
-                        enableChunking: Boolean(sFile.enableChunking),
-                        chunkSizeMB: sFile.chunkSizeMB,
-                        maxChunks: sFile.maxChunks,
-                        enableMaxLimit: Boolean(sFile.enableMaxLimit),
-                        maxLimitMB: sFile.maxLimitMB,
-                        instance,
-                    });
-                } catch (err) {
-                    log.error({ storageId: sFile.id, err }, '鍔犺浇瀹炰緥澶辫触');
-                }
-            }
-
-            this.instances = nextInstances;
-            const instanceIds = [...this.instances.keys()].join(', ');
-            log.info({ count: this.instances.size }, `瀛樺偍娓犻亾閰嶇疆宸插姞杞? ${instanceIds}`);
-
-            if (this._fullRebuildTimer) {
-                this._rebuildAllQuotaStats().catch(() => {});
-                this._stopFullRebuildTimer();
-                this._startFullRebuildTimer();
-            }
-        } catch (err) {
-            log.error({ err }, 'reload 澶辫触');
+        if (this._fullRebuildTimer) {
+            this._rebuildAllQuotaStats().catch(() => {});
+            this._stopFullRebuildTimer();
+            this._startFullRebuildTimer();
         }
     }
 
     async testConnection(type, instanceConfig) {
-        try {
-            const instance = await this._createInstance(type, instanceConfig || {});
-            return await instance.testConnection();
-        } catch (err) {
-            return { ok: false, message: err.message };
-        }
+        return this.registry.testConnection(type, instanceConfig);
     }
 
     async _initUsageStats() {
@@ -557,94 +484,7 @@ class StorageManager {
     }
 
     selectUploadChannel(preferredType = null, excludeIds = []) {
-        const strategy = this.config.loadBalanceStrategy || 'default';
-        let uploadableChannels = Array.from(this.instances.entries())
-            .filter(([id]) => !excludeIds.includes(id) && this.isUploadAllowed(id))
-            .map(([id, entry]) => ({ id, type: entry.type, weight: entry.weight || 1 }));
-
-        const scope = this.config.loadBalanceScope || 'global';
-        if (scope === 'byType' && preferredType) {
-            const enabledTypes = this.config.loadBalanceEnabledTypes || [];
-            uploadableChannels = uploadableChannels.filter((channel) =>
-                channel.type === preferredType && enabledTypes.includes(channel.type)
-            );
-        }
-
-        if (uploadableChannels.length === 0) {
-            log.warn('没有可用的上传渠道');
-            return null;
-        }
-
-        switch (strategy) {
-            case 'round-robin':
-                return this._selectRoundRobin(uploadableChannels);
-            case 'random':
-                return this._selectRandom(uploadableChannels);
-            case 'least-used':
-                return this._selectLeastUsed(uploadableChannels);
-            case 'weighted':
-                return this._selectWeighted(uploadableChannels);
-            case 'default':
-            default: {
-                const defaultId = this.getDefaultStorageId();
-                if (defaultId && !excludeIds.includes(defaultId) && this.isUploadAllowed(defaultId)) {
-                    return defaultId;
-                }
-                return uploadableChannels[0]?.id || null;
-            }
-        }
-    }
-
-    _selectRoundRobin(channels) {
-        const selected = channels[this.roundRobinIndex % channels.length];
-        this.roundRobinIndex++;
-        return selected.id;
-    }
-
-    _selectRandom(channels) {
-        const index = Math.floor(Math.random() * channels.length);
-        return channels[index].id;
-    }
-
-    _selectLeastUsed(channels) {
-        let minCount = Infinity;
-        let selectedId = channels[0].id;
-
-        for (const { id } of channels) {
-            const stat = this.usageStats.get(id) || { uploadCount: 0, fileCount: 0 };
-            if (stat.fileCount < minCount) {
-                minCount = stat.fileCount;
-                selectedId = id;
-            }
-        }
-
-        return selectedId;
-    }
-
-    _selectWeighted(channels) {
-        const weights = this.config.loadBalanceWeights || {};
-        let totalWeight = 0;
-        const weightedChannels = [];
-
-        for (const { id, weight: channelWeight } of channels) {
-            const configWeight = Number(weights[id]) || 1;
-            const weight = channelWeight !== 1 ? channelWeight : configWeight;
-            totalWeight += weight;
-            weightedChannels.push({ id, accumulated: totalWeight });
-        }
-
-        if (totalWeight === 0) {
-            return channels[0].id;
-        }
-
-        const random = Math.random() * totalWeight;
-        for (const { id, accumulated } of weightedChannels) {
-            if (random <= accumulated) {
-                return id;
-            }
-        }
-
-        return weightedChannels[weightedChannels.length - 1].id;
+        return this.uploadSelector.selectUploadChannel(preferredType, excludeIds);
     }
 
     getUsageStats() {
@@ -871,7 +711,7 @@ class StorageManager {
     }
 
     _startFullRebuildTimer() {
-        const intervalHours = this.uploadConfig?.fullCheckIntervalHours || 6;
+        const intervalHours = this.registry.getUploadConfig()?.fullCheckIntervalHours || 6;
         const intervalMs = intervalHours * 60 * 60 * 1000;
 
         this._fullRebuildTimer = setInterval(async () => {
@@ -919,8 +759,8 @@ class StorageManager {
     }
 
     getEffectiveUploadLimits(storageId) {
-        const entry = this.instances.get(storageId);
-        const sys = this.uploadConfig || {};
+        const entry = this.registry.getStorageMeta(storageId);
+        const sys = this.registry.getUploadConfig() || {};
 
         if (entry && entry.enableSizeLimit) {
             return {

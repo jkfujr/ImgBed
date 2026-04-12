@@ -39,9 +39,19 @@ async function drainReadable(readable) {
   return Buffer.concat(chunks);
 }
 
-function withStorageMeta(storageManager) {
-  storageManager.getStorageMeta = (id) => storageManager.instances.get(id) || null;
-  return storageManager;
+function createStorageManagerStub({ entries = new Map(), ...overrides } = {}) {
+  const storageEntries = entries instanceof Map ? entries : new Map(entries);
+  return {
+    storageEntries,
+    getStorage(id) {
+      return storageEntries.get(id)?.instance || null;
+    },
+    getStorageMeta(id) {
+      const entry = storageEntries.get(id);
+      return entry ? { ...entry } : null;
+    },
+    ...overrides,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -79,8 +89,8 @@ async function testReadSourceFileAsStream_nonChunked() {
   };
 
   // storageManager stub
-  const storageManager = withStorageMeta({
-    instances: new Map([
+  const storageManager = createStorageManagerStub({
+    entries: new Map([
       ['src-id', { instance: fakeSourceStorage, type: 'local' }],
       ['dst-id', { instance: null, type: 'local' }],
     ]),
@@ -100,7 +110,7 @@ async function testReadSourceFileAsStream_nonChunked() {
     },
     getChunkConfig: () => ({ enabled: false }),
   };
-  storageManager.instances.set('dst-id', { instance: fakeTargetStorage, type: 'local' });
+  storageManager.storageEntries.set('dst-id', { instance: fakeTargetStorage, type: 'local' });
 
   // db stub：所有 SQL 操作为空操作
   const db = {
@@ -161,8 +171,8 @@ async function testMigrateFileRecord_skipSameChannel() {
     mime_type: 'image/png',
   };
 
-  const storageManager = withStorageMeta({
-    instances: new Map([
+  const storageManager = createStorageManagerStub({
+    entries: new Map([
       ['same-id', { instance: {}, type: 'local' }],
     ]),
     isUploadAllowed: () => true,
@@ -196,8 +206,8 @@ async function testMigrateFileRecord_missingSourceChannel() {
     mime_type: 'image/png',
   };
 
-  const storageManager = withStorageMeta({
-    instances: new Map(), // 空 Map：找不到 ghost-src
+  const storageManager = createStorageManagerStub({
+    entries: new Map(), // 空 Map：找不到 ghost-src
     isUploadAllowed: () => true,
     getEffectiveUploadLimits: () => ({ enableSizeLimit: false }),
   });
@@ -218,8 +228,8 @@ async function testMigrateFileRecord_missingSourceChannel() {
 async function testValidateMigrationTarget_missingTarget() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = withStorageMeta({
-    instances: new Map(),
+  const storageManager = createStorageManagerStub({
+    entries: new Map(),
     isUploadAllowed: () => true,
   });
 
@@ -234,7 +244,7 @@ async function testValidateMigrationTarget_missingTarget() {
 async function testValidateMigrationTarget_noChannel() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = withStorageMeta({ instances: new Map(), isUploadAllowed: () => true });
+  const storageManager = createStorageManagerStub({ entries: new Map(), isUploadAllowed: () => true });
 
   assert.throws(
     () => validateMigrationTarget(null, storageManager),
@@ -247,8 +257,8 @@ async function testValidateMigrationTarget_noChannel() {
 async function testValidateMigrationTarget_nonWritableType() {
   const { validateMigrationTarget } = await import('../ImgBed/src/services/files/migrate-file.js');
 
-  const storageManager = withStorageMeta({
-    instances: new Map([
+  const storageManager = createStorageManagerStub({
+    entries: new Map([
       ['discord-id', { instance: {}, type: 'discord' }],
     ]),
     isUploadAllowed: () => true,
@@ -284,8 +294,8 @@ async function testMigrateNonChunked_streamPassThrough() {
     getStream: async () => makeNodeReadable(content),
   };
 
-  const storageManager = withStorageMeta({
-    instances: new Map([
+  const storageManager = createStorageManagerStub({
+    entries: new Map([
       ['src', { instance: fakeSourceStorage, type: 'local' }],
       ['dst', { instance: fakeTargetStorage, type: 'local' }],
     ]),
@@ -358,8 +368,8 @@ async function testMigrateChunked_usesBuffer() {
     getStream: async () => makeNodeReadable(content),
   };
 
-  const storageManager = withStorageMeta({
-    instances: new Map([
+  const storageManager = createStorageManagerStub({
+    entries: new Map([
       ['src', { instance: fakeSourceStorage, type: 'local' }],
       ['dst', { instance: fakeTargetStorage, type: 'local' }],
     ]),
