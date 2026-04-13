@@ -33,9 +33,9 @@ export default function FilesAdminContent({
   const hasItems = data.length > 0 || directories.length > 0;
 
   // 包装 triggerDelete，注入当前页的完整 item 供 TG 24h 判断
-  const handleTriggerDelete = (ids, label) => {
+  const handleTriggerDelete = (trigger, ids, label) => {
     const items = data.filter((item) => ids.includes(item.id));
-    onTriggerDelete(ids, label, items);
+    onTriggerDelete(trigger, ids, label, items);
   };
 
   const initialRenderCount = INITIAL_RENDER_COUNT[viewMode] || INITIAL_RENDER_COUNT.masonry;

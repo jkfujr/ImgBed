@@ -140,6 +140,16 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
   };
 }
 
+function resolveStoredFileSize(storageResult, fallbackSize) {
+  const actualSize = Number(storageResult?.size);
+  if (Number.isFinite(actualSize) && actualSize >= 0) {
+    return actualSize;
+  }
+
+  const originalSize = Number(fallbackSize);
+  return Number.isFinite(originalSize) ? originalSize : 0;
+}
+
 function buildUploadResponse({ fileId, newFileName, originalName, fileSize, width, height, finalChannelId, failedChannels }) {
   const responseData = {
     id: fileId,
@@ -217,12 +227,14 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     log.info({ fileId: fileMeta.fileId, retries: uploadResult.failedChannels.length, finalChannel: uploadResult.finalChannelId }, '上传故障切换：文件经过切换后成功上传');
   }
 
+  const storedFileSize = resolveStoredFileSize(uploadResult.storageResult, file.size);
+
   const dbRecord = buildUploadRecord({
     fileId: fileMeta.fileId,
     newFileName: fileMeta.newFileName,
     originalName: fileMeta.originalName,
     mimeType: fileMeta.mimeType,
-    fileSize: file.size,
+    fileSize: storedFileSize,
     body,
     directory,
     finalChannelId: uploadResult.finalChannelId,
@@ -245,7 +257,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
       fileId: fileMeta.fileId,
       storageId: uploadResult.finalChannelId,
       eventType: 'upload',
-      bytesDelta: Number(file.size) || 0,
+      bytesDelta: storedFileSize,
       fileCountDelta: 1,
       payload: { storageKey: dbRecord.storage_key },
     })]);
@@ -300,7 +312,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     fileId: fileMeta.fileId,
     newFileName: fileMeta.newFileName,
     originalName: fileMeta.originalName,
-    fileSize: file.size,
+    fileSize: storedFileSize,
     width: fileMeta.width,
     height: fileMeta.height,
     finalChannelId: uploadResult.finalChannelId,
@@ -309,3 +321,4 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 }));
 
 export default uploadApp;
+export { resolveStoredFileSize };

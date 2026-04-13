@@ -118,7 +118,7 @@ export default function FilesAdminListView({
               cursor: 'pointer',
               '&:hover': { opacity: 0.8 },
             }}
-            onClick={() => onOpenDetail(params.row)}
+            onClick={() => onOpenDetail(null, params.row)}
           />
         );
       },
@@ -235,12 +235,20 @@ export default function FilesAdminListView({
         return (
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
             <Tooltip title="详情">
-              <IconButton size="small" color="primary" onClick={() => onOpenDetail(params.row)}>
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={(event) => onOpenDetail(event.currentTarget, params.row)}
+              >
                 <InfoIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="删除">
-              <IconButton size="small" color="error" onClick={() => onTriggerDelete([params.row.id], name)}>
+              <IconButton
+                size="small"
+                color="error"
+                onClick={(event) => onTriggerDelete(event.currentTarget, [params.row.id], name)}
+              >
                 <DeleteIcon fontSize="small" />
               </IconButton>
             </Tooltip>

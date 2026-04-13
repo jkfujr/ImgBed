@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StorageDocs, SystemConfigDocs } from '../api';
+import { createOverlayFocusManager } from '../utils/overlay-focus';
 
 const EMPTY_EDIT = { open: false, target: null };
 const EMPTY_DELETE = { target: null, saving: false };
@@ -14,6 +15,19 @@ export function useStorageChannels() {
 
   const [editDialog, setEditDialog] = useState(EMPTY_EDIT);
   const [deleteState, setDeleteState] = useState(EMPTY_DELETE);
+  const editDialogFocusManagerRef = useRef(null);
+  const deleteDialogFocusManagerRef = useRef(null);
+
+  if (!editDialogFocusManagerRef.current) {
+    editDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  if (!deleteDialogFocusManagerRef.current) {
+    deleteDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  const editDialogFocusManager = editDialogFocusManagerRef.current;
+  const deleteDialogFocusManager = deleteDialogFocusManagerRef.current;
 
   const loadStorages = useCallback(async () => {
     setLoading(true);
@@ -52,8 +66,10 @@ export function useStorageChannels() {
 
   useEffect(() => { loadStorages(); }, [loadStorages]);
 
-  const openEdit = (s) => setEditDialog({ open: true, target: s });
-  const closeDialog = () => setEditDialog(EMPTY_EDIT);
+  const openEdit = (trigger, storage) => {
+    editDialogFocusManager.open(trigger, () => setEditDialog({ open: true, target: storage }));
+  };
+  const closeDialog = () => editDialogFocusManager.close(() => setEditDialog(EMPTY_EDIT));
 
   const handleToggle = async (s) => {
     try {
@@ -75,7 +91,7 @@ export function useStorageChannels() {
     try {
       const res = await StorageDocs.remove(deleteState.target.id);
       if (res.code === 0) {
-        setDeleteState(EMPTY_DELETE);
+        deleteDialogFocusManager.close(() => setDeleteState(EMPTY_DELETE));
         loadStorages();
       }
     } catch { /* 忽略 */ } finally {
@@ -84,7 +100,10 @@ export function useStorageChannels() {
   };
 
   const clearError = () => setError(null);
-  const setDeleteTarget = (target) => setDeleteState({ target, saving: false });
+  const openDeleteDialog = (trigger, target) => {
+    deleteDialogFocusManager.open(trigger, () => setDeleteState({ target, saving: false }));
+  };
+  const closeDeleteDialog = () => deleteDialogFocusManager.close(() => setDeleteState(EMPTY_DELETE));
 
   const onDialogSuccess = () => {
     closeDialog();
@@ -103,6 +122,6 @@ export function useStorageChannels() {
     deleting: deleteState.saving,
     loadStorages, openEdit, closeDialog,
     handleToggle, handleSetDefault, handleDelete,
-    setDeleteTarget, clearError, onDialogSuccess,
+    openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
   };
 }

@@ -4,6 +4,7 @@ import { FileDocs } from '../api';
 import { useRefresh } from '../contexts/RefreshContext';
 import logger from '../utils/logger';
 import { createRequestGuard } from '../utils/request-guard';
+import { createOverlayFocusManager } from '../utils/overlay-focus';
 import {
   EMPTY_DELETE,
   EMPTY_LIST,
@@ -31,14 +32,43 @@ export function useFilesAdmin() {
   const [migrateDialog, setMigrateDialog] = useState({ open: false, ids: [] });
   const [moveDialog, setMoveDialog] = useState({ open: false, ids: [] });
   const [detailItem, setDetailItem] = useState(null);
+  const deleteDialogFocusManagerRef = useRef(null);
+  const migrateDialogFocusManagerRef = useRef(null);
+  const moveDialogFocusManagerRef = useRef(null);
+  const detailDialogFocusManagerRef = useRef(null);
 
   const pageRef = useRef(0);
   const cacheRef = useRef(new Map());
   const requestGuardRef = useRef(createRequestGuard());
   const currentDir = useMemo(() => getDirectoryPathFromSearch(location.search), [location.search]);
 
-  const handleOpenDetail = useCallback((item) => setDetailItem(item), []);
-  const handleCloseDetail = useCallback(() => setDetailItem(null), []);
+  if (!deleteDialogFocusManagerRef.current) {
+    deleteDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  if (!migrateDialogFocusManagerRef.current) {
+    migrateDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  if (!moveDialogFocusManagerRef.current) {
+    moveDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  if (!detailDialogFocusManagerRef.current) {
+    detailDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  const deleteDialogFocusManager = deleteDialogFocusManagerRef.current;
+  const migrateDialogFocusManager = migrateDialogFocusManagerRef.current;
+  const moveDialogFocusManager = moveDialogFocusManagerRef.current;
+  const detailDialogFocusManager = detailDialogFocusManagerRef.current;
+
+  const handleOpenDetail = useCallback((trigger, item) => {
+    detailDialogFocusManager.open(trigger, () => setDetailItem(item));
+  }, [detailDialogFocusManager]);
+  const handleCloseDetail = useCallback((options) => {
+    detailDialogFocusManager.close(() => setDetailItem(null), options);
+  }, [detailDialogFocusManager]);
   const clearSelection = useCallback(() => setSelected(new Set()), []);
 
   const selectAll = useCallback(() => {
@@ -150,20 +180,22 @@ export function useFilesAdmin() {
     });
   };
 
-  const triggerDelete = (ids, label, items = []) => {
+  const triggerDelete = useCallback((trigger, ids, label, items = []) => {
     if (deleteDialog.open || !ids.length) {
       return;
     }
 
     const effectiveMode = areAllTelegramFilesOlderThan24h(items) ? 'index_only' : 'remote_and_index';
-    setDeleteDialog({ open: true, ids, label, saving: false, deleteMode: effectiveMode, errorMessage: '' });
-  };
+    deleteDialogFocusManager.open(trigger, () => {
+      setDeleteDialog({ open: true, ids, label, saving: false, deleteMode: effectiveMode, errorMessage: '' });
+    });
+  }, [deleteDialog.open, deleteDialogFocusManager]);
 
-  const closeDeleteDialog = () => {
+  const closeDeleteDialog = useCallback(() => {
     if (!deleteDialog.saving) {
-      setDeleteDialog(EMPTY_DELETE);
+      deleteDialogFocusManager.close(() => setDeleteDialog(EMPTY_DELETE));
     }
-  };
+  }, [deleteDialog.saving, deleteDialogFocusManager]);
 
   const confirmDelete = async () => {
     if (!deleteDialog.ids.length) {
@@ -179,7 +211,7 @@ export function useFilesAdmin() {
       } else {
         await FileDocs.batch({ action: 'delete', ids, delete_mode: deleteMode });
       }
-      setDeleteDialog(EMPTY_DELETE);
+      deleteDialogFocusManager.close(() => setDeleteDialog(EMPTY_DELETE));
       refreshAfterMutation();
     } catch (error) {
       logger.error(error);
@@ -192,10 +224,25 @@ export function useFilesAdmin() {
     navigate(buildFilesAdminPath(normalized));
   }, [navigate]);
 
-  const openMigrate = () => setMigrateDialog({ open: true, ids: [...selected] });
-  const closeMigrate = () => setMigrateDialog({ open: false, ids: [] });
-  const openMove = () => setMoveDialog({ open: true, ids: [...selected] });
-  const closeMove = () => setMoveDialog({ open: false, ids: [] });
+  const openMigrate = useCallback((trigger) => {
+    migrateDialogFocusManager.open(trigger, () => setMigrateDialog({ open: true, ids: [...selected] }));
+  }, [migrateDialogFocusManager, selected]);
+  const closeMigrate = useCallback(() => {
+    migrateDialogFocusManager.close(() => setMigrateDialog({ open: false, ids: [] }));
+  }, [migrateDialogFocusManager]);
+  const openMove = useCallback((trigger) => {
+    moveDialogFocusManager.open(trigger, () => setMoveDialog({ open: true, ids: [...selected] }));
+  }, [moveDialogFocusManager, selected]);
+  const closeMove = useCallback(() => {
+    moveDialogFocusManager.close(() => setMoveDialog({ open: false, ids: [] }));
+  }, [moveDialogFocusManager]);
+
+  const triggerDeleteFromDetail = useCallback((trigger, ids, label, items = []) => {
+    handleCloseDetail({ restoreFocus: false });
+    globalThis.setTimeout(() => {
+      triggerDelete(trigger, ids, label, items);
+    }, 0);
+  }, [handleCloseDetail, triggerDelete]);
 
   return {
     data: listData.data,
@@ -215,6 +262,7 @@ export function useFilesAdmin() {
     pageRef,
     handleOpenDetail,
     handleCloseDetail,
+    triggerDeleteFromDetail,
     clearSelection,
     selectAll,
     handleRefresh,

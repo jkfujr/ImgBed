@@ -91,9 +91,8 @@ export default function ImageDetailPanel({ item, theme, onClose, onDelete }) {
           fullWidth
           color="error"
           startIcon={<DeleteIcon />}
-          onClick={() => {
-            onClose();
-            onDelete([item.id], escapeHtml(item.original_name || item.file_name), [item]);
+          onClick={(event) => {
+            onDelete(event.currentTarget, [item.id], escapeHtml(item.original_name || item.file_name), [item]);
           }}
           sx={{ borderRadius: BORDER_RADIUS.md, py: 1.2, fontWeight: 'bold' }}
         >

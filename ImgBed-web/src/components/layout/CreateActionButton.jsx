@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button, Menu, MenuItem, ListItemIcon, Divider } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ImageIcon from '@mui/icons-material/Image';
@@ -8,6 +8,7 @@ import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
 import StorageIcon from '@mui/icons-material/Storage';
 import { BORDER_RADIUS } from '../../utils/constants';
 import logger from '../../utils/logger';
+import { createOverlayFocusManager } from '../../utils/overlay-focus';
 import PasteUploadDialog from '../common/PasteUploadDialog';
 import CreateFolderDialog from '../common/CreateFolderDialog';
 import ChannelDialog from '../common/ChannelDialog';
@@ -25,7 +26,14 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
   const [uploadMode, setUploadMode] = useState('file');
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const overlayFocusManagerRef = useRef(null);
   const resolvedDir = normalizeDirectoryPath(currentDir);
+
+  if (!overlayFocusManagerRef.current) {
+    overlayFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  const overlayFocusManager = overlayFocusManagerRef.current;
 
   const handleCreateMenuOpen = (event) => {
     setCreateMenuAnchor(event.currentTarget);
@@ -35,27 +43,31 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
     setCreateMenuAnchor(null);
   };
 
+  const queueMenuDialogOpen = (openOverlay) => {
+    overlayFocusManager.queueMenuAction({
+      restoreTarget: createMenuAnchor,
+      closeMenu: handleCreateMenuClose,
+      openOverlay,
+    });
+  };
+
   const handleUploadImage = () => {
-    handleCreateMenuClose();
     setUploadMode('file');
-    setPasteDialogOpen(true);
+    queueMenuDialogOpen(() => setPasteDialogOpen(true));
   };
 
   const handleUploadDirectory = () => {
-    handleCreateMenuClose();
     setUploadMode('folder');
-    setPasteDialogOpen(true);
+    queueMenuDialogOpen(() => setPasteDialogOpen(true));
   };
 
   const handlePasteUpload = () => {
-    handleCreateMenuClose();
     setUploadMode('file');
-    setPasteDialogOpen(true);
+    queueMenuDialogOpen(() => setPasteDialogOpen(true));
   };
 
   const handleCreateFolder = () => {
-    handleCreateMenuClose();
-    setFolderDialogOpen(true);
+    queueMenuDialogOpen(() => setFolderDialogOpen(true));
   };
 
   const handlePasteUploadFile = async (file, options = {}) => {
@@ -85,8 +97,7 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
   };
 
   const handleAddChannel = () => {
-    handleCreateMenuClose();
-    setChannelDialogOpen(true);
+    queueMenuDialogOpen(() => setChannelDialogOpen(true));
   };
 
   return (
@@ -107,9 +118,14 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
         onClose={handleCreateMenuClose}
         transformOrigin={{ horizontal: 'left', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
-        PaperProps={{
-          elevation: 3,
-          sx: { mt: 1, minWidth: 180, borderRadius: BORDER_RADIUS.md }
+        slotProps={{
+          paper: {
+            elevation: 3,
+            sx: { mt: 1, minWidth: 180, borderRadius: BORDER_RADIUS.md },
+          },
+          transition: {
+            onExited: () => overlayFocusManager.flushPendingMenuAction(),
+          },
         }}
       >
         <MenuItem onClick={handleUploadImage}>
@@ -137,22 +153,22 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
 
       <PasteUploadDialog
         open={pasteDialogOpen}
-        onClose={() => setPasteDialogOpen(false)}
+        onClose={() => overlayFocusManager.close(() => setPasteDialogOpen(false))}
         onUpload={handlePasteUploadFile}
         allowFolder={uploadMode === 'folder'}
       />
 
       <CreateFolderDialog
         open={folderDialogOpen}
-        onClose={() => setFolderDialogOpen(false)}
+        onClose={() => overlayFocusManager.close(() => setFolderDialogOpen(false))}
         onConfirm={handleCreateFolderConfirm}
       />
 
       <ChannelDialog
         open={channelDialogOpen}
-        onClose={() => setChannelDialogOpen(false)}
+        onClose={() => overlayFocusManager.close(() => setChannelDialogOpen(false))}
         editTarget={null}
-        onSuccess={() => setChannelDialogOpen(false)}
+        onSuccess={() => {}}
       />
     </>
   );

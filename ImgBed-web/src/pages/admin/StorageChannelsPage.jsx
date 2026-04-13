@@ -62,7 +62,7 @@ export default function StorageChannelsPage() {
     dialogOpen, editTarget, deleteTarget, deleting,
     loadStorages, openEdit, closeDialog,
     handleToggle, handleSetDefault, handleDelete,
-    setDeleteTarget, clearError, onDialogSuccess,
+    openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
   } = useStorageChannels();
 
   const [typeFilter, setTypeFilter] = useState('all');
@@ -168,7 +168,7 @@ export default function StorageChannelsPage() {
             </span>
           </Tooltip>
           <Tooltip title="编辑">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <IconButton size="small" onClick={(event) => openEdit(event.currentTarget, params.row)}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -191,7 +191,7 @@ export default function StorageChannelsPage() {
                 size="small"
                 color="error"
                 disabled={params.row.id === defaultId}
-                onClick={() => setDeleteTarget(params.row)}
+                onClick={(event) => openDeleteDialog(event.currentTarget, params.row)}
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
@@ -290,7 +290,7 @@ export default function StorageChannelsPage() {
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="确认删除"
-        onClose={() => setDeleteTarget(null)}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         confirmLoading={deleting}
         confirmText="确认删除"

@@ -20,7 +20,7 @@ const MasonryImage = memo(({ item, onOpenDetail, hasSelection }) => {
     <Box
       component="img"
       src={getImageSrc(item)}
-      onClick={() => !hasSelection && onOpenDetail?.(item)}
+      onClick={() => !hasSelection && onOpenDetail?.(null, item)}
       loading="lazy"
       sx={{
         display: 'block',
@@ -61,7 +61,7 @@ const MasonryImageItem = memo(({
       toggleSelect(item.id);
     } else {
       // 如果没有选中项，点击图片打开详情
-      onOpenDetail?.(item);
+      onOpenDetail?.(null, item);
     }
   };
 
@@ -163,7 +163,7 @@ const MasonryImageItem = memo(({
             sx={{ color: 'white', '&:hover': { color: deleteHoverColor, bgcolor: 'rgba(255,255,255,0.1)' } }}
             onClick={(e) => {
               e.stopPropagation();
-              triggerDelete([item.id], item.original_name || item.file_name);
+              triggerDelete(e.currentTarget, [item.id], item.original_name || item.file_name);
             }}
           >
             <DeleteIcon fontSize="small" />

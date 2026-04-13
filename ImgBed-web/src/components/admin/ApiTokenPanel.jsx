@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { ApiTokenDocs } from '../../api';
+import { createOverlayFocusManager } from '../../utils/overlay-focus';
 import ConfirmDialog from '../common/ConfirmDialog';
 import ApiTokenList from './ApiTokenList';
 import ApiTokenDialog from './ApiTokenDialog';
@@ -14,6 +15,19 @@ export default function ApiTokenPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const createDialogFocusManagerRef = useRef(null);
+  const deleteDialogFocusManagerRef = useRef(null);
+
+  if (!createDialogFocusManagerRef.current) {
+    createDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  if (!deleteDialogFocusManagerRef.current) {
+    deleteDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  const createDialogFocusManager = createDialogFocusManagerRef.current;
+  const deleteDialogFocusManager = deleteDialogFocusManagerRef.current;
 
   const loadTokens = async () => {
     setLoading(true);
@@ -58,7 +72,7 @@ export default function ApiTokenPanel() {
     try {
       const res = await ApiTokenDocs.remove(deleteTarget.id);
       if (res.code === 0) {
-        setDeleteTarget(null);
+        deleteDialogFocusManager.close(() => setDeleteTarget(null));
         await loadTokens();
       } else {
         setError(res.message || '删除失败');
@@ -83,16 +97,24 @@ export default function ApiTokenPanel() {
           <Typography variant="subtitle1" fontWeight="bold">API Token 列表</Typography>
           <Typography variant="body2" color="text.secondary">当前共 {tokens.length} 个 Token</Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={(event) => createDialogFocusManager.open(event.currentTarget, () => setDialogOpen(true))}
+        >
           创建 Token
         </Button>
       </Box>
 
-      <ApiTokenList tokens={tokens} loading={loading} onDelete={setDeleteTarget} />
+      <ApiTokenList
+        tokens={tokens}
+        loading={loading}
+        onDelete={(trigger, target) => deleteDialogFocusManager.open(trigger, () => setDeleteTarget(target))}
+      />
 
       <ApiTokenDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => createDialogFocusManager.close(() => setDialogOpen(false))}
         onSubmit={handleCreate}
         submitting={submitting}
       />
@@ -100,7 +122,7 @@ export default function ApiTokenPanel() {
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="删除 API Token"
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => deleteDialogFocusManager.close(() => setDeleteTarget(null))}
         onConfirm={handleDelete}
         confirmLoading={deleting}
         confirmText="删除"

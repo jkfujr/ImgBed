@@ -35,7 +35,7 @@ export default function FilesAdmin() {
   const {
     data, total, loading, hasMore, directories, currentDir, selected, error,
     deleteDialog, deleting, migrateDialog, moveDialog, detailOpen, selectedItem,
-    handleOpenDetail, handleCloseDetail,
+    handleOpenDetail, handleCloseDetail, triggerDeleteFromDetail,
     clearSelection, selectAll,
     handleRefresh, refreshAfterMutation,
     toggleSelect,
@@ -51,10 +51,10 @@ export default function FilesAdmin() {
   };
 
   // 批量删除时，收集选中项的完整对象供 TG 24h 判断
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = (trigger) => {
     if (deleteDialog.open || selected.size === 0) return;
     const selectedItems = data.filter((item) => selected.has(item.id));
-    triggerDelete([...selected], `${selected.size} 个文件`, selectedItems);
+    triggerDelete(trigger, [...selected], `${selected.size} 个文件`, selectedItems);
   };
 
   return (
@@ -123,7 +123,7 @@ export default function FilesAdmin() {
         open={detailOpen}
         item={selectedItem}
         onClose={handleCloseDetail}
-        onDelete={triggerDelete}
+        onDelete={triggerDeleteFromDetail}
       />
 
       <FilesAdminMigrateDialog

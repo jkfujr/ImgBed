@@ -17,8 +17,12 @@ export default function FilesAdminCreateMenu({
   onGoStorageChannels,
 }) {
   const runAction = (action) => {
+    const activeElement = globalThis.document?.activeElement ?? null;
+    if (activeElement && typeof activeElement.blur === 'function') {
+      activeElement.blur();
+    }
     onClose();
-    action();
+    globalThis.setTimeout(() => action(), 0);
   };
 
   return (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -27,6 +27,7 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeMode } from '../contexts/ThemeContext';
 import { BORDER_RADIUS } from '../utils/constants';
+import { createOverlayFocusManager } from '../utils/overlay-focus';
 import SearchDialog from '../components/common/SearchDialog';
 import CreateActionButton from '../components/layout/CreateActionButton';
 import { getDirectoryPathFromSearch, ROOT_DIR } from '../admin/filesAdminShared';
@@ -38,6 +39,13 @@ export default function MainLayout() {
   const location = useLocation();
   const [anchorEl, setAnchorEl] = useState(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const searchDialogFocusManagerRef = useRef(null);
+
+  if (!searchDialogFocusManagerRef.current) {
+    searchDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
+  const searchDialogFocusManager = searchDialogFocusManagerRef.current;
 
   const handleMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
@@ -100,6 +108,14 @@ export default function MainLayout() {
     return getDirectoryPathFromSearch(location.search);
   }, [location.pathname, location.search]);
 
+  const handleSearchDialogOpen = () => {
+    searchDialogFocusManager.open(null, () => setSearchDialogOpen(true));
+  };
+
+  const handleSearchDialogClose = () => {
+    searchDialogFocusManager.close(() => setSearchDialogOpen(false));
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', width: '100%' }}>
       <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -124,7 +140,7 @@ export default function MainLayout() {
             <TextField
               size="small"
               placeholder="搜索"
-              onClick={() => setSearchDialogOpen(true)}
+              onClick={handleSearchDialogOpen}
               sx={{ ml: 2, width: 200, cursor: 'pointer' }}
               slotProps={{
                 input: {
@@ -209,7 +225,7 @@ export default function MainLayout() {
 
       <SearchDialog
         open={searchDialogOpen}
-        onClose={() => setSearchDialogOpen(false)}
+        onClose={handleSearchDialogClose}
       />
     </Box>
   );

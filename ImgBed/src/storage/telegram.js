@@ -145,18 +145,36 @@ class TelegramStorage extends StorageProvider {
     /**
      * 获取文件内容
      */
-    async getFileContent(fileId) {
+    async getFileContent(fileId, options = {}) {
         const filePath = await this.getFilePath(fileId);
         if (!filePath) {
             throw new Error(`[TelegramStorage] 未找到文件路径: ${fileId}`);
         }
 
         const fullURL = `${this.fileDomain}/file/bot${this.botToken}/${filePath}`;
+        const headers = { ...this.defaultHeaders };
+        if (options.start !== undefined && options.end !== undefined) {
+            headers.Range = `bytes=${options.start}-${options.end}`;
+        }
         const response = await this.requestTelegram(fullURL, {
-            headers: this.defaultHeaders
+            headers
         });
 
         return response;
+    }
+
+    parseTotalSizeFromContentRange(contentRange) {
+        if (!contentRange) {
+            return null;
+        }
+
+        const match = /bytes\s+\d+-\d+\/(\d+)/i.exec(contentRange);
+        if (!match) {
+            return null;
+        }
+
+        const totalSize = Number(match[1]);
+        return Number.isFinite(totalSize) ? totalSize : null;
     }
 
     // --- 以下为 StorageProvider 接口实现，映射旧逻辑 ---
@@ -194,16 +212,36 @@ class TelegramStorage extends StorageProvider {
             messageId: result.message_id,
             chatId: this.chatId,
             method,
+            size: Number(fileInfo.file_size) || undefined,
         };
     }
 
     async getStream(fileId, options) {
         // 直接复用原版拉取逻辑
-        const response = await this.getFileContent(fileId);
+        const response = await this.getFileContent(fileId, options);
         if (!response.ok) {
             throw new Error(`从 Telegram 拉取文件失败: ${response.statusText}`);
         }
         return response.body; // 返回可流通 Node 侧或者代理直接转换的 Web Stream
+    }
+
+    async getStreamResponse(fileId, options = {}) {
+        const response = await this.getFileContent(fileId, options);
+        if (!response.ok) {
+            throw new Error(`从 Telegram 拉取文件失败: ${response.statusText}`);
+        }
+
+        const contentLength = Number(response.headers.get('content-length'));
+        const totalSize = this.parseTotalSizeFromContentRange(response.headers.get('content-range'));
+        const acceptRanges = response.headers.get('accept-ranges');
+
+        return {
+            stream: response.body,
+            contentLength: Number.isFinite(contentLength) ? contentLength : null,
+            totalSize,
+            statusCode: response.status,
+            acceptRanges: acceptRanges === 'bytes',
+        };
     }
 
     async getUrl(fileId, options) {

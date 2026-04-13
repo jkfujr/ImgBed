@@ -33,7 +33,18 @@ function parseRangeHeader(rangeHeader, totalSize) {
   return { start, end, isPartial: true };
 }
 
-function buildStreamHeaders({ fileRecord, start, end, isPartial, totalSize, etag, lastModified }) {
+function buildStreamHeaders({
+  fileRecord,
+  start,
+  end,
+  isPartial,
+  totalSize,
+  etag,
+  lastModified,
+  contentLength,
+  includeContentLength = true,
+  acceptRanges = true,
+}) {
   const headers = new Headers();
   headers.set('Content-Type', fileRecord.mime_type || 'application/octet-stream');
   headers.set('Cache-Control', 'public, max-age=31536000');
@@ -49,11 +60,19 @@ function buildStreamHeaders({ fileRecord, start, end, isPartial, totalSize, etag
 
   if (isPartial) {
     headers.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-    headers.set('Content-Length', String(end - start + 1));
-    headers.set('Accept-Ranges', 'bytes');
+    if (includeContentLength) {
+      headers.set('Content-Length', String(contentLength ?? (end - start + 1)));
+    }
+    if (acceptRanges) {
+      headers.set('Accept-Ranges', 'bytes');
+    }
   } else {
-    headers.set('Content-Length', String(totalSize));
-    headers.set('Accept-Ranges', 'bytes');
+    if (includeContentLength) {
+      headers.set('Content-Length', String(contentLength ?? totalSize));
+    }
+    if (acceptRanges) {
+      headers.set('Accept-Ranges', 'bytes');
+    }
   }
 
   return headers;

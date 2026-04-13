@@ -33,13 +33,31 @@ export default function FilesAdminSelectionBar({
     >
       <Typography variant="body2" fontWeight="medium">已选 {selectedCount} 项</Typography>
       <Divider orientation="vertical" flexItem />
-      <Button size="small" color="primary" variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={onOpenMove}>
+      <Button
+        size="small"
+        color="primary"
+        variant="outlined"
+        startIcon={<DriveFileMoveIcon />}
+        onClick={(event) => onOpenMove(event.currentTarget)}
+      >
         移动
       </Button>
-      <Button size="small" color="primary" variant="outlined" startIcon={<CompareArrowsIcon />} onClick={onOpenMigrate}>
+      <Button
+        size="small"
+        color="primary"
+        variant="outlined"
+        startIcon={<CompareArrowsIcon />}
+        onClick={(event) => onOpenMigrate(event.currentTarget)}
+      >
         迁移
       </Button>
-      <Button size="small" color="error" variant="contained" startIcon={<DeleteIcon />} onClick={onDeleteSelected}>
+      <Button
+        size="small"
+        color="error"
+        variant="contained"
+        startIcon={<DeleteIcon />}
+        onClick={(event) => onDeleteSelected(event.currentTarget)}
+      >
         删除
       </Button>
       <Button size="small" onClick={onClearSelection}>取消选择</Button>

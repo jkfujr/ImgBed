@@ -78,7 +78,11 @@ export default function ApiTokenList({ tokens, loading, onDelete }) {
                 <TableCell>{formatDateTime(token.created_at)}</TableCell>
                 <TableCell align="right">
                   <Tooltip title="删除">
-                    <IconButton color="error" size="small" onClick={() => onDelete(token)}>
+                    <IconButton
+                      color="error"
+                      size="small"
+                      onClick={(event) => onDelete(event.currentTarget, token)}
+                    >
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>

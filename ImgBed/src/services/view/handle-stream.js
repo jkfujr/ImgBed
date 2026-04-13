@@ -22,6 +22,35 @@ const applyHeaders = (res, headers) => {
   }
 };
 
+const toFiniteNumber = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+function normalizeReadResult(readResult) {
+  if (!readResult || typeof readResult !== 'object' || !('stream' in readResult)) {
+    return {
+      stream: readResult,
+      contentLength: null,
+      totalSize: null,
+      statusCode: null,
+      acceptRanges: true,
+    };
+  }
+
+  return {
+    stream: readResult.stream,
+    contentLength: toFiniteNumber(readResult.contentLength),
+    totalSize: toFiniteNumber(readResult.totalSize),
+    statusCode: toFiniteNumber(readResult.statusCode),
+    acceptRanges: readResult.acceptRanges !== false,
+  };
+}
+
 /**
  * 处理分块文件流
  */
@@ -116,29 +145,49 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
   };
 
   try {
-    fileStream = await storage.getStream(storageKey, options).catch(e => {
+    const readResult = await (typeof storage.getStreamResponse === 'function'
+      ? storage.getStreamResponse(storageKey, options)
+      : storage.getStream(storageKey, options)).catch(e => {
       log.error({ storageKey, err: e }, '拉取真实流出错');
       return null;
     });
 
-    if (!fileStream) {
+    if (!readResult) {
       const error = new Error('向原点提取文件内容失败，上游节点未响应');
       error.status = 502;
       throw error;
     }
 
+    const normalized = normalizeReadResult(readResult);
+    fileStream = normalized.stream;
+
+    if (!fileStream) {
+      const error = new Error('向原点提取文件内容失败，上游节点未返回可读流');
+      error.status = 502;
+      throw error;
+    }
+
+    const effectivePartial = isPartial && normalized.statusCode !== 200;
+    const resolvedTotalSize = normalized.totalSize ?? fileRecord.size;
+    const resolvedContentLength = effectivePartial
+      ? (normalized.contentLength ?? (end - start + 1))
+      : normalized.contentLength;
+
     const headers = buildStreamHeaders({
       fileRecord,
       start,
       end,
-      isPartial,
-      totalSize: fileRecord.size,
+      isPartial: effectivePartial,
+      totalSize: resolvedTotalSize,
       etag,
-      lastModified
+      lastModified,
+      contentLength: resolvedContentLength,
+      includeContentLength: effectivePartial || normalized.contentLength !== null,
+      acceptRanges: normalized.acceptRanges,
     });
 
     applyHeaders(res, headers);
-    res.status(isPartial ? 206 : 200);
+    res.status(effectivePartial ? 206 : 200);
 
     // 监听响应对象错误（客户端连接错误）
     res.on('error', (err) => {
@@ -203,4 +252,5 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
 }
 
 export { handleChunkedStream,
-  handleRegularStream, };
+  handleRegularStream,
+  normalizeReadResult, };
