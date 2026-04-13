@@ -2,10 +2,9 @@ export function createApplicationRuntime({
   config: initialConfig = null,
   loadStartupConfig = null,
   sqlite,
-  dbPath,
   initSchema,
   runMigrations,
-  syncAllStorageChannels,
+  freezeFilesByMissingStorageInstances = () => ({ changes: 0 }),
   initResponseCache,
   initQuotaEventsArchive,
   initArchiveScheduler,
@@ -57,9 +56,15 @@ export function createApplicationRuntime({
     const archiveConfig = runtimeConfig.performance?.quotaEventsArchive || {};
 
     initSchema(sqlite);
-    runMigrations(sqlite, dbPath);
-    await syncAllStorageChannels(runtimeConfig, sqlite);
-    log.info('存储渠道已同步到数据库');
+    runMigrations(sqlite);
+    const configuredStorageIds = (runtimeConfig.storage?.storages || [])
+      .map((storage) => storage.id)
+      .filter(Boolean);
+    const freezeResult = freezeFilesByMissingStorageInstances(sqlite, configuredStorageIds);
+    log.info(
+      { configuredCount: configuredStorageIds.length, frozenFiles: Number(freezeResult?.changes || 0) },
+      '已按当前配置冻结失效存储实例关联文件',
+    );
 
     initResponseCache({
       enabled: cacheConfig.enabled !== false,

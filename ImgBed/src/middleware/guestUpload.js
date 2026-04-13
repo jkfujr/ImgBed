@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'crypto';
-import { readSystemConfig } from '../services/system/config-io.js';
+import { readRuntimeConfig } from '../config/index.js';
 import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
 
 function isUploadPasswordValid(providedPassword, uploadPassword) {
@@ -18,7 +18,7 @@ function isUploadPasswordValid(providedPassword, uploadPassword) {
  * 检查是否允许访客上传，以及是否需要密码验证
  */
 export const guestUploadAuth = async (req, res, next) => {
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const uploadPassword = cfg.security?.uploadPassword || '';
 

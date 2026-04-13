@@ -1,5 +1,5 @@
 import express from 'express';
-import { readSystemConfig } from '../services/system/config-io.js';
+import { readRuntimeConfig } from '../config/index.js';
 import { success } from '../utils/response.js';
 
 const publicApp = express.Router();
@@ -9,7 +9,7 @@ const publicApp = express.Router();
  * GET /api/public/guest-upload-config
  */
 publicApp.get('/guest-upload-config', (req, res) => {
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const requirePassword = guestUploadEnabled && !!cfg.security?.uploadPassword;
 

@@ -8,10 +8,6 @@ const repository = createConfigRepository({
   logger: log,
 });
 
-function getConfigPath() {
-  return repository.getConfigPath();
-}
-
 function loadStartupConfig() {
   return repository.loadStartupConfig();
 }
@@ -28,15 +24,9 @@ function getLastKnownGoodConfig() {
   return repository.getLastKnownGoodConfig();
 }
 
-function peekLastKnownGoodConfig() {
-  return repository.peekLastKnownGoodConfig();
-}
-
 export {
-  getConfigPath,
   loadStartupConfig,
   readRuntimeConfig,
   writeRuntimeConfig,
   getLastKnownGoodConfig,
-  peekLastKnownGoodConfig,
 };

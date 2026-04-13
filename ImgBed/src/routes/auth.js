@@ -1,12 +1,11 @@
 import express from 'express';
-import { getLastKnownGoodConfig } from '../config/index.js';
+import { getLastKnownGoodConfig, readRuntimeConfig, writeRuntimeConfig } from '../config/index.js';
 import { signToken } from '../utils/jwt.js';
 import { adminAuth } from '../middleware/auth.js';
 import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, AuthError } from '../errors/AppError.js';
 import { success } from '../utils/response.js';
-import { readSystemConfig, writeSystemConfig } from '../services/system/config-io.js';
 
 const authApp = express.Router();
 
@@ -78,7 +77,7 @@ authApp.put('/password', adminAuth, asyncHandler(async (req, res) => {
     throw new ValidationError('新密码不能为空且长度不能少于6位');
   }
 
-  const runtimeConfig = readSystemConfig();
+  const runtimeConfig = readRuntimeConfig();
   const nextConfig = {
     ...runtimeConfig,
     admin: {
@@ -86,7 +85,7 @@ authApp.put('/password', adminAuth, asyncHandler(async (req, res) => {
       password: newPassword,
     },
   };
-  writeSystemConfig(nextConfig);
+  writeRuntimeConfig(nextConfig);
 
   return res.json(success({}, '密码修改成功'));
 }));

@@ -3,9 +3,13 @@ import express from 'express';
 import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
-import { getActiveFilesStats, getTodayUploadCount, getUploadTrend } from '../database/files-dao.js';
-import { readSystemConfig, writeSystemConfig } from '../services/system/config-io.js';
-import { insertStorageChannelMeta, updateStorageChannelMeta, markStorageChannelDeleted } from '../services/system/storage-channel-sync.js';
+import {
+  freezeFilesByStorageInstance,
+  getActiveFilesStats,
+  getTodayUploadCount,
+  getUploadTrend,
+} from '../database/files-dao.js';
+import { readRuntimeConfig, writeRuntimeConfig } from '../config/index.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
@@ -35,6 +39,9 @@ const systemApp = express.Router();
 
 const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
 const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
+const freezeStorageFiles = sqlite.transaction((storageInstanceId) => {
+  freezeFilesByStorageInstance(sqlite, storageInstanceId);
+});
 
 function maskStorage(s) {
   const masked = { ...s, config: { ...(s.config || {}) } };
@@ -44,6 +51,29 @@ function maskStorage(s) {
   return masked;
 }
 
+function summarizeStorages(storages) {
+  let enabled = 0;
+  let allowUpload = 0;
+  const byType = {};
+
+  for (const storage of storages) {
+    if (storage.enabled) {
+      enabled++;
+    }
+    if (storage.allowUpload) {
+      allowUpload++;
+    }
+    byType[storage.type] = (byType[storage.type] || 0) + 1;
+  }
+
+  return {
+    total: storages.length,
+    enabled,
+    allowUpload,
+    byType,
+  };
+}
+
 systemApp.use(adminAuth);
 
 /**
@@ -51,7 +81,7 @@ systemApp.use(adminAuth);
  * GET /api/system/config
  */
 systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   return res.json(success(sanitizeSystemConfig(cfg)));
 }));
 
@@ -61,7 +91,7 @@ systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => 
  */
 systemApp.put('/config', asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
 
   if (body.security !== undefined) {
     if (body.security.corsOrigin !== undefined)
@@ -91,7 +121,7 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
     }
   }
 
-  writeSystemConfig(cfg);
+  writeRuntimeConfig(cfg);
 
   // 使系统配置缓存失效
   cacheInvalidation.invalidateSystemConfig();
@@ -104,17 +134,11 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
  * GET /api/system/storages
  */
 systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   const fileStorages = cfg.storage?.storages || [];
   const quotaStats = storageManager.getAllQuotaStats();
 
-  const deletedIds = new Set(
-    sqlite.prepare('SELECT id FROM storage_channels WHERE deleted_at IS NOT NULL').all()
-      .map((row) => row.id)
-  );
-
   const list = fileStorages
-    .filter((s) => !deletedIds.has(s.id))
     .map((s) => maskStorage({
       ...s,
       usedBytes: quotaStats[s.id] || 0,
@@ -128,37 +152,8 @@ systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) =
  * GET /api/system/storages/stats
  */
 systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig();
-  const fileStorages = cfg.storage?.storages || [];
-
-  const deletedIds = new Set(
-    sqlite.prepare('SELECT id FROM storage_channels WHERE deleted_at IS NOT NULL').all()
-      .map((row) => row.id)
-  );
-
-  let enabled = 0;
-  let allowUpload = 0;
-  const byType = {};
-
-  fileStorages
-    .filter((s) => !deletedIds.has(s.id))
-    .forEach((s) => {
-      const isEnabled = Boolean(s.enabled);
-      const canUpload = Boolean(s.allowUpload);
-
-      if (isEnabled) enabled++;
-      if (canUpload) allowUpload++;
-      byType[s.type] = (byType[s.type] || 0) + 1;
-    });
-
-  const total = fileStorages.filter((s) => !deletedIds.has(s.id)).length;
-
-  return res.json(success({
-    total,
-    enabled,
-    allowUpload,
-    byType
-  }));
+  const cfg = readRuntimeConfig();
+  return res.json(success(summarizeStorages(cfg.storage?.storages || [])));
 }));
 
 /**
@@ -185,7 +180,7 @@ systemApp.post('/storages/test', asyncHandler(async (req, res) => {
  * GET /api/system/load-balance
  */
 systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   return res.json(success({
     strategy: cfg.storage?.loadBalanceStrategy || 'default',
     scope: cfg.storage?.loadBalanceScope || 'global',
@@ -202,14 +197,14 @@ systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res
  */
 systemApp.put('/load-balance', asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
 
   const validationError = updateLoadBalanceConfig(cfg, body);
   if (validationError) {
     return res.status(validationError.code).json(validationError);
   }
 
-  writeSystemConfig(cfg);
+  writeRuntimeConfig(cfg);
   await storageManager.reload();
 
   // 使负载均衡和存储相关缓存失效
@@ -230,7 +225,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
     return res.status(validationError.code).json(validationError);
   }
 
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
 
   if ((cfg.storage.storages || []).some((s) => s.id === body.id)) {
     throw new ValidationError(`渠道 ID "${body.id}" 已存在`);
@@ -239,7 +234,6 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
   const newStorage = buildNewStorageChannel(body);
   cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
 
-  await insertStorageChannelMeta(newStorage, sqlite);
   await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
@@ -255,7 +249,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
 systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
   const body = req.body || {};
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   const idx = (cfg.storage.storages || []).findIndex((s) => s.id === id);
   if (idx === -1) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
@@ -276,7 +270,6 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
     }
   }
 
-  await updateStorageChannelMeta(id, existing, sqlite);
   await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
@@ -286,12 +279,12 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
 }));
 
 /**
- * 删除存储渠道（逻辑删除）
+ * 删除存储渠道
  * DELETE /api/system/storages/:id
  */
 systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   if (cfg.storage.default === id) {
     throw new ValidationError('不能删除当前默认渠道，请先切换默认渠道');
   }
@@ -300,12 +293,9 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
   }
 
-  // 逻辑删除：从运行配置移除，数据库保留审计与历史记录
   cfg.storage.storages = (cfg.storage.storages || []).filter((entry) => entry.id !== id);
 
-  // 事务内：标记渠道 deleted_at，冻结关联文件 status = 'channel_deleted'
-  markStorageChannelDeleted(id, sqlite);
-
+  freezeStorageFiles(id);
   await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储和文件相关缓存全部失效
@@ -313,7 +303,7 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   cacheInvalidation.invalidateFiles();
   cacheInvalidation.invalidateDashboard();
 
-  return res.json(success(null, '存储渠道已停用，关联文件已冻结'));
+  return res.json(success(null, '存储渠道已删除，关联文件已冻结'));
 }));
 
 /**
@@ -322,13 +312,12 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
  */
 systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   if (!(cfg.storage.storages || []).some((s) => s.id === id)) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
   }
   cfg.storage.default = id;
-  writeSystemConfig(cfg);
-  await storageManager.reload();
+  await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
@@ -342,7 +331,7 @@ systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
  */
 systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig();
+  const cfg = readRuntimeConfig();
   const storage = (cfg.storage.storages || []).find((s) => s.id === id);
   if (!storage) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
@@ -350,7 +339,6 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
 
   storage.enabled = !storage.enabled;
 
-  await updateStorageChannelMeta(id, storage, sqlite);
   await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
@@ -478,6 +466,8 @@ systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
 systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(async (_req, res) => {
   const { count: totalFiles, sum: totalSize } = getActiveFilesStats(sqlite);
   const todayUploads = getTodayUploadCount(sqlite);
+  const cfg = readRuntimeConfig();
+  const storageSummary = summarizeStorages(cfg.storage?.storages || []);
 
   // 查询今日访问次数
   const todayAccessResult = sqlite.prepare(`
@@ -486,24 +476,13 @@ systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(asyn
   `).get();
   const todayAccess = todayAccessResult?.count || 0;
 
-  // 查询存储渠道数（排除逻辑删除的渠道）
-  const channelsResult = sqlite.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled
-    FROM storage_channels
-    WHERE deleted_at IS NULL
-  `).get();
-  const totalChannels = channelsResult?.total || 0;
-  const enabledChannels = channelsResult?.enabled || 0;
-
   return res.json(success({
     totalFiles,
     totalSize,
     todayUploads,
     todayAccess,
-    totalChannels,
-    enabledChannels
+    totalChannels: storageSummary.total,
+    enabledChannels: storageSummary.enabled
   }));
 }));
 

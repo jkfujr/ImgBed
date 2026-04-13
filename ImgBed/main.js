@@ -69,7 +69,7 @@ async function createRuntime() {
     archiveSchedulerModule,
     quotaArchiveModule,
     responseCacheModule,
-    storageSyncModule,
+    filesDaoModule,
     storageManagerModule,
   ] = await Promise.all([
     import('./src/database/index.js'),
@@ -78,17 +78,16 @@ async function createRuntime() {
     import('./src/services/archive/archive-scheduler.js'),
     import('./src/services/archive/quota-events-archive.js'),
     import('./src/services/cache/response-cache.js'),
-    import('./src/services/system/storage-channel-sync.js'),
+    import('./src/database/files-dao.js'),
     import('./src/storage/manager.js'),
   ]);
 
   return createApplicationRuntime({
     config,
     sqlite: databaseModule.sqlite,
-    dbPath: databaseModule.dbPath,
     initSchema: schemaModule.initSchema,
     runMigrations: migrateModule.runMigrations,
-    syncAllStorageChannels: storageSyncModule.syncAllStorageChannels,
+    freezeFilesByMissingStorageInstances: filesDaoModule.freezeFilesByMissingStorageInstances,
     initResponseCache: responseCacheModule.initResponseCache,
     initQuotaEventsArchive: quotaArchiveModule.initQuotaEventsArchive,
     initArchiveScheduler: archiveSchedulerModule.initArchiveScheduler,

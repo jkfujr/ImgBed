@@ -238,10 +238,6 @@ export function createConfigRepository({
   }
 
   return {
-    getConfigPath() {
-      return configPath;
-    },
-
     loadStartupConfig() {
       ensureDataRoot();
 
@@ -345,10 +341,6 @@ export function createConfigRepository({
       }
 
       return cacheEntry.value;
-    },
-
-    peekLastKnownGoodConfig() {
-      return cacheEntry?.value || null;
     },
   };
 }

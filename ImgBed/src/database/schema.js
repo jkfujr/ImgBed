@@ -4,13 +4,11 @@ import { createApiTokensSchema } from './schemas/api-tokens.js';
 import { createChunksSchema } from './schemas/chunks.js';
 import { createDirectoriesSchema } from './schemas/directories.js';
 import { createFilesSchema } from './schemas/files.js';
-import { createStorageChannelsSchema } from './schemas/storage-channels.js';
 import { createStorageOperationsSchema } from './schemas/storage-operations.js';
 import { createStorageQuotaCacheSchema } from './schemas/storage-quota-cache.js';
 import { createStorageQuotaEventsArchiveSchema } from './schemas/storage-quota-events-archive.js';
 import { createStorageQuotaEventsSchema } from './schemas/storage-quota-events.js';
 import { createStorageQuotaHistorySchema } from './schemas/storage-quota-history.js';
-import { createSystemSettingsSchema } from './schemas/system-settings.js';
 
 const log = createLogger('database:schema');
 
@@ -18,9 +16,7 @@ export function initSchema(db) {
   try {
     createFilesSchema(db);
     createDirectoriesSchema(db);
-    createSystemSettingsSchema(db);
     createApiTokensSchema(db);
-    createStorageChannelsSchema(db);
     createStorageQuotaEventsSchema(db);
     createStorageOperationsSchema(db);
     createStorageQuotaHistorySchema(db);
