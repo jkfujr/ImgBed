@@ -1,12 +1,13 @@
 import StorageProvider from './base.js';
 import { createLogger } from '../utils/logger.js';
-import { streamToBuffer } from '../utils/stream.js';
+import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
+import { toBuffer } from '../utils/storage-io.js';
 
 const log = createLogger('huggingface');
 
 /**
  * HuggingFace API 封装类
- * 继承通用存储基类
+ * 实现 StorageProvider 统一接口
  */
 class HuggingFaceStorage extends StorageProvider {
     constructor(config) {
@@ -120,13 +121,17 @@ class HuggingFaceStorage extends StorageProvider {
     /**
      * 获取文件流
      */
-    async getFile(filePath) {
+    async getFile(filePath, options = {}) {
         try {
             const url = `https://huggingface.co/datasets/${this.repo}/resolve/main/${filePath}`;
+            const headers = {
+                'Authorization': `Bearer ${this.token}`
+            };
+            if (options.start !== undefined && options.end !== undefined) {
+                headers.Range = `bytes=${options.start}-${options.end}`;
+            }
             const response = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${this.token}`
-                }
+                headers
             });
 
             if (!response.ok) {
@@ -145,25 +150,19 @@ class HuggingFaceStorage extends StorageProvider {
     async put(file, options) {
         const { fileName, originalName } = options;
         if (!fileName) throw new Error('[HuggingFaceStorage] 缺少 fileName');
-
-        let fileBuffer;
-        if (typeof file.arrayBuffer === 'function') {
-            fileBuffer = Buffer.from(await file.arrayBuffer());
-        } else {
-            fileBuffer = await streamToBuffer(file);
-        }
+        const fileBuffer = await toBuffer(file);
 
         const filesData = { [fileName]: fileBuffer };
         await this.commit(`Upload ${originalName || fileName}`, filesData);
-        return {
-            id: fileName,
-            url: await this.getUrl(fileName)
-        };
+        return createStoragePutResult({
+            storageKey: fileName,
+            size: fileBuffer.length,
+        });
     }
 
-    async getStream(fileId, options) {
-        const res = await this.getFile(fileId);
-        return res.body; 
+    async getStreamResponse(fileId, options = {}) {
+        const res = await this.getFile(fileId, options);
+        return createStorageReadResultFromResponse(res);
     }
 
     async getUrl(fileId, options) {
@@ -230,7 +229,10 @@ class HuggingFaceStorage extends StorageProvider {
         const chunkPath = `chunks/${fileId}/chunk_${String(chunkIndex).padStart(4, '0')}`;
         const filesData = { [chunkPath]: chunkBuffer };
         await this.commit(`上传分块 ${chunkIndex}，文件 ${fileName || fileId}`, filesData);
-        return { storageKey: chunkPath, size: chunkBuffer.length };
+        return createStorageChunkPutResult({
+            storageKey: chunkPath,
+            size: chunkBuffer.length,
+        });
     }
 
     /**
@@ -257,7 +259,7 @@ class HuggingFaceStorage extends StorageProvider {
                 storage_type: 'huggingface',
                 storage_id: storageId,
                 storage_key: chunkPath,
-                storage_config: JSON.stringify({}),
+                storage_meta: null,
                 size: end - start,
             });
         }

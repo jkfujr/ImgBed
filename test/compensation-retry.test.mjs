@@ -116,7 +116,7 @@ async function testIncrementOperationRetryCountCallsDb() {
   console.log('  [OK] incrementOperationRetryCount sends operationId to db');
 }
 
-async function testExecuteCompensationPassesTelegramDeleteOptions() {
+async function testExecuteCompensationPassesCanonicalDeleteToken() {
   const db = makeTrackingDb();
   let capturedOptions = null;
   const recovery = createRecoveryService({
@@ -135,9 +135,9 @@ async function testExecuteCompensationPassesTelegramDeleteOptions() {
 
   db._operationRow = {
     id: 'op-tg',
-    status: 'compensation_pending',
-    retry_count: 0,
-  };
+      status: 'compensation_pending',
+      retry_count: 0,
+    };
 
   await recovery.executeCompensation({
     id: 'op-tg',
@@ -146,7 +146,7 @@ async function testExecuteCompensationPassesTelegramDeleteOptions() {
       storageKey: 'tg-file-id',
       isChunked: false,
       deleteMode: 'remote_and_index',
-      tgOptions: {
+      deleteToken: {
         messageId: 8,
         chatId: '-5244533769',
       },
@@ -160,7 +160,7 @@ async function testExecuteCompensationPassesTelegramDeleteOptions() {
       chatId: '-5244533769',
     },
   }, '恢复补偿时应把 Telegram 删除参数透传给存储层');
-  console.log('  [OK] StorageOperationRecovery.executeCompensation 透传 Telegram 删除参数');
+  console.log('  [OK] StorageOperationRecovery.executeCompensation 透传 canonical deleteToken');
 }
 
 async function run() {
@@ -169,7 +169,7 @@ async function run() {
   await testExecuteRecoveryMarksFailedWhenMaxRetriesReached();
   await testExecuteRecoveryDoesNotIncrementOnSuccess();
   await testIncrementOperationRetryCountCallsDb();
-  await testExecuteCompensationPassesTelegramDeleteOptions();
+  await testExecuteCompensationPassesCanonicalDeleteToken();
   console.log('\ncompensation-retry tests passed\n');
 }
 

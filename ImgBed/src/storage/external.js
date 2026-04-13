@@ -1,5 +1,6 @@
 import { createLogger } from '../utils/logger.js';
 import StorageProvider from './base.js';
+import { createStorageReadResultFromResponse } from './contract.js';
 
 const log = createLogger('external');
 
@@ -20,17 +21,22 @@ class ExternalStorage extends StorageProvider {
     throw new Error('[ExternalStorage] 此渠道为纯访问映射，不支持新文件上传。');
   }
 
-  async getStream(fileId) {
+  async getStreamResponse(fileId, options = {}) {
     const url = await this.getUrl(fileId);
     if (!url) {
       throw new Error('[ExternalStorage] 外部存储路由地址无效');
     }
 
-    const response = await fetch(url);
+    const headers = {};
+    if (options.start !== undefined && options.end !== undefined) {
+      headers.Range = `bytes=${options.start}-${options.end}`;
+    }
+
+    const response = await fetch(url, { headers });
     if (!response.ok) {
       throw new Error(`[ExternalStorage] 请求外部文件失败: ${response.status} ${response.statusText}`);
     }
-    return response.body;
+    return createStorageReadResultFromResponse(response);
   }
 
   async getUrl(fileId) {

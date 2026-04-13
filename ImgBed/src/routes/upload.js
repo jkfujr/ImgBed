@@ -30,6 +30,7 @@ import { createLogger } from '../utils/logger.js';
 import { cacheInvalidation } from '../middleware/cache.js';
 import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../utils/directory-path.js';
 import { success } from '../utils/response.js';
+import { serializeStorageMeta } from '../services/files/storage-artifacts.js';
 
 const log = createLogger('upload');
 const uploadApp = express.Router();
@@ -119,10 +120,8 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
     mime_type: String(mimeType),
     size: Number(fileSize),
     storage_channel: String(storageMeta?.type || 'unknown'),
-    storage_key: String(storageResult.id || newFileName),
-    storage_config: JSON.stringify({
-      extra_result: storageResult,
-    }),
+    storage_key: String(storageResult.storageKey || newFileName),
+    storage_meta: serializeStorageMeta({ deleteToken: storageResult.deleteToken }),
     storage_instance_id: String(finalChannelId),
     upload_ip: String(clientIp),
     upload_address: '{}',
@@ -217,7 +216,8 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     targetStorageId: uploadResult.finalChannelId,
     remotePayload: {
       storageId: uploadResult.finalChannelId,
-      storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
+      storageKey: uploadResult.storageResult.storageKey || fileMeta.newFileName,
+      deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],
     },
@@ -272,7 +272,8 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 
     const cleanupPayload = {
       storageId: uploadResult.finalChannelId,
-      storageKey: uploadResult.storageResult.id || fileMeta.newFileName,
+      storageKey: uploadResult.storageResult.storageKey || fileMeta.newFileName,
+      deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],
     };
@@ -288,6 +289,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
         storageManager,
         storageId: cleanupPayload.storageId,
         storageKey: cleanupPayload.storageKey,
+        deleteToken: cleanupPayload.deleteToken,
         isChunked: cleanupPayload.isChunked,
         chunkRecords: cleanupPayload.chunkRecords,
       });

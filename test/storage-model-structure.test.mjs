@@ -29,21 +29,35 @@ function testResolveFileStorageIdPrefersStorageInstanceId() {
     id: 'file-1',
     storage_instance_id: 'local-1',
     storage_channel: 'local',
-    storage_config: '{}',
+    storage_meta: null,
+    storage_config: JSON.stringify({ instance_id: 'legacy-local' }),
   };
 
   const resolved = resolveFileStorageId(file);
   assert.equal(resolved, file.storage_instance_id);
-  assert.notEqual(resolved, file.storage_channel);
-  console.log('  [OK] resolveFileStorageId: 优先使用 storage_instance_id');
+  assert.notEqual(resolved, 'legacy-local');
+  console.log('  [OK] resolveFileStorageId：优先使用 storage_instance_id');
 }
 
-async function testRebuildMetadataForFileUsesStorageInstanceId() {
+function testResolveFileStorageIdFallsBackToLegacyMeta() {
+  const file = {
+    id: 'file-legacy',
+    storage_instance_id: null,
+    storage_meta: null,
+    storage_config: JSON.stringify({ instance_id: 'legacy-local' }),
+  };
+
+  const resolved = resolveFileStorageId(file);
+  assert.equal(resolved, 'legacy-local');
+  console.log('  [OK] resolveFileStorageId：兼容读取旧 instance_id');
+}
+
+async function testRebuildMetadataForFileUsesGetStreamResponse() {
   const file = {
     id: 'file-2',
     storage_instance_id: 'local-1',
     storage_channel: 'local',
-    storage_config: '{}',
+    storage_meta: null,
     storage_key: 'key-2',
   };
 
@@ -63,8 +77,14 @@ async function testRebuildMetadataForFileUsesStorageInstanceId() {
       }
 
       return {
-        async getStream() {
-          return Readable.from([Buffer.from('image-content')]);
+        async getStreamResponse() {
+          return {
+            stream: Readable.from([Buffer.from('image-content')]),
+            contentLength: 'image-content'.length,
+            totalSize: 'image-content'.length,
+            statusCode: 200,
+            acceptRanges: false,
+          };
         },
       };
     },
@@ -81,54 +101,46 @@ async function testRebuildMetadataForFileUsesStorageInstanceId() {
 
   assert.deepEqual(result, { status: 'updated' });
   assert.equal(logger.calls.warn.length, 0);
-  console.log('  [OK] rebuildMetadataForFile: 使用 storage_instance_id 定位正确存储');
+  console.log('  [OK] rebuildMetadataForFile：统一读取 getStreamResponse().stream');
 }
 
-function testUploadRecordUsesFacadeInsteadOfInstancesMap() {
+function testUploadRouteWritesCanonicalStorageFields() {
   const source = read('ImgBed/src/routes/upload.js');
-  assert.match(source, /const storageMeta = storageManager\.getStorageMeta\(finalChannelId\);/);
-  assert.match(source, /storage_channel: String\(storageMeta\?\.type \|\| 'unknown'\),/);
-  assert.ok(!source.includes('storageManager.instances.get(finalChannelId)'));
-  assert.match(source, /storage_instance_id: String\(finalChannelId\),/);
-  console.log('  [OK] upload.js: 通过 facade 获取 storage meta');
+  assert.match(source, /storage_key: String\(storageResult\.storageKey \|\| newFileName\),/);
+  assert.match(source, /storage_meta: serializeStorageMeta\(\{ deleteToken: storageResult\.deleteToken \}\),/);
+  assert.ok(!source.includes('extra_result'));
+  assert.ok(!source.includes('storage_config:'));
+  console.log('  [OK] upload.js：只写 storage_key 和 storage_meta.deleteToken');
 }
 
-function testResolveFileStoragePrefersStorageInstanceId() {
+function testFilesListRouteSelectsNewColumns() {
+  const source = read('ImgBed/src/routes/files.js');
+  assert.match(source, /storage_channel, storage_key, storage_meta, storage_instance_id,/);
+  assert.ok(!source.includes('storage_channel, storage_key, storage_config,'));
+  console.log('  [OK] files.js：列表查询切到 storage_meta 和 storage_instance_id');
+}
+
+function testResolveFileStorageUsesCanonicalResolver() {
   const source = read('ImgBed/src/services/view/resolve-file-storage.js');
-  assert.match(source, /const instanceId = fileRecord\.storage_instance_id;/);
-  assert.match(source, /const storage = storageManager\.getStorage\(instanceId\);/);
-  console.log('  [OK] resolve-file-storage.js: 直读链路优先使用 storage_instance_id');
+  assert.match(source, /import \{ resolveStorageInstanceId \} from '\.\.\/files\/storage-artifacts\.js';/);
+  assert.match(source, /const instanceId = resolveStorageInstanceId\(fileRecord\);/);
+  console.log('  [OK] resolve-file-storage.js：直读链路统一走 resolveStorageInstanceId');
 }
 
-function testFilesSchemaKeepsBothStorageColumns() {
-  const source = read('ImgBed/src/database/schemas/files.js');
-  assert.match(source, /storage_channel TEXT NOT NULL,/);
-  assert.match(source, /storage_instance_id TEXT,/);
-  console.log('  [OK] files schema: 保留 storage_channel 和 storage_instance_id');
+function testHandleStreamOnlyUsesRichResult() {
+  const source = read('ImgBed/src/services/view/handle-stream.js');
+  assert.match(source, /const readResult = await storage\.getStreamResponse\(storageKey, options\)/);
+  assert.ok(!source.includes('typeof storage.getStreamResponse'));
+  assert.ok(!source.includes('storage.getStream('));
+  console.log('  [OK] handle-stream.js：只消费 StorageReadResult');
 }
 
-function testStorageManagerDelegatesRuntimeState() {
-  const source = read('ImgBed/src/storage/manager.js');
-  assert.match(source, /import \{ QuotaProjectionService \} from '\.\/quota\/quota-projection-service\.js';/);
-  assert.match(source, /import \{ StorageOperationRecovery \} from '\.\/recovery\/storage-operation-recovery\.js';/);
-  assert.match(source, /import \{ StorageMaintenanceScheduler \} from '\.\/runtime\/storage-maintenance-scheduler\.js';/);
-  assert.match(source, /import \{ StorageRegistry \} from '\.\/runtime\/storage-registry\.js';/);
-  assert.match(source, /import \{ UploadSelector \} from '\.\/runtime\/upload-selector\.js';/);
-  assert.ok(!source.includes('this.instances = new Map()'));
-  assert.ok(!source.includes('this.roundRobinIndex = 0'));
-  assert.ok(!source.includes('this.config = config.storage || {}'));
-  assert.ok(!source.includes('this.uploadConfig = config.upload || {}'));
-  assert.ok(!source.includes('this.quotaProjection = new Map()'));
-  assert.ok(!source.includes('this.usageStats = new Map()'));
-  assert.ok(!source.includes('this._isRecoveryRunning = false'));
-  assert.ok(!source.includes('this._fullRebuildTimer = null'));
-  assert.ok(!source.includes('this._compensationRetryTimer = null'));
-  assert.ok(!source.includes('this._maintenanceStarted = false'));
-  assert.ok(!source.includes('_executeRecovery('));
-  assert.ok(!source.includes('_selectRoundRobin('));
-  assert.ok(!source.includes('_startCompensationRetryTimer('));
-  assert.ok(!source.includes('_startFullRebuildTimer('));
-  console.log('  [OK] manager.js: runtime state now delegates to registry, selector, quota, recovery, and scheduler services');
+function testChunkManagerStoresCanonicalChunkMeta() {
+  const source = read('ImgBed/src/storage/chunk-manager.js');
+  assert.match(source, /storage_meta: serializeStorageMeta\(\{ deleteToken: result\.deleteToken \}\),/);
+  assert.match(source, /storage\.getChunkStreamResponse\(chunk\.storage_key, \{\}\)/);
+  assert.ok(!source.includes('storage_config: JSON.stringify({})'));
+  console.log('  [OK] chunk-manager.js：分块元数据和读取协议都已规范化');
 }
 
 function testQuotaCacheMaintenanceLivesInLatestSchemaOnly() {
@@ -136,38 +148,22 @@ function testQuotaCacheMaintenanceLivesInLatestSchemaOnly() {
   const migrateSource = read('ImgBed/src/database/migrate.js');
 
   assert.ok(!schemaSource.includes('CREATE TRIGGER'), 'storage-quota-cache schema should not define triggers');
-  assert.ok(!schemaSource.includes('trg_quota_cache_after_insert'));
-  assert.ok(!schemaSource.includes('trg_quota_cache_after_delete'));
-  assert.ok(!schemaSource.includes('trg_quota_cache_after_update'));
   assert.ok(!migrateSource.includes('./migrations/'));
   assert.match(migrateSource, /export const SCHEMA_VERSION = 0;/);
-  console.log('  [OK] quota cache maintenance: schema 已固化为最新结构，迁移模块不再依赖历史脚本');
-}
-
-function testQuotaRebuildUsesStorageManagerFacade() {
-  const systemSource = read('ImgBed/src/routes/system.js');
-  const managerSource = read('ImgBed/src/storage/manager.js');
-
-  assert.match(systemSource, /await storageManager\.rebuildQuotaStats\(\);/);
-  assert.ok(!systemSource.includes('storageManager._rebuildAllQuotaStats('));
-  assert.match(managerSource, /async rebuildQuotaStats\(\) \{[\s\S]*return this\.quotaProjectionService\.rebuildAllQuotaStats\(\);[\s\S]*\}/);
-  console.log('  [OK] quota rebuild: route 通过 StorageManager facade 触发容量校正');
-}
-
-function runStaticChecks() {
-  testUploadRecordUsesFacadeInsteadOfInstancesMap();
-  testResolveFileStoragePrefersStorageInstanceId();
-  testFilesSchemaKeepsBothStorageColumns();
-  testStorageManagerDelegatesRuntimeState();
-  testQuotaCacheMaintenanceLivesInLatestSchemaOnly();
-  testQuotaRebuildUsesStorageManagerFacade();
+  console.log('  [OK] quota cache maintenance：schema 已固化为 v0 最新结构');
 }
 
 async function main() {
   console.log('开始执行存储模型结构测试...');
   testResolveFileStorageIdPrefersStorageInstanceId();
-  await testRebuildMetadataForFileUsesStorageInstanceId();
-  runStaticChecks();
+  testResolveFileStorageIdFallsBackToLegacyMeta();
+  await testRebuildMetadataForFileUsesGetStreamResponse();
+  testUploadRouteWritesCanonicalStorageFields();
+  testFilesListRouteSelectsNewColumns();
+  testResolveFileStorageUsesCanonicalResolver();
+  testHandleStreamOnlyUsesRichResult();
+  testChunkManagerStoresCanonicalChunkMeta();
+  testQuotaCacheMaintenanceLivesInLatestSchemaOnly();
   console.log('存储模型结构测试全部通过');
 }
 

@@ -1,13 +1,15 @@
 import StorageProvider from './base.js';
 import { createLogger } from '../utils/logger.js';
 import { fetchWithProxy } from '../network/proxy.js';
+import { toBlob } from '../utils/storage-io.js';
+import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
 
 const log = createLogger('discord');
 
 /**
- * Discord API 封装类
- * 继承通用存储基类
- */
+     * Discord API 封装类
+     * 实现 StorageProvider 统一接口
+     */
 class DiscordStorage extends StorageProvider {
     constructor(config) {
         super();
@@ -152,6 +154,10 @@ class DiscordStorage extends StorageProvider {
                 return true;
             }
 
+            if (response.status === 404) {
+                return true;
+            }
+
             log.error({ status: response.status, statusText: response.statusText }, '删除消息失败');
             return false;
         } catch (error) {
@@ -166,22 +172,22 @@ class DiscordStorage extends StorageProvider {
     async put(file, options) {
         if (!this.channelId) throw new Error('[DiscordStorage] 缺少频道标识，无法上传');
         const { fileName, mimeType } = options;
-
-        let fileBlob;
-        if (file instanceof Buffer) {
-            fileBlob = new Blob([file], { type: mimeType || 'application/octet-stream' });
-        } else {
-            fileBlob = file;
-        }
+        const fileBlob = toBlob(file, mimeType || 'application/octet-stream');
 
         const responseData = await this.sendFile(fileBlob, this.channelId, fileName || 'file');
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error('[DiscordStorage] 上传后未能获取消息 ID');
-        return { id: `${this.channelId}/${fileInfo.message_id}` };
+        return createStoragePutResult({
+            storageKey: `${this.channelId}/${fileInfo.message_id}`,
+            size: Number(fileInfo.file_size) || null,
+            deleteToken: {
+                channelId: this.channelId,
+                messageId: fileInfo.message_id,
+            },
+        });
     }
 
-    async getStream(fileId, options) {
-        // 配置里会有 channelId 或者参数传过来，通常 fileId = channelId/messageId
+    async getStreamResponse(fileId, options = {}) {
         const [channelId, messageId] = fileId.split('/');
         if (!channelId || !messageId) {
             throw new Error('[DiscordStorage] Discord 文件标识格式无效，应为“频道标识/消息标识”');
@@ -192,9 +198,14 @@ class DiscordStorage extends StorageProvider {
             throw new Error(`[DiscordStorage] 未找到文件访问地址: ${fileId}`);
         }
 
-        const response = await this.requestDiscord(fileURL);
+        const headers = {};
+        if (options.start !== undefined && options.end !== undefined) {
+            headers.Range = `bytes=${options.start}-${options.end}`;
+        }
+
+        const response = await this.requestDiscord(fileURL, { headers });
         if (!response.ok) throw new Error('[DiscordStorage] 拉取文件流失败: ' + response.statusText);
-        return response.body; 
+        return createStorageReadResultFromResponse(response);
     }
 
     async getUrl(fileId, options) {
@@ -204,7 +215,9 @@ class DiscordStorage extends StorageProvider {
     }
 
     async delete(fileId, options) {
-        const [channelId, messageId] = fileId.split('/');
+        const [storageChannelId, storageMessageId] = String(fileId || '').split('/');
+        const channelId = options?.channelId || storageChannelId;
+        const messageId = options?.messageId || storageMessageId;
         if (!channelId || !messageId) return false;
         return await this.deleteMessage(channelId, messageId);
     }
@@ -253,12 +266,19 @@ class DiscordStorage extends StorageProvider {
         if (!this.channelId) throw new Error('[DiscordStorage] 缺少频道标识，无法上传分块');
         const { fileId, chunkIndex } = options;
         const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
-        const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });
+        const blob = toBlob(chunkBuffer, 'application/octet-stream');
 
         const responseData = await this.sendFile(blob, this.channelId, chunkName);
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error(`[DiscordStorage] 分块 ${chunkIndex} 上传后未能获取消息 ID`);
-        return { storageKey: `${this.channelId}/${fileInfo.message_id}`, size: chunkBuffer.length };
+        return createStorageChunkPutResult({
+            storageKey: `${this.channelId}/${fileInfo.message_id}`,
+            size: Number(fileInfo.file_size) || chunkBuffer.length,
+            deleteToken: {
+                channelId: this.channelId,
+                messageId: fileInfo.message_id,
+            },
+        });
     }
 }
 

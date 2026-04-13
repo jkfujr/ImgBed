@@ -1,12 +1,14 @@
 import StorageProvider from './base.js';
 import { fetchWithProxy } from '../network/proxy.js';
 import { createLogger } from '../utils/logger.js';
+import { toBlob } from '../utils/storage-io.js';
+import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
 
 const log = createLogger('telegram');
 
 /**
  * Telegram API 封装类
- * 继承通用存储基类
+ * 实现 StorageProvider 统一接口
  */
 class TelegramStorage extends StorageProvider {
     constructor(config) {
@@ -186,18 +188,12 @@ class TelegramStorage extends StorageProvider {
         return normalized.includes('message to delete not found');
     }
 
-    // --- 以下为 StorageProvider 接口实现，映射旧逻辑 ---
+    // --- 以下为 StorageProvider 统一接口实现 ---
 
     async put(file, options) {
         if (!this.chatId) throw new Error('[TelegramStorage] 缺少会话标识，无法上传');
         const { fileName, mimeType } = options;
-
-        let fileBlob;
-        if (file instanceof Buffer) {
-            fileBlob = new Blob([file], { type: mimeType || 'application/octet-stream' });
-        } else {
-            fileBlob = file;
-        }
+        const fileBlob = toBlob(file, mimeType || 'application/octet-stream');
 
         // 根据文件类型选择发送接口
         const { method, paramName } = this.selectSendMethod(mimeType, fileName);
@@ -214,24 +210,14 @@ class TelegramStorage extends StorageProvider {
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取文件标识');
 
-        // 保存完整的 Telegram 消息元数据，用于后续删除
-        return {
-            id: fileInfo.file_id,
-            fileId: fileInfo.file_id,
-            messageId: result.message_id,
-            chatId: this.chatId,
-            method,
-            size: Number(fileInfo.file_size) || undefined,
-        };
-    }
-
-    async getStream(fileId, options) {
-        // 直接复用原版拉取逻辑
-        const response = await this.getFileContent(fileId, options);
-        if (!response.ok) {
-            throw new Error(`从 Telegram 拉取文件失败: ${response.statusText}`);
-        }
-        return response.body; // 返回可流通 Node 侧或者代理直接转换的 Web Stream
+        return createStoragePutResult({
+            storageKey: fileInfo.file_id,
+            size: Number(fileInfo.file_size) || null,
+            deleteToken: {
+                messageId: result.message_id,
+                chatId: this.chatId,
+            },
+        });
     }
 
     async getStreamResponse(fileId, options = {}) {
@@ -240,17 +226,7 @@ class TelegramStorage extends StorageProvider {
             throw new Error(`从 Telegram 拉取文件失败: ${response.statusText}`);
         }
 
-        const contentLength = Number(response.headers.get('content-length'));
-        const totalSize = this.parseTotalSizeFromContentRange(response.headers.get('content-range'));
-        const acceptRanges = response.headers.get('accept-ranges');
-
-        return {
-            stream: response.body,
-            contentLength: Number.isFinite(contentLength) ? contentLength : null,
-            totalSize,
-            statusCode: response.status,
-            acceptRanges: acceptRanges === 'bytes',
-        };
+        return createStorageReadResultFromResponse(response);
     }
 
     async getUrl(fileId, options) {
@@ -263,7 +239,7 @@ class TelegramStorage extends StorageProvider {
     /**
      * 删除 Telegram 消息（即删除该图片对应的消息）
      * options 预期包含：
-     *   { messageId, chatId } — 从 storage_config.extra_result 里取出
+     *   { messageId, chatId } — 从 storage_meta.deleteToken 里取出
      * 如果 options 为空或缺少 messageId，返回 false 表示不支持。
      */
     async delete(fileId, options = {}) {
@@ -271,7 +247,7 @@ class TelegramStorage extends StorageProvider {
         const chatId = options?.chatId || this.chatId;
 
         if (!messageId) {
-            log.warn({ fileId }, 'Telegram 存储无法删除：storage_config 中缺少 messageId');
+            log.warn({ fileId }, 'Telegram 存储无法删除：deleteToken 中缺少 messageId');
             return false;
         }
 
@@ -357,14 +333,22 @@ class TelegramStorage extends StorageProvider {
         if (!this.chatId) throw new Error('[TelegramStorage] 缺少会话标识，无法上传分块');
         const { fileId, chunkIndex } = options;
         const chunkName = `${fileId}_chunk_${String(chunkIndex).padStart(4, '0')}`;
-        const blob = new Blob([chunkBuffer], { type: 'application/octet-stream' });
+        const blob = toBlob(chunkBuffer, 'application/octet-stream');
 
         const responseData = await this.sendFile(
             blob, this.chatId, 'sendDocument', 'document', '', chunkName
         );
+        const result = responseData.result;
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error(`[TelegramStorage] 分块 ${chunkIndex} 上传后未能获取文件标识`);
-        return { storageKey: fileInfo.file_id, size: chunkBuffer.length };
+        return createStorageChunkPutResult({
+            storageKey: fileInfo.file_id,
+            size: Number(fileInfo.file_size) || chunkBuffer.length,
+            deleteToken: {
+                messageId: result?.message_id,
+                chatId: this.chatId,
+            },
+        });
     }
 }
 

@@ -90,7 +90,7 @@ filesApp.get('/', requirePermission('files:read'), filesListCache(), asyncHandle
 
     const listStmt = sqlite.prepare(
         `SELECT id, file_name, original_name, mime_type, size,
-                storage_channel, storage_key, storage_config,
+                storage_channel, storage_key, storage_meta, storage_instance_id,
                 upload_ip, upload_address, created_at, updated_at,
                 directory, tags, is_public,
                 width, height, uploader_type, uploader_id

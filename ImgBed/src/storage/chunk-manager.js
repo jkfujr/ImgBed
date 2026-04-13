@@ -5,9 +5,12 @@
  */
 
 import pLimit from 'p-limit';
+import { Readable } from 'stream';
 import { sqlite } from '../database/index.js';
 import { createLogger } from '../utils/logger.js';
 import { streamToBuffer } from '../utils/stream.js';
+import { createStoragePutResult } from './contract.js';
+import { parseStorageMeta, serializeStorageMeta } from '../utils/storage-meta.js';
 
 const log = createLogger('chunk-manager');
 
@@ -98,7 +101,7 @@ class ChunkManager {
                         storage_type: storage.constructor.name.replace('Storage', '').toLowerCase(),
                         storage_id: options.storageId,
                         storage_key: result.storageKey,
-                        storage_config: JSON.stringify({}),
+                        storage_meta: serializeStorageMeta({ deleteToken: result.deleteToken }),
                         size: result.size
                     };
                     chunkRecords.push(record);
@@ -113,7 +116,8 @@ class ChunkManager {
             log.warn({ uploadedCount: chunkRecords.length }, '分块上传中途失败，清理已上传块');
             for (const record of chunkRecords) {
                 try {
-                    await storage.deleteChunk(record.storage_key);
+                    const chunkMeta = parseStorageMeta(record.storage_meta);
+                    await storage.deleteChunk(record.storage_key, chunkMeta.deleteToken || null);
                 } catch (cleanErr) {
                     log.warn({ storageKey: record.storage_key, err: cleanErr }, '清理孤儿块失败（忽略）');
                 }
@@ -135,9 +139,9 @@ class ChunkManager {
         }
 
         const insertChunkStmt = db.prepare(`INSERT INTO chunks (
-            file_id, chunk_index, storage_type, storage_id, storage_key, storage_config, size
+            file_id, chunk_index, storage_type, storage_id, storage_key, storage_meta, size
         ) VALUES (
-            @file_id, @chunk_index, @storage_type, @storage_id, @storage_key, @storage_config, @size
+            @file_id, @chunk_index, @storage_type, @storage_id, @storage_key, @storage_meta, @size
         )`);
 
         for (const record of records) {
@@ -152,7 +156,7 @@ class ChunkManager {
      * @param {S3Storage} storage - S3 存储渠道实例
      * @param {Buffer} buffer - 完整文件 Buffer
      * @param {Object} options - { fileId, fileName, originalName, mimeType, storageId, config }
-     * @returns {Promise<{ id: string, totalSize: number }>}
+     * @returns {Promise<{ storageKey: string, size: number|null, deleteToken: Object|null, raw: Object|null }>}
      */
     static async uploadS3Multipart(storage, buffer, options) {
         const config = storage.getChunkConfig();
@@ -238,7 +242,12 @@ class ChunkManager {
                 parts
             });
 
-            return { id: result.id, totalSize: buffer.length };
+            return createStoragePutResult({
+                storageKey: result.storageKey,
+                size: result.size ?? buffer.length,
+                deleteToken: result.deleteToken,
+                raw: result.raw,
+            });
         } catch (err) {
             // 失败时中止 multipart upload，释放 S3 资源
             if (multipart?.uploadId) {
@@ -261,58 +270,47 @@ class ChunkManager {
      * @param {Array} chunks - 从 DB 查出的 chunks 记录，按 chunk_index 排序
      * @param {Function} getStorageFn - (storageId) => StorageProvider
      * @param {Object} rangeOptions - { start, end, totalSize }
-     * @returns {ReadableStream}
+     * @returns {import('stream').Readable}
      */
     static createChunkedReadStream(chunks, getStorageFn, { start = 0, end, totalSize }) {
-        if (end === undefined) end = totalSize - 1;
-        let currentPosition = 0;
-        let chunkIdx = 0;
+        const resolvedTotalSize = Number(totalSize) || chunks.reduce((sum, chunk) => sum + (Number(chunk.size) || 0), 0);
+        const resolvedEnd = end === undefined ? resolvedTotalSize - 1 : end;
 
-        return new ReadableStream({
-            async pull(controller) {
-                while (chunkIdx < chunks.length) {
-                    const chunk = chunks[chunkIdx];
-                    const chunkSize = chunk.size;
-                    const chunkStart = currentPosition;
-                    const chunkEnd = currentPosition + chunkSize - 1;
+        async function* iterator() {
+            let currentPosition = 0;
 
-                    chunkIdx++;
-                    currentPosition += chunkSize;
+            for (const chunk of chunks) {
+                const chunkSize = Number(chunk.size) || 0;
+                const chunkStart = currentPosition;
+                const chunkEnd = currentPosition + chunkSize - 1;
+                currentPosition += chunkSize;
 
-                    // 整块在 range 之前，跳过
-                    if (chunkEnd < start) continue;
-
-                    // 整块在 range 之后，结束
-                    if (chunkStart > end) {
-                        controller.close();
-                        return;
-                    }
-
-                    // 拉取该分块数据
-                    const storage = getStorageFn(chunk.storage_id);
-                    if (!storage) {
-                        controller.error(new Error(`分块渠道 ${chunk.storage_id} 不可用`));
-                        return;
-                    }
-
-                    const stream = await storage.getChunkStream(chunk.storage_key, {});
-                    // 将流转为 Buffer（单块大小有限，不会 OOM）
-                    const chunkData = await streamToBuffer(stream);
-
-                    // 计算本块内需要截取的范围
-                    const sliceStart = Math.max(0, start - chunkStart);
-                    const sliceEnd = Math.min(chunkSize, end - chunkStart + 1);
-                    controller.enqueue(new Uint8Array(chunkData.subarray(sliceStart, sliceEnd)));
-
-                    // 如果是最后一个需要的块，关闭流
-                    if (chunkEnd >= end) {
-                        controller.close();
-                        return;
-                    }
+                if (chunkEnd < start) {
+                    continue;
                 }
-                controller.close();
+
+                if (chunkStart > resolvedEnd) {
+                    return;
+                }
+
+                const storage = getStorageFn(chunk.storage_id);
+                if (!storage) {
+                    throw new Error(`分块渠道 ${chunk.storage_id} 不可用`);
+                }
+
+                const readResult = await storage.getChunkStreamResponse(chunk.storage_key, {});
+                const chunkData = await streamToBuffer(readResult.stream);
+                const sliceStart = Math.max(0, start - chunkStart);
+                const sliceEnd = Math.min(chunkSize, resolvedEnd - chunkStart + 1);
+                yield chunkData.subarray(sliceStart, sliceEnd);
+
+                if (chunkEnd >= resolvedEnd) {
+                    return;
+                }
             }
-        });
+        }
+
+        return Readable.from(iterator());
     }
 
     /**

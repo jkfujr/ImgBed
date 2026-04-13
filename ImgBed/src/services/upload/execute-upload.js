@@ -1,6 +1,7 @@
 import ChunkManager from '../../storage/chunk-manager.js';
 import { createUploadError } from './resolve-upload.js';
 import { createLogger } from '../../utils/logger.js';
+import { createStoragePutResult } from '../../storage/contract.js';
 
 const log = createLogger('execute-upload');
 
@@ -17,7 +18,7 @@ function isRetryableError(error) {
   return false;
 }
 
-async function uploadToStorage({ storage, buffer, fileId, newFileName, originalName, mimeType, finalChannelId, storageManager }) {
+async function uploadToStorage({ storage, buffer, fileId, newFileName, originalName, mimeType, finalChannelId, storageManager, config }) {
   const limits = storageManager.getEffectiveUploadLimits(finalChannelId);
 
   if (limits.enableMaxLimit) {
@@ -48,7 +49,7 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
   });
 
   if (chunkAnalysis.needsChunking && chunkAnalysis.config.mode === 'native') {
-    const result = await ChunkManager.uploadS3Multipart(storage, buffer, {
+    const storageResult = await ChunkManager.uploadS3Multipart(storage, buffer, {
       fileId,
       fileName: newFileName,
       originalName,
@@ -57,9 +58,10 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
       config,
     });
     return {
-      storageResult: { id: result.id },
+      storageResult,
       isChunked: 0,
       chunkCount: 0,
+      chunkRecords: [],
     };
   }
 
@@ -72,19 +74,22 @@ async function uploadToStorage({ storage, buffer, fileId, newFileName, originalN
       storageId: finalChannelId,
     });
     return {
-      storageResult: { id: fileId },
+      storageResult: createStoragePutResult({
+        storageKey: fileId,
+        size: buffer.length,
+      }),
       isChunked: 1,
       chunkCount: result.chunkCount,
       chunkRecords: result.chunkRecords,
     };
   }
 
-  const storageResult = await storage.put(buffer, {
+  const storageResult = createStoragePutResult(await storage.put(buffer, {
     id: fileId,
     fileName: newFileName,
     originalName,
     mimeType,
-  });
+  }));
 
   return {
     storageResult,
@@ -136,6 +141,7 @@ async function executeUploadWithFailover({
         mimeType,
         finalChannelId,
         storageManager,
+        config,
       });
 
       return {

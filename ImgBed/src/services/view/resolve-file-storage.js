@@ -1,8 +1,7 @@
-import { parseStorageConfig } from '../files/storage-artifacts.js';
+import { resolveStorageInstanceId } from '../files/storage-artifacts.js';
 
 function resolveFileStorage(fileRecord, { storageManager }) {
-  const configObj = parseStorageConfig(fileRecord.storage_config);
-  const instanceId = fileRecord.storage_instance_id;
+  const instanceId = resolveStorageInstanceId(fileRecord);
   const storage = storageManager.getStorage(instanceId);
 
   if (!storage) {

@@ -9,6 +9,7 @@ import {
 
 function makeDb() {
   const operations = new Map();
+
   return {
     prepare(sql) {
       if (sql.startsWith('INSERT INTO storage_operations')) {
@@ -84,13 +85,25 @@ function makeStorage({ streamContent = 'file-content', putResult = null } = {}) 
   let lastPutOptions = null;
 
   return {
-    async getStream() {
-      return Readable.from([Buffer.from(streamContent)]);
+    async getStreamResponse() {
+      const buffer = Buffer.from(streamContent);
+      return {
+        stream: Readable.from([buffer]),
+        contentLength: buffer.length,
+        totalSize: buffer.length,
+        statusCode: 200,
+        acceptRanges: false,
+      };
     },
     async put(file, options) {
       lastPutFile = file;
       lastPutOptions = options;
-      return putResult ?? { id: options.id || options.fileName };
+      return putResult ?? {
+        storageKey: options.id || options.fileName,
+        size: options.contentLength ?? null,
+        deleteToken: null,
+        raw: null,
+      };
     },
     async delete() {
       return true;
@@ -134,7 +147,7 @@ function makeFileRecord(overrides = {}) {
     original_name: 'img.png',
     mime_type: 'image/png',
     storage_channel: 's3',
-    storage_config: JSON.stringify({ instance_id: 'src-channel' }),
+    storage_meta: null,
     storage_instance_id: 'src-channel',
     storage_key: 'img.png',
     is_chunked: 0,
@@ -172,7 +185,7 @@ function testValidateMigrationTarget() {
     instances: new Map([['target', { type: 's3', instance: {} }]]),
   });
   assert.equal(validateMigrationTarget('target', okManager).type, 's3');
-  console.log('  [OK] validateMigrationTarget: 公开 facade 校验正常');
+  console.log('  [OK] validateMigrationTarget: facade 校验正常');
 }
 
 async function testMigrateFileRecordSkipsSameChannel() {
@@ -211,7 +224,14 @@ async function testMigrateFileRecordFailsWhenSourceMissing() {
 
 async function testMigrateFileRecordNonChunkedUsesStream() {
   const sourceStorage = makeStorage({ streamContent: 'stream-migrate-content' });
-  const targetStorage = makeStorage({ putResult: { id: 'file-001' } });
+  const targetStorage = makeStorage({
+    putResult: {
+      storageKey: 'file-001',
+      size: 'stream-migrate-content'.length,
+      deleteToken: { messageId: 1, chatId: '-1' },
+      raw: null,
+    },
+  });
   const storageManager = makeStorageManager({
     instances: new Map([
       ['src-channel', { type: 's3', instance: sourceStorage }],
@@ -237,7 +257,7 @@ async function testMigrateFileRecordNonChunkedUsesStream() {
 
 async function testMigrateFilesBatchCountsResults() {
   const sourceStorage = makeStorage({ streamContent: 'batch-file' });
-  const targetStorage = makeStorage({ putResult: { id: 'file-001' } });
+  const targetStorage = makeStorage({ putResult: { storageKey: 'file-001', size: 10, deleteToken: null, raw: null } });
   const storageManager = makeStorageManager({
     instances: new Map([
       ['src-channel', { type: 's3', instance: sourceStorage }],
@@ -266,13 +286,13 @@ async function testMigrateFilesBatchCountsResults() {
 }
 
 async function run() {
-  console.log('\n== migrate-file 测试 ==');
+  console.log('\n== migrate-file canonical tests ==');
   testValidateMigrationTarget();
   await testMigrateFileRecordSkipsSameChannel();
   await testMigrateFileRecordFailsWhenSourceMissing();
   await testMigrateFileRecordNonChunkedUsesStream();
   await testMigrateFilesBatchCountsResults();
-  console.log('\n全部 migrate-file 测试通过\n');
+  console.log('\nmigrate-file tests passed\n');
 }
 
 run().catch((err) => {

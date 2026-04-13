@@ -9,7 +9,12 @@ import {
   markOperationCompleted,
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
-import { parseStorageConfig, isIndexOnlyMode, removeStoredArtifacts } from './storage-artifacts.js';
+import {
+  isIndexOnlyMode,
+  parseStorageMeta,
+  removeStoredArtifacts,
+  resolveStorageInstanceId,
+} from './storage-artifacts.js';
 import { deleteFileById } from '../../database/files-dao.js';
 
 const log = createLogger('delete-file');
@@ -25,25 +30,18 @@ const log = createLogger('delete-file');
  * @param {Object} [logger]
  */
 async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, deleteMode = 'remote_and_index', logger = log }) {
-  const configObj = parseStorageConfig(fileRecord.storage_config);
-  const instanceId = fileRecord.storage_instance_id || null;
+  const storageMeta = parseStorageMeta(fileRecord.storage_meta, fileRecord.storage_config);
+  const instanceId = resolveStorageInstanceId(fileRecord);
   const fileSize = Number(fileRecord.size) || 0;
   const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
-
-  // 从 storage_config.extra_result 提取 TG 删除所需的 messageId/chatId
-  const extraResult = configObj.extra_result || {};
-  const tgOptions = {
-    messageId: extraResult.messageId || extraResult.message_id || null,
-    chatId: extraResult.chatId || extraResult.chat_id || null,
-  };
 
   const compensationPayload = {
     storageId: instanceId,
     storageKey: fileRecord.storage_key,
+    deleteToken: storageMeta.deleteToken || null,
     isChunked: Boolean(fileRecord.is_chunked),
     chunkRecords,
     deleteMode,
-    tgOptions,
   };
 
   const operationId = createStorageOperation(db, {
@@ -58,10 +56,10 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
       storageManager,
       storageId: instanceId,
       storageKey: fileRecord.storage_key,
+      deleteToken: storageMeta.deleteToken || null,
       isChunked: Boolean(fileRecord.is_chunked),
       chunkRecords,
       deleteMode,
-      tgOptions,
     });
     markOperationRemoteDone(db, operationId, {
       sourceStorageId: instanceId,

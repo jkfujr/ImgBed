@@ -11,6 +11,7 @@ import { createStorageQuotaEventsArchiveSchema } from './schemas/storage-quota-e
 import { createStorageQuotaEventsSchema } from './schemas/storage-quota-events.js';
 import { createStorageQuotaHistorySchema } from './schemas/storage-quota-history.js';
 import { createSystemSettingsSchema } from './schemas/system-settings.js';
+import { backfillStorageMeta } from './storage-meta-backfill.js';
 
 const log = createLogger('database:schema');
 
@@ -28,6 +29,7 @@ export function initSchema(db) {
     createChunksSchema(db);
     createAccessLogsSchema(db);
     createStorageQuotaCacheSchema(db);
+    backfillStorageMeta(db);
 
     log.info('数据库表结构初始化完成');
   } catch (err) {

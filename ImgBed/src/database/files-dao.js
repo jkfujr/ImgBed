@@ -116,13 +116,13 @@ function insertFile(db, record) {
   return db.prepare(`
     INSERT INTO files (
       id, file_name, original_name, mime_type, size,
-      storage_channel, storage_key, storage_config, storage_instance_id,
+      storage_channel, storage_key, storage_meta, storage_instance_id,
       upload_ip, upload_address, uploader_type, uploader_id,
       directory, tags, is_public, is_chunked, chunk_count,
       width, height, exif, status
     ) VALUES (
       @id, @file_name, @original_name, @mime_type, @size,
-      @storage_channel, @storage_key, @storage_config, @storage_instance_id,
+      @storage_channel, @storage_key, @storage_meta, @storage_instance_id,
       @upload_ip, @upload_address, @uploader_type, @uploader_id,
       @directory, @tags, @is_public, @is_chunked, @chunk_count,
       @width, @height, @exif, @status
@@ -143,14 +143,14 @@ function deleteFileById(db, id) {
  * 更新文件的存储渠道迁移字段（migrate 流程）。
  * @param {import('better-sqlite3').Database} db
  * @param {string} id
- * @param {{ storageChannel: string, storageKey: string, storageConfig: string, storageInstanceId: string, isChunked: number, chunkCount: number }} fields
+ * @param {{ storageChannel: string, storageKey: string, storageMeta: string|null, storageInstanceId: string, isChunked: number, chunkCount: number }} fields
  */
 function updateFileMigrationFields(db, id, fields) {
   return db.prepare(`
     UPDATE files SET
       storage_channel = ?,
       storage_key = ?,
-      storage_config = ?,
+      storage_meta = ?,
       storage_instance_id = ?,
       is_chunked = ?,
       chunk_count = ?
@@ -158,7 +158,7 @@ function updateFileMigrationFields(db, id, fields) {
   `).run(
     fields.storageChannel,
     fields.storageKey,
-    fields.storageConfig,
+    fields.storageMeta,
     fields.storageInstanceId,
     fields.isChunked,
     fields.chunkCount,

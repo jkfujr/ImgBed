@@ -22,18 +22,12 @@ export function fmtSize(bytes) {
 }
 
 /**
- * 从 storage_config JSON 解析渠道 ID
- * @param {string|object} storageConfig storage_config 字段
+ * 解析渠道实例 ID
+ * @param {string|null|undefined} storageInstanceId storage_instance_id 字段
  * @returns {string} 渠道 ID 或 '-'
  */
-export function parseChannelName(storageConfig) {
-  if (!storageConfig) return '-';
-  try {
-    const cfg = typeof storageConfig === 'string' ? JSON.parse(storageConfig) : storageConfig;
-    return cfg.instance_id || '-';
-  } catch {
-    return '-';
-  }
+export function parseChannelName(storageInstanceId) {
+  return storageInstanceId || '-';
 }
 
 /**

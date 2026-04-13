@@ -39,7 +39,7 @@ function insertFile(db, {
   db.prepare(`
     INSERT INTO files (
       id, file_name, original_name, mime_type, size,
-      storage_channel, storage_key, storage_config, storage_instance_id,
+      storage_channel, storage_key, storage_meta, storage_instance_id,
       upload_ip, upload_address, uploader_type, uploader_id,
       directory, tags, is_public, is_chunked, chunk_count,
       width, height, exif, status
@@ -58,7 +58,7 @@ function insertFile(db, {
     1024,
     storageChannel,
     `${id}.jpg`,
-    JSON.stringify({ instance_id: storageInstanceId }),
+    null,
     storageInstanceId,
     '127.0.0.1',
     '{}',

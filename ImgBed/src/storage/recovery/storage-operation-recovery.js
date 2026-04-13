@@ -1,5 +1,9 @@
 import { createLogger } from '../../utils/logger.js';
-import { removeStoredArtifacts } from '../../services/files/storage-artifacts.js';
+import {
+  parseStorageMeta,
+  removeStoredArtifacts,
+  resolveStorageInstanceId,
+} from '../../services/files/storage-artifacts.js';
 import {
   buildQuotaEvent,
   incrementOperationRetryCount,
@@ -126,15 +130,17 @@ class StorageOperationRecovery {
       return;
     }
 
-    const instanceId = operation.source_storage_id || fileRecord.storage_instance_id || null;
+    const instanceId = operation.source_storage_id || resolveStorageInstanceId(fileRecord);
     const fileSize = Number(fileRecord.size) || 0;
     const chunkRecords = fileRecord.is_chunked
       ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)
       : [];
+    const storageMeta = parseStorageMeta(fileRecord.storage_meta, fileRecord.storage_config);
 
     const compensationPayload = {
       storageId: instanceId,
       storageKey: fileRecord.storage_key,
+      deleteToken: storageMeta.deleteToken || null,
       isChunked: Boolean(fileRecord.is_chunked),
       chunkRecords,
     };
@@ -178,10 +184,10 @@ class StorageOperationRecovery {
         storageManager: this.storageManager,
         storageId: payload.storageId || payload.sourceStorageId,
         storageKey: payload.storageKey || payload.sourceStorageKey,
+        deleteToken: payload.deleteToken || null,
         isChunked: Boolean(payload.isChunked),
         chunkRecords: payload.chunkRecords || [],
         deleteMode: payload.deleteMode,
-        tgOptions: payload.tgOptions || {},
       });
     }
 
@@ -201,10 +207,10 @@ class StorageOperationRecovery {
       storageManager: this.storageManager,
       storageId: payload.storageId || payload.sourceStorageId || payload.targetStorageId,
       storageKey: payload.storageKey || payload.sourceStorageKey || payload.targetStorageKey,
+      deleteToken: payload.deleteToken || null,
       isChunked: Boolean(payload.isChunked),
       chunkRecords: payload.chunkRecords || [],
       deleteMode: payload.deleteMode,
-      tgOptions: payload.tgOptions || {},
     });
 
     markOperationCompensated(db, operation.id, { compensationPayload: payload });

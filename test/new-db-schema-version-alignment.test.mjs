@@ -42,6 +42,24 @@ function testLatestSchemaIsEmbeddedInCreateTableDefinitions() {
       getColumnNames(db, 'files').includes('status'),
       'files DDL 必须直接包含 status 字段'
     );
+    assert.ok(
+      getColumnNames(db, 'files').includes('storage_meta'),
+      'files DDL 必须直接包含 storage_meta 字段'
+    );
+    assert.equal(
+      getColumnNames(db, 'files').includes('storage_config'),
+      false,
+      'files DDL 不应继续保留旧 storage_config 字段'
+    );
+    assert.ok(
+      getColumnNames(db, 'chunks').includes('storage_meta'),
+      'chunks DDL 必须直接包含 storage_meta 字段'
+    );
+    assert.equal(
+      getColumnNames(db, 'chunks').includes('storage_config'),
+      false,
+      'chunks DDL 不应继续保留旧 storage_config 字段'
+    );
 
     const fileIndexes = getIndexNames(db, 'files');
     assert.equal(fileIndexes.includes('idx_files_directory'), false, 'files DDL 不应再创建旧索引 idx_files_directory');

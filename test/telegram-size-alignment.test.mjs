@@ -25,10 +25,14 @@ async function testTelegramPutReturnsActualRemoteSize() {
     mimeType: 'image/jpeg',
   });
 
-  assert.equal(result.method, 'sendPhoto', '普通 JPG 应走 sendPhoto');
-  assert.equal(result.fileId, 'large', '应选择 Telegram 返回的最大尺寸文件');
+  assert.equal(result.storageKey, 'large', '应选择 Telegram 返回的最大尺寸文件作为 storageKey');
   assert.equal(result.size, 222, '上传结果应暴露 Telegram 实际存储大小');
-  console.log('  [OK] TelegramStorage.put：返回实际远端尺寸');
+  assert.deepEqual(result.deleteToken, {
+    messageId: 42,
+    chatId: '123456',
+  }, '应把删除消息所需最小凭证收口到 deleteToken');
+  assert.equal(result.raw, null, '默认不暴露厂商原始回包');
+  console.log('  [OK] TelegramStorage.put：返回 canonical put 结构');
 }
 
 function testResolveStoredFileSizePrefersRemoteSize() {

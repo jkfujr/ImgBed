@@ -4,7 +4,9 @@ import { pipeline } from 'stream/promises';
 
 import { resolveAppPath } from '../config/app-root.js';
 import { createLogger } from '../utils/logger.js';
+import { toBuffer, toNodeReadable } from '../utils/storage-io.js';
 import StorageProvider from './base.js';
+import { createStoragePutResult, createStorageReadResult } from './contract.js';
 
 const log = createLogger('local');
 
@@ -39,39 +41,52 @@ class LocalStorage extends StorageProvider {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    if (file instanceof Buffer) {
-      await fs.promises.writeFile(filePath, file);
-    } else if (file instanceof fs.ReadStream || file.stream) {
-      const stream = typeof file.stream === 'function' ? file.stream() : file;
-      const writeStream = fs.createWriteStream(filePath);
-      await pipeline(stream, writeStream);
-    } else if (typeof file.arrayBuffer === 'function') {
-      const buf = Buffer.from(await file.arrayBuffer());
+    let fileSize = null;
+
+    if (Buffer.isBuffer(file) || file instanceof Uint8Array || file instanceof ArrayBuffer || typeof file?.arrayBuffer === 'function') {
+      const buf = await toBuffer(file);
+      fileSize = buf.length;
       await fs.promises.writeFile(filePath, buf);
     } else {
-      throw new Error('不支持的上传文件对象格式');
+      try {
+        const writeStream = fs.createWriteStream(filePath);
+        await pipeline(toNodeReadable(file), writeStream);
+        const stat = await fs.promises.stat(filePath);
+        fileSize = stat.size;
+      } catch (error) {
+        throw new Error('不支持的上传文件对象格式');
+      }
     }
 
-    return {
-      id,
-      path: filePath,
-    };
+    return createStoragePutResult({
+      storageKey: id,
+      size: fileSize,
+    });
   }
 
-  async getStream(id, options = {}) {
+  async getStreamResponse(id, options = {}) {
     const filePath = this._getPhysicalPath(id);
     if (!fs.existsSync(filePath)) {
       throw new Error(`文件不存在: ${id}`);
     }
 
+    const stat = await fs.promises.stat(filePath);
     const { start, end } = options;
     const readOptions = {};
-    if (start !== undefined && end !== undefined) {
+    const isPartial = start !== undefined && end !== undefined;
+
+    if (isPartial) {
       readOptions.start = start;
       readOptions.end = end;
     }
 
-    return fs.createReadStream(filePath, readOptions);
+    return createStorageReadResult({
+      stream: fs.createReadStream(filePath, readOptions),
+      contentLength: isPartial ? (end - start + 1) : stat.size,
+      totalSize: stat.size,
+      statusCode: isPartial ? 206 : 200,
+      acceptRanges: true,
+    });
   }
 
   async getUrl(id) {

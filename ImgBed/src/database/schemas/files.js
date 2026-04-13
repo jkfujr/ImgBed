@@ -1,3 +1,5 @@
+import { renameColumnIfNeeded } from '../schema-utils.js';
+
 /**
  * files 表 DDL：CREATE TABLE + 索引 + updated_at 触发器。
  * 注意：quota_cache 的三个跨表触发器在 storage-quota-cache.js 中定义。
@@ -15,7 +17,7 @@ export function createFilesSchema(db) {
       -- 存储渠道信息
       storage_channel TEXT NOT NULL,
       storage_key TEXT NOT NULL,
-      storage_config JSON,
+      storage_meta JSON,
 
       -- 上传信息
       upload_ip TEXT,
@@ -64,4 +66,6 @@ export function createFilesSchema(db) {
         UPDATE files SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
   `);
+
+  renameColumnIfNeeded(db, 'files', 'storage_config', 'storage_meta');
 }

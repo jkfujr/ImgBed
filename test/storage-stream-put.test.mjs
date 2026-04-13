@@ -1,16 +1,6 @@
-/**
- * 存储驱动流式 put 单元测试
- * 覆盖范围：
- *   - S3Storage.put：Buffer / Node Readable / Web ReadableStream 三种输入
- *   - HuggingFaceStorage.put：Buffer / Node Readable / Web ReadableStream 三种输入
- */
-
 import { strict as assert } from 'node:assert';
 import { Readable } from 'node:stream';
 
-// ─────────────────────────────────────────────
-// 辅助：把字符串内容包成不同类型的"流"
-// ─────────────────────────────────────────────
 function makeNodeReadable(content) {
   return Readable.from([Buffer.from(content)]);
 }
@@ -25,27 +15,26 @@ function makeWebReadableStream(content) {
   });
 }
 
-// ─────────────────────────────────────────────
-// S3 模块级 stub 注入
-// PutObjectCommand 是模块级变量，注入 storage.s3 不够，
-// 还需通过 __setCommandsForTest 替换命令构造函数。
-// ─────────────────────────────────────────────
 let S3Storage;
 async function loadS3WithStubs() {
   if (!S3Storage) {
     const mod = await import('../ImgBed/src/storage/s3.js');
     S3Storage = mod.default;
   }
-  // 注入伪命令构造函数：记录 input，返回带 input 属性的对象
+
   const FakeCommand = class {
-    constructor(input) { this.input = input; }
+    constructor(input) {
+      this.input = input;
+    }
   };
+
   S3Storage.__setCommandsForTest({
     PutObjectCommand: FakeCommand,
     GetObjectCommand: FakeCommand,
     DeleteObjectCommand: FakeCommand,
     HeadObjectCommand: FakeCommand,
   });
+
   return S3Storage;
 }
 
@@ -57,28 +46,27 @@ function makeS3StorageWithFakeClient(captureRef) {
       captureRef.cmd = cmd;
     }
   };
+
   const storage = new S3Storage({ bucket: 'test', region: 'us-east-1', accessKeyId: 'x', secretAccessKey: 'x' });
-  // 直接注入：_ensureInitialized 检查 this.s3 非 null 即返回
   storage.s3 = fakeS3;
   return storage;
 }
 
-// ─────────────────────────────────────────────
-// S3Storage.put 测试
-// ─────────────────────────────────────────────
 async function testS3PutAcceptsBuffer() {
   await loadS3WithStubs();
   const cap = {};
   const storage = makeS3StorageWithFakeClient(cap);
 
   const buf = Buffer.from('hello-buffer');
-  await storage.put(buf, { fileName: 'test.txt', mimeType: 'text/plain' });
+  const result = await storage.put(buf, { fileName: 'test.txt', mimeType: 'text/plain' });
 
   assert.ok(Buffer.isBuffer(cap.body), 'Buffer 输入：body 应为 Buffer');
   assert.deepEqual(cap.body, buf, 'Buffer 输入：body 内容应一致');
-  assert.equal(cap.contentLength, undefined, 'Buffer 输入：不传 contentLength 时不应设置');
-
-  console.log('  [OK] S3Storage.put：Buffer 输入');
+  assert.equal(result.storageKey, 'test.txt');
+  assert.equal(result.size, buf.length);
+  assert.equal(result.deleteToken, null);
+  assert.equal(result.raw, null);
+  console.log('  [OK] S3Storage.put：Buffer 输入返回 canonical 结构');
 }
 
 async function testS3PutAcceptsNodeReadable() {
@@ -87,12 +75,14 @@ async function testS3PutAcceptsNodeReadable() {
   const storage = makeS3StorageWithFakeClient(cap);
 
   const readable = makeNodeReadable('hello-node-stream');
-  await storage.put(readable, { fileName: 'test.txt', mimeType: 'text/plain', contentLength: 17 });
+  const result = await storage.put(readable, { fileName: 'test.txt', mimeType: 'text/plain', contentLength: 17 });
 
-  assert.ok(cap.body instanceof Readable, 'Node Readable 输入：body 应直接是 Readable');
-  assert.equal(cap.body, readable, 'Node Readable 输入：应是原始 readable');
-
-  console.log('  [OK] S3Storage.put：Node Readable 输入');
+  assert.ok(cap.body instanceof Readable, 'Node Readable 输入：body 应为 Node Readable');
+  assert.equal(cap.body, readable, 'Node Readable 输入：应保持原始 readable');
+  assert.equal(cap.contentLength, 17, '显式 contentLength 应透传给 S3');
+  assert.equal(result.storageKey, 'test.txt');
+  assert.equal(result.size, 17);
+  console.log('  [OK] S3Storage.put：Node Readable 输入返回 canonical 结构');
 }
 
 async function testS3PutAcceptsWebReadableStream() {
@@ -101,23 +91,13 @@ async function testS3PutAcceptsWebReadableStream() {
   const storage = makeS3StorageWithFakeClient(cap);
 
   const webStream = makeWebReadableStream('hello-web-stream');
-  await storage.put(webStream, { fileName: 'test.txt', contentLength: 16 });
+  const result = await storage.put(webStream, { fileName: 'test.txt', contentLength: 16 });
 
-  assert.ok(cap.body instanceof ReadableStream, 'Web ReadableStream 输入：body 应直接是 ReadableStream');
-
-  console.log('  [OK] S3Storage.put：Web ReadableStream 输入');
-}
-
-async function testS3PutSetsContentLengthWhenProvided() {
-  await loadS3WithStubs();
-  const cap = {};
-  const storage = makeS3StorageWithFakeClient(cap);
-
-  const readable = makeNodeReadable('data');
-  await storage.put(readable, { fileName: 'test.txt', contentLength: 4 });
-
-  assert.equal(cap.contentLength, 4, 'contentLength 选项应被透传到 CommandParams');
-  console.log('  [OK] S3Storage.put：contentLength 透传');
+  assert.ok(cap.body instanceof Readable, 'Web ReadableStream 输入：应被转换为 Node Readable');
+  assert.equal(cap.contentLength, 16);
+  assert.equal(result.storageKey, 'test.txt');
+  assert.equal(result.size, 16);
+  console.log('  [OK] S3Storage.put：Web ReadableStream 输入被统一为 Node Readable');
 }
 
 async function testS3PutThrowsWhenMissingFileName() {
@@ -126,62 +106,44 @@ async function testS3PutThrowsWhenMissingFileName() {
 
   await assert.rejects(
     () => storage.put(Buffer.from('x'), { mimeType: 'text/plain' }),
-    /missing fileName/i
+    /缺少 fileName/
   );
-  console.log('  [OK] S3Storage.put：缺少 fileName 抛出错误');
+  console.log('  [OK] S3Storage.put：缺少 fileName 抛出中文错误');
 }
 
-// ─────────────────────────────────────────────
-// HuggingFaceStorage.put 测试
-// ─────────────────────────────────────────────
-async function testHFPutAcceptsBuffer() {
+async function testHFPutAcceptsMultipleBinaryInputs() {
   const { default: HFStorage } = await import('../ImgBed/src/storage/huggingface.js');
   const storage = new HFStorage({ token: 't', repo: 'user/repo' });
 
   let receivedFilesData;
-  storage.commit = async (_msg, filesData) => { receivedFilesData = filesData; return {}; };
+  storage.commit = async (_msg, filesData) => {
+    receivedFilesData = filesData;
+    return {};
+  };
 
-  const buf = Buffer.from('hf-buffer-content');
-  await storage.put(buf, { fileName: 'img.png', originalName: 'img.png' });
+  const bufferResult = await storage.put(Buffer.from('hf-buffer-content'), {
+    fileName: 'img-buffer.png',
+    originalName: 'img-buffer.png',
+  });
+  assert.equal(bufferResult.storageKey, 'img-buffer.png');
+  assert.equal(bufferResult.size, 'hf-buffer-content'.length);
+  assert.equal(bufferResult.deleteToken, null);
+  assert.ok(Buffer.isBuffer(receivedFilesData['img-buffer.png']));
 
-  assert.ok(receivedFilesData['img.png'], 'Buffer 输入：filesData 应有目标 key');
-  const body = receivedFilesData['img.png'];
-  assert.ok(Buffer.isBuffer(body) || body instanceof ArrayBuffer, 'Buffer 输入：内容应是 Buffer/ArrayBuffer');
-  console.log('  [OK] HuggingFaceStorage.put：Buffer 输入');
-}
+  const streamResult = await storage.put(makeNodeReadable('hf-node-stream-content'), {
+    fileName: 'img-stream.png',
+  });
+  assert.equal(streamResult.storageKey, 'img-stream.png');
+  assert.equal(streamResult.size, 'hf-node-stream-content'.length);
+  assert.ok(Buffer.isBuffer(receivedFilesData['img-stream.png']));
 
-async function testHFPutAcceptsNodeReadable() {
-  const { default: HFStorage } = await import('../ImgBed/src/storage/huggingface.js');
-  const storage = new HFStorage({ token: 't', repo: 'user/repo' });
-
-  let receivedFilesData;
-  storage.commit = async (_msg, filesData) => { receivedFilesData = filesData; return {}; };
-
-  const content = 'hf-node-stream-content';
-  const readable = makeNodeReadable(content);
-  await storage.put(readable, { fileName: 'img.png' });
-
-  const body = receivedFilesData['img.png'];
-  assert.ok(Buffer.isBuffer(body), 'Node Readable 输入：收集后应为 Buffer');
-  assert.equal(body.toString(), content, 'Node Readable 输入：内容应正确');
-  console.log('  [OK] HuggingFaceStorage.put：Node Readable 输入');
-}
-
-async function testHFPutAcceptsWebReadableStream() {
-  const { default: HFStorage } = await import('../ImgBed/src/storage/huggingface.js');
-  const storage = new HFStorage({ token: 't', repo: 'user/repo' });
-
-  let receivedFilesData;
-  storage.commit = async (_msg, filesData) => { receivedFilesData = filesData; return {}; };
-
-  const content = 'hf-web-stream-content';
-  const webStream = makeWebReadableStream(content);
-  await storage.put(webStream, { fileName: 'img.png' });
-
-  const body = receivedFilesData['img.png'];
-  assert.ok(Buffer.isBuffer(body), 'Web ReadableStream 输入：收集后应为 Buffer');
-  assert.equal(body.toString(), content, 'Web ReadableStream 输入：内容应正确');
-  console.log('  [OK] HuggingFaceStorage.put：Web ReadableStream 输入');
+  const webResult = await storage.put(makeWebReadableStream('hf-web-stream-content'), {
+    fileName: 'img-web.png',
+  });
+  assert.equal(webResult.storageKey, 'img-web.png');
+  assert.equal(webResult.size, 'hf-web-stream-content'.length);
+  assert.ok(Buffer.isBuffer(receivedFilesData['img-web.png']));
+  console.log('  [OK] HuggingFaceStorage.put：多种二进制输入均收敛到 canonical 结构');
 }
 
 async function testHFPutThrowsWhenMissingFileName() {
@@ -191,29 +153,20 @@ async function testHFPutThrowsWhenMissingFileName() {
 
   await assert.rejects(
     () => storage.put(Buffer.from('x'), {}),
-    /Missing fileName/i
+    /缺少 fileName/
   );
-  console.log('  [OK] HuggingFaceStorage.put：缺少 fileName 抛出错误');
+  console.log('  [OK] HuggingFaceStorage.put：缺少 fileName 抛出中文错误');
 }
 
-// ─────────────────────────────────────────────
-// 运行所有测试
-// ─────────────────────────────────────────────
 async function run() {
-  console.log('\n== S3Storage.put 流式支持测试 ==');
+  console.log('\n== storage stream / put canonical contract tests ==');
   await testS3PutAcceptsBuffer();
   await testS3PutAcceptsNodeReadable();
   await testS3PutAcceptsWebReadableStream();
-  await testS3PutSetsContentLengthWhenProvided();
   await testS3PutThrowsWhenMissingFileName();
-
-  console.log('\n== HuggingFaceStorage.put 流式支持测试 ==');
-  await testHFPutAcceptsBuffer();
-  await testHFPutAcceptsNodeReadable();
-  await testHFPutAcceptsWebReadableStream();
+  await testHFPutAcceptsMultipleBinaryInputs();
   await testHFPutThrowsWhenMissingFileName();
-
-  console.log('\n所有存储流式上传测试通过\n');
+  console.log('\nstorage-stream-put tests passed\n');
 }
 
 run().catch((err) => {

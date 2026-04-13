@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { buildStreamHeaders } from './resolve-file-storage.js';
 import { createLogger } from '../../utils/logger.js';
+import { toNodeReadable } from '../../utils/storage-io.js';
 
 const log = createLogger('handle-stream');
 
@@ -33,13 +34,9 @@ const toFiniteNumber = (value) => {
 
 function normalizeReadResult(readResult) {
   if (!readResult || typeof readResult !== 'object' || !('stream' in readResult)) {
-    return {
-      stream: readResult,
-      contentLength: null,
-      totalSize: null,
-      statusCode: null,
-      acceptRanges: true,
-    };
+    const error = new Error('存储驱动未返回 StorageReadResult');
+    error.status = 502;
+    throw error;
   }
 
   return {
@@ -133,21 +130,20 @@ async function handleChunkedStream(fileRecord, res, { start, end, isPartial, sto
 async function handleRegularStream(fileRecord, res, storage, storageKey, { start, end, isPartial, etag, lastModified }) {
   const options = isPartial ? { start, end } : {};
   let fileStream = null;
+  let nodeStream = null;
   let streamClosed = false;
 
   // 清理函数
   const cleanup = () => {
-    if (fileStream && !streamClosed) {
+    if (nodeStream && !streamClosed) {
       streamClosed = true;
-      fileStream.destroy();
+      nodeStream.destroy();
       log.debug({ storageKey }, '文件流已清理');
     }
   };
 
   try {
-    const readResult = await (typeof storage.getStreamResponse === 'function'
-      ? storage.getStreamResponse(storageKey, options)
-      : storage.getStream(storageKey, options)).catch(e => {
+    const readResult = await storage.getStreamResponse(storageKey, options).catch(e => {
       log.error({ storageKey, err: e }, '拉取真实流出错');
       return null;
     });
@@ -203,32 +199,10 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
       }
     });
 
-    if (fileStream instanceof Readable) {
-      // 监听流错误，避免未捕获的异常导致服务崩溃
-      fileStream.on('error', (err) => {
-        log.error({ storageKey, err }, '文件流传输错误');
-        cleanup();
+    nodeStream = fileStream instanceof Readable ? fileStream : toNodeReadable(fileStream);
 
-        if (!res.headersSent) {
-          res.status(500).json({ code: 500, message: '文件读取失败' });
-        }
-        // 如果响应头已发送，不做任何操作，让连接自然关闭
-      });
-
-      // 监听流结束
-      fileStream.on('end', () => {
-        streamClosed = true;
-        log.debug({ storageKey }, '文件流传输完成');
-      });
-
-      fileStream.pipe(res);
-      return res;
-    }
-
-    const webStream = Readable.fromWeb(fileStream);
-
-    webStream.on('error', (err) => {
-      log.error({ storageKey, err }, 'Web 流传输错误');
+    nodeStream.on('error', (err) => {
+      log.error({ storageKey, err }, '文件流传输错误');
       cleanup();
 
       if (!res.headersSent) {
@@ -237,12 +211,12 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
       // 如果响应头已发送，不做任何操作，让连接自然关闭
     });
 
-    webStream.on('end', () => {
+    nodeStream.on('end', () => {
       streamClosed = true;
-      log.debug({ storageKey }, 'Web 流传输完成');
+      log.debug({ storageKey }, '文件流传输完成');
     });
 
-    webStream.pipe(res);
+    nodeStream.pipe(res);
     return res;
   } catch (err) {
     log.error({ storageKey, err }, '处理文件流失败');

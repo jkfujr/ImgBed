@@ -174,10 +174,10 @@ export default function FilesAdminListView({
       },
     },
     {
-      field: 'storage_config',
+      field: 'storage_instance_id',
       headerName: '渠道名称',
       width: 120,
-      valueGetter: (value, row) => row._type === 'file' ? parseChannelName(row.storage_config) : '-',
+      valueGetter: (value, row) => row._type === 'file' ? parseChannelName(row.storage_instance_id) : '-',
       renderCell: (params) => (
         <Typography variant="body2" color="text.secondary" noWrap>
           {params.value}

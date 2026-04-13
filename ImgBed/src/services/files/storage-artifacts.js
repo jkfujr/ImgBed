@@ -1,9 +1,13 @@
-function parseStorageConfig(storageConfig) {
-  try {
-    return JSON.parse(storageConfig || '{}');
-  } catch {
-    return {};
-  }
+import {
+  normalizeDeleteToken,
+  parseJsonObject,
+  parseStorageMeta,
+  resolveStorageInstanceId,
+  serializeStorageMeta,
+} from '../../utils/storage-meta.js';
+
+function parseStorageConfig(rawConfig) {
+  return parseJsonObject(rawConfig);
 }
 
 /**
@@ -17,10 +21,10 @@ async function removeStoredArtifacts({
   storageManager,
   storageId,
   storageKey,
+  deleteToken = null,
   isChunked = false,
   chunkRecords = [],
   deleteMode = 'remote_and_index',
-  tgOptions = {},
 }) {
   // 仅删索引模式下跳过所有远端删除
   if (isIndexOnlyMode(deleteMode)) {
@@ -33,7 +37,8 @@ async function removeStoredArtifacts({
       if (!chunkStorage) {
         throw new Error(`分块渠道不可用: ${chunk.storage_id}`);
       }
-      const deleted = await chunkStorage.deleteChunk(chunk.storage_key);
+      const chunkMeta = parseStorageMeta(chunk.storage_meta, chunk.storage_config);
+      const deleted = await chunkStorage.deleteChunk(chunk.storage_key, chunkMeta.deleteToken || null);
       if (deleted === false) {
         throw new Error(`分块删除失败: ${chunk.storage_key}`);
       }
@@ -50,7 +55,7 @@ async function removeStoredArtifacts({
     throw new Error(`存储渠道不可用: ${storageId}`);
   }
 
-  const deleted = await storage.delete(storageKey, tgOptions);
+  const deleted = await storage.delete(storageKey, deleteToken);
   if (deleted === false) {
     throw new Error(`存储对象删除失败: ${storageKey}`);
   }
@@ -58,6 +63,11 @@ async function removeStoredArtifacts({
 
 export {
   parseStorageConfig,
+  parseJsonObject,
+  parseStorageMeta,
+  serializeStorageMeta,
+  resolveStorageInstanceId,
   isIndexOnlyMode,
   removeStoredArtifacts,
+  normalizeDeleteToken,
 };

@@ -21,7 +21,7 @@ export default function ImageDetailPanel({ item, theme, onClose, onDelete }) {
     { label: '上传时间', value: fmtDate(item.created_at) },
     { label: '上传用户', value: item.uploader_id || '-' },
     { label: '上传 IP', value: item.upload_ip || '-' },
-    { label: '渠道 ID', value: parseChannelName(item.storage_config) },
+    { label: '渠道 ID', value: parseChannelName(item.storage_instance_id) },
   ];
 
   return (

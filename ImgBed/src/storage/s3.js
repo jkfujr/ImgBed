@@ -1,4 +1,6 @@
 import StorageProvider from './base.js';
+import { createStoragePutResult, createStorageReadResult, parseContentRange } from './contract.js';
+import { toBuffer, toNodeReadable } from '../utils/storage-io.js';
 
 let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
 let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
@@ -74,21 +76,53 @@ class S3Storage extends StorageProvider {
         return this.pathPrefix ? `${this.pathPrefix}${fileName}` : fileName;
     }
 
+    async resolveUploadBody(file) {
+        if (Buffer.isBuffer(file) || file instanceof Uint8Array || file instanceof ArrayBuffer) {
+            const buffer = await toBuffer(file);
+            return { body: buffer, size: buffer.length };
+        }
+
+        if (typeof file?.stream === 'function') {
+            return {
+                body: toNodeReadable(file.stream()),
+                size: Number.isFinite(Number(file.size)) ? Number(file.size) : null,
+            };
+        }
+
+        if (typeof file?.arrayBuffer === 'function') {
+            const buffer = await toBuffer(file);
+            return { body: buffer, size: buffer.length };
+        }
+
+        return { body: toNodeReadable(file), size: null };
+    }
+
+    async sendGetObject(params) {
+        const command = new GetObjectCommand(params);
+
+        try {
+            return await this.s3.send(command);
+        } catch (error) {
+            if (error.message && error.message.includes('Checksum mismatch')) {
+                console.error(`[S3Storage] 校验和不匹配警告 (fileId: ${params.Key}):`, error.message);
+                const retryCommand = new GetObjectCommand({
+                    ...params,
+                    ChecksumMode: 'ENABLED'
+                });
+                return this.s3.send(retryCommand);
+            }
+            throw error;
+        }
+    }
+
     async put(file, options) {
         await this._ensureInitialized();
         const { fileName, mimeType, contentLength } = options;
         if (!fileName) throw new Error('[S3Storage] 缺少 fileName');
 
         const fileKey = this._getFullPath(fileName);
-        let body;
-        if (file instanceof Buffer) {
-            body = file;
-        } else if (typeof file.arrayBuffer === 'function') {
-            body = Buffer.from(await file.arrayBuffer());
-        } else {
-            // Node.js Readable 或 Web ReadableStream 直接作为 Body 传给 S3 SDK
-            body = file;
-        }
+        const { body, size } = await this.resolveUploadBody(file);
+        const resolvedContentLength = contentLength ?? size ?? undefined;
 
         const commandParams = {
             Bucket: this.bucket,
@@ -97,18 +131,19 @@ class S3Storage extends StorageProvider {
             ContentType: mimeType || 'application/octet-stream'
         };
         // 流式上传时需提供 ContentLength，否则 S3 SDK 可能报错
-        if (contentLength !== undefined) {
-            commandParams.ContentLength = contentLength;
+        if (resolvedContentLength !== undefined) {
+            commandParams.ContentLength = resolvedContentLength;
         }
 
         const command = new PutObjectCommand(commandParams);
         await this.s3.send(command);
-        return {
-            id: fileKey
-        };
+        return createStoragePutResult({
+            storageKey: fileKey,
+            size: resolvedContentLength ?? null,
+        });
     }
 
-    async getStream(fileId, options = {}) {
+    async getStreamResponse(fileId, options = {}) {
         await this._ensureInitialized();
         const params = {
             Bucket: this.bucket,
@@ -117,25 +152,17 @@ class S3Storage extends StorageProvider {
         if (options.start !== undefined && options.end !== undefined) {
             params.Range = `bytes=${options.start}-${options.end}`;
         }
-        const command = new GetObjectCommand(params);
 
-        try {
-            const response = await this.s3.send(command);
-            return response.Body;
-        } catch (error) {
-            // 捕获校验和错误，记录但不崩溃
-            if (error.message && error.message.includes('Checksum mismatch')) {
-                console.error(`[S3Storage] 校验和不匹配警告 (fileId: ${fileId}):`, error.message);
-                // 重试一次，不验证校验和
-                const retryCommand = new GetObjectCommand({
-                    ...params,
-                    ChecksumMode: 'ENABLED' // 仅启用但不强制验证
-                });
-                const retryResponse = await this.s3.send(retryCommand);
-                return retryResponse.Body;
-            }
-            throw error;
-        }
+        const response = await this.sendGetObject(params);
+        const contentRange = parseContentRange(response.ContentRange);
+
+        return createStorageReadResult({
+            stream: response.Body,
+            contentLength: response.ContentLength ?? null,
+            totalSize: contentRange?.totalSize ?? response.ContentLength ?? null,
+            statusCode: response.$metadata?.httpStatusCode,
+            acceptRanges: true,
+        });
     }
 
     async getUrl(fileId, options) {
@@ -238,7 +265,9 @@ class S3Storage extends StorageProvider {
             }
         });
         await this.s3.send(cmd);
-        return { id: key };
+        return createStoragePutResult({
+            storageKey: key,
+        });
     }
 
     async abortMultipartUpload({ uploadId, key }) {
