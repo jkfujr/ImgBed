@@ -1,41 +1,14 @@
-import sharp from 'sharp';
 import { updateFileImageMetadata, getImageFilesForMetadataRebuild } from '../../database/files-dao.js';
 import { toBuffer } from '../../utils/storage-io.js';
 import { resolveStorageInstanceId } from './storage-artifacts.js';
+import { readImageMetadata } from './image-metadata.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function resolveFileStorageId(file) {
-  return resolveStorageInstanceId(file);
-}
-
-async function extractImageMetadata(buffer) {
-  const metadata = await sharp(buffer).metadata();
-  const { format, size, width, height, space, channels, depth, density, hasProfile, hasAlpha, orientation, exif: rawExif } = metadata;
-  return {
-    width: width || null,
-    height: height || null,
-    exif: JSON.stringify({
-      format,
-      size,
-      width,
-      height,
-      space,
-      channels,
-      depth,
-      density,
-      hasProfile,
-      hasAlpha,
-      orientation,
-      hasExif: !!rawExif,
-    }),
-  };
-}
-
-async function rebuildMetadataForFile(file, { db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = extractImageMetadata }) {
-  const storageId = resolveFileStorageId(file);
+async function rebuildMetadataForFile(file, { db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = readImageMetadata }) {
+  const storageId = resolveStorageInstanceId(file);
   const storage = storageManager.getStorage(storageId);
   if (!storage) {
     logger.warn(`[Maintenance] 找不到存储实例: ${storageId} (File: ${file.id})`);
@@ -56,7 +29,7 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
   return { status: 'updated' };
 }
 
-async function rebuildMetadataTask({ force, db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = extractImageMetadata }) {
+async function rebuildMetadataTask({ force, db, storageManager, logger = console, wait = sleep, sleepMs = 50, extractMetadata = readImageMetadata }) {
   logger.log(`[Maintenance] 开始${force ? '全量' : '增量'}重建元数据...`);
 
   const files = getImageFilesForMetadataRebuild(db, force);
@@ -90,7 +63,7 @@ async function rebuildMetadataTask({ force, db, storageManager, logger = console
   return stats;
 }
 
-export { extractImageMetadata,
+export {
   rebuildMetadataForFile,
   rebuildMetadataTask,
-  resolveFileStorageId, };
+};

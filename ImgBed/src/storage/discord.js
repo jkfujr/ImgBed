@@ -69,13 +69,13 @@ class DiscordStorage extends StorageProvider {
             if (responseData.attachments && responseData.attachments.length > 0) {
                 const attachment = responseData.attachments[0];
                 return {
-                    message_id: responseData.id,
-                    attachment_id: attachment.id,
-                    file_name: attachment.filename,
-                    file_size: attachment.size,
-                    content_type: attachment.content_type,
+                    messageId: responseData.id,
+                    attachmentId: attachment.id,
+                    fileName: attachment.filename,
+                    fileSize: attachment.size,
+                    contentType: attachment.content_type,
                     url: attachment.url,
-                    proxy_url: attachment.proxy_url
+                    proxyUrl: attachment.proxy_url
                 };
             }
 
@@ -178,11 +178,11 @@ class DiscordStorage extends StorageProvider {
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error('[DiscordStorage] 上传后未能获取消息 ID');
         return createStoragePutResult({
-            storageKey: `${this.channelId}/${fileInfo.message_id}`,
-            size: Number(fileInfo.file_size) || null,
+            storageKey: `${this.channelId}/${fileInfo.messageId}`,
+            size: Number(fileInfo.fileSize) || null,
             deleteToken: {
                 channelId: this.channelId,
-                messageId: fileInfo.message_id,
+                messageId: fileInfo.messageId,
             },
         });
     }
@@ -272,11 +272,11 @@ class DiscordStorage extends StorageProvider {
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error(`[DiscordStorage] 分块 ${chunkIndex} 上传后未能获取消息 ID`);
         return createStorageChunkPutResult({
-            storageKey: `${this.channelId}/${fileInfo.message_id}`,
-            size: Number(fileInfo.file_size) || chunkBuffer.length,
+            storageKey: `${this.channelId}/${fileInfo.messageId}`,
+            size: Number(fileInfo.fileSize) || chunkBuffer.length,
             deleteToken: {
                 channelId: this.channelId,
-                messageId: fileInfo.message_id,
+                messageId: fileInfo.messageId,
             },
         });
     }

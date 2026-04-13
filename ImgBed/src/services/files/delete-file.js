@@ -9,6 +9,7 @@ import {
   markOperationCompleted,
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
+import { buildStorageArtifactPayload } from '../system/storage-operation-payload.js';
 import {
   isIndexOnlyMode,
   parseStorageMeta,
@@ -35,14 +36,13 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
   const fileSize = Number(fileRecord.size) || 0;
   const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
 
-  const compensationPayload = {
-    storageId: instanceId,
+  const compensationPayload = buildStorageArtifactPayload({
     storageKey: fileRecord.storage_key,
     deleteToken: storageMeta.deleteToken || null,
     isChunked: Boolean(fileRecord.is_chunked),
     chunkRecords,
     deleteMode,
-  };
+  });
 
   const operationId = createStorageOperation(db, {
     operationType: 'delete',
@@ -63,15 +63,13 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
     });
     markOperationRemoteDone(db, operationId, {
       sourceStorageId: instanceId,
-      remotePayload: {
-        storageId: instanceId,
+      remotePayload: buildStorageArtifactPayload({
         storageKey: fileRecord.storage_key,
         deleteToken: storageMeta.deleteToken || null,
         isChunked: Boolean(fileRecord.is_chunked),
         chunkRecords,
         deleteMode,
-        deletedAt: new Date().toISOString(),
-      },
+      }),
     });
   } catch (err) {
     // 仅删索引模式下，远端删除失败不阻止流程

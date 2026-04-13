@@ -2,7 +2,6 @@ import { createLogger } from '../../utils/logger.js';
 import {
   parseStorageMeta,
   removeStoredArtifacts,
-  resolveStorageInstanceId,
 } from '../../services/files/storage-artifacts.js';
 import {
   buildQuotaEvent,
@@ -13,6 +12,10 @@ import {
   markOperationCompleted,
   markOperationFailed,
 } from '../../services/system/storage-operations.js';
+import {
+  buildStorageArtifactPayload,
+  resolveOperationStorageId,
+} from '../../services/system/storage-operation-payload.js';
 
 const log = createLogger('storage');
 
@@ -130,20 +133,22 @@ class StorageOperationRecovery {
       return;
     }
 
-    const instanceId = operation.source_storage_id || resolveStorageInstanceId(fileRecord);
+    const instanceId = operation.source_storage_id || null;
+    if (!instanceId) {
+      throw new Error(`删除恢复缺少 source_storage_id: ${operation.id}`);
+    }
     const fileSize = Number(fileRecord.size) || 0;
     const chunkRecords = fileRecord.is_chunked
       ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)
       : [];
     const storageMeta = parseStorageMeta(fileRecord.storage_meta);
 
-    const compensationPayload = {
-      storageId: instanceId,
+    const compensationPayload = buildStorageArtifactPayload({
       storageKey: fileRecord.storage_key,
       deleteToken: storageMeta.deleteToken || null,
       isChunked: Boolean(fileRecord.is_chunked),
       chunkRecords,
-    };
+    });
 
     const persistDelete = db.transaction(() => {
       db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
@@ -180,9 +185,10 @@ class StorageOperationRecovery {
 
     if (operation.operation_type === 'migrate' && operation.compensation_payload) {
       const payload = this.parseOperationPayload(operation.compensation_payload);
+      const storageId = resolveOperationStorageId(operation, { payloadField: 'compensation_payload' });
       await removeStoredArtifacts({
         storageManager: this.storageManager,
-        storageId: payload.storageId,
+        storageId,
         storageKey: payload.storageKey,
         deleteToken: payload.deleteToken || null,
         isChunked: Boolean(payload.isChunked),
@@ -203,9 +209,14 @@ class StorageOperationRecovery {
       return;
     }
 
+    const storageId = resolveOperationStorageId(operation, { payloadField });
+    if (!storageId) {
+      throw new Error(`恢复补偿缺少存储渠道标识: ${operation.id}`);
+    }
+
     await removeStoredArtifacts({
       storageManager: this.storageManager,
-      storageId: payload.storageId,
+      storageId,
       storageKey: payload.storageKey,
       deleteToken: payload.deleteToken || null,
       isChunked: Boolean(payload.isChunked),

@@ -13,6 +13,7 @@ import {
   markOperationCompleted,
   markOperationRemoteDone,
 } from '../system/storage-operations.js';
+import { buildStorageArtifactPayload } from '../system/storage-operation-payload.js';
 import {
   parseStorageMeta,
   removeStoredArtifacts,
@@ -111,13 +112,12 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     fileId: fileRecord.id,
     sourceStorageId: sourceInstanceId,
     targetStorageId: targetChannel,
-    payload: {
-      storageId: sourceInstanceId,
+    payload: buildStorageArtifactPayload({
       storageKey: fileRecord.storage_key,
       deleteToken: sourceStorageMeta.deleteToken || null,
       isChunked: Boolean(fileRecord.is_chunked),
       chunkRecords: sourceChunkRecords,
-    },
+    }),
   });
 
   // 判断是否需要分块（基于已知 fileSize，无需读入 buffer）
@@ -166,30 +166,27 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
   markOperationRemoteDone(db, operationId, {
     sourceStorageId: sourceInstanceId,
     targetStorageId: targetChannel,
-    remotePayload: {
-      storageId: targetChannel,
+    remotePayload: buildStorageArtifactPayload({
       storageKey: targetUploadResult.storageResult.storageKey,
       deleteToken: targetUploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(targetUploadResult.isChunked),
       chunkRecords: targetUploadResult.chunkRecords || [],
-    },
+    }),
   });
 
-  const cleanupTargetPayload = {
-    storageId: targetChannel,
+  const cleanupTargetPayload = buildStorageArtifactPayload({
     storageKey: targetUploadResult.storageResult.storageKey,
     deleteToken: targetUploadResult.storageResult.deleteToken || null,
     isChunked: Boolean(targetUploadResult.isChunked),
     chunkRecords: targetUploadResult.chunkRecords || [],
-  };
+  });
 
-  const sourceCleanupPayload = {
-    storageId: sourceInstanceId,
+  const sourceCleanupPayload = buildStorageArtifactPayload({
     storageKey: fileRecord.storage_key,
     deleteToken: sourceStorageMeta.deleteToken || null,
     isChunked: Boolean(fileRecord.is_chunked),
     chunkRecords: sourceChunkRecords,
-  };
+  });
 
   const persistMigration = db.transaction(() => {
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
@@ -248,7 +245,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
   try {
     await removeStoredArtifacts({
       storageManager,
-      storageId: sourceCleanupPayload.storageId,
+      storageId: sourceInstanceId,
       storageKey: sourceCleanupPayload.storageKey,
       deleteToken: sourceCleanupPayload.deleteToken,
       isChunked: sourceCleanupPayload.isChunked,
@@ -256,12 +253,6 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     });
     markOperationCompleted(db, operationId);
   } catch (cleanupErr) {
-    markOperationCompensationPending(db, operationId, {
-      sourceStorageId: sourceInstanceId,
-      targetStorageId: targetChannel,
-      compensationPayload: sourceCleanupPayload,
-      error: cleanupErr,
-    });
     logger.warn(`[Files API] 迁移 ${fileRecord.id} 已提交，但源端清理待补偿: ${cleanupErr.message}`);
     throw cleanupErr;
   }

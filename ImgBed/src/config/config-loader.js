@@ -123,6 +123,19 @@ function createInvalidConfigError({ kind, configPath, backupPath = null, cause, 
   });
 }
 
+function validateRequiredConfig({ config, configPath, kind, message }) {
+  const jwtSecret = config?.jwt?.secret;
+  if (typeof jwtSecret !== 'string' || !jwtSecret.trim()) {
+    throw createInvalidConfigError({
+      kind,
+      configPath,
+      message: message || 'config.json 缺少必填项 jwt.secret，请补齐后重新启动服务',
+    });
+  }
+
+  return config;
+}
+
 function warnIfUsingLocalTestSecret({ config, logger, configPath, env = process.env }) {
   if (env.NODE_ENV === 'test') {
     return;
@@ -161,10 +174,17 @@ export function loadConfigFile({
   const rawData = fsImpl.readFileSync(configPath, 'utf8');
 
   try {
-    const config = parseConfigText(rawData);
+    const config = validateRequiredConfig({
+      config: parseConfigText(rawData),
+      configPath,
+      kind: 'invalid_existing',
+    });
     warnIfUsingLocalTestSecret({ config, logger, configPath });
     return config;
   } catch (cause) {
+    if (cause instanceof ConfigFileError) {
+      throw cause;
+    }
     const backupPath = `${configPath}.invalid-${now()}`;
     fsImpl.writeFileSync(backupPath, rawData, 'utf8');
     throw createInvalidConfigError({
@@ -236,6 +256,11 @@ export function createConfigRepository({
 
       try {
         const { value, stats } = parseExistingFile();
+        validateRequiredConfig({
+          config: value,
+          configPath,
+          kind: 'invalid_existing',
+        });
         warnIfUsingLocalTestSecret({ config: value, logger, configPath });
         return setCache(value, stats);
       } catch (cause) {
@@ -274,6 +299,12 @@ export function createConfigRepository({
 
         const rawData = fsImpl.readFileSync(configPath, 'utf8');
         const value = parseConfigText(rawData);
+        validateRequiredConfig({
+          config: value,
+          configPath,
+          kind: 'runtime_invalid',
+          message: 'config.json 缺少必填项 jwt.secret，当前进程无法继续读取运行配置',
+        });
         warnIfUsingLocalTestSecret({ config: value, logger, configPath });
         return cloneConfig(setCache(value, stats));
       } catch (cause) {
@@ -293,7 +324,12 @@ export function createConfigRepository({
 
     writeRuntimeConfig(nextConfig) {
       ensureDataRoot();
-      const snapshot = cloneConfig(nextConfig);
+      const snapshot = validateRequiredConfig({
+        config: cloneConfig(nextConfig),
+        configPath,
+        kind: 'runtime_invalid',
+        message: '写入配置失败：jwt.secret 不能为空',
+      });
       writeConfigFile({ fsImpl, configPath, config: snapshot });
       warnIfUsingLocalTestSecret({ config: snapshot, logger, configPath });
       return cloneConfig(setCache(snapshot, getFileStats()));

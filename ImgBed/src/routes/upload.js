@@ -2,7 +2,6 @@ import express from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
 import storageManager from '../storage/manager.js';
-import sharp from 'sharp';
 import { sqlite } from '../database/index.js';
 import { insertFile } from '../database/files-dao.js';
 import { requirePermission } from '../middleware/auth.js';
@@ -23,6 +22,7 @@ import {
   markOperationFailed,
   markOperationRemoteDone,
 } from '../services/system/storage-operations.js';
+import { buildStorageArtifactPayload } from '../services/system/storage-operation-payload.js';
 import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
@@ -31,6 +31,7 @@ import { cacheInvalidation } from '../middleware/cache.js';
 import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../utils/directory-path.js';
 import { success } from '../utils/response.js';
 import { serializeStorageMeta } from '../services/files/storage-artifacts.js';
+import { readImageMetadata } from '../services/files/image-metadata.js';
 
 const log = createLogger('upload');
 const uploadApp = express.Router();
@@ -71,24 +72,10 @@ async function extractFileMetadata(file) {
   let height = null;
   let exif = null;
   try {
-    const metadata = await sharp(buffer).metadata();
-    width = metadata.width || null;
-    height = metadata.height || null;
-    const { format, size, width: metaWidth, height: metaHeight, space, channels, depth, density, hasProfile, hasAlpha, orientation, exif: rawExif } = metadata;
-    exif = JSON.stringify({
-      format,
-      size,
-      width: metaWidth,
-      height: metaHeight,
-      space,
-      channels,
-      depth,
-      density,
-      hasProfile,
-      hasAlpha,
-      orientation,
-      hasExif: !!rawExif,
-    });
+    const metadata = await readImageMetadata(buffer);
+    width = metadata.width;
+    height = metadata.height;
+    exif = metadata.exif;
   } catch (metaErr) {
     log.warn({ err: metaErr, filename: file.originalname }, '提取文件元数据失败');
   }
@@ -214,13 +201,12 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 
   markOperationRemoteDone(sqlite, operationId, {
     targetStorageId: uploadResult.finalChannelId,
-    remotePayload: {
-      storageId: uploadResult.finalChannelId,
+    remotePayload: buildStorageArtifactPayload({
       storageKey: uploadResult.storageResult.storageKey,
       deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],
-    },
+    }),
   });
 
   if (uploadResult.failedChannels.length > 0) {
@@ -270,13 +256,12 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
   } catch (insertErr) {
     log.error({ err: insertErr, dbRecord }, '数据库写入失败');
 
-    const cleanupPayload = {
-      storageId: uploadResult.finalChannelId,
+    const cleanupPayload = buildStorageArtifactPayload({
       storageKey: uploadResult.storageResult.storageKey,
       deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],
-    };
+    });
 
     markOperationCompensationPending(sqlite, operationId, {
       targetStorageId: uploadResult.finalChannelId,
@@ -287,7 +272,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     try {
       await removeStoredArtifacts({
         storageManager,
-        storageId: cleanupPayload.storageId,
+        storageId: uploadResult.finalChannelId,
         storageKey: cleanupPayload.storageKey,
         deleteToken: cleanupPayload.deleteToken,
         isChunked: cleanupPayload.isChunked,
@@ -323,4 +308,3 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 }));
 
 export default uploadApp;
-export { resolveStoredFileSize };

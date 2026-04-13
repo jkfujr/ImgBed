@@ -84,9 +84,9 @@ class TelegramStorage extends StorageProvider {
      */
     getFileInfo(responseData) {
         const getFileDetails = (file) => ({
-            file_id: file.file_id,
-            file_name: file.file_name || file.file_unique_id,
-            file_size: file.file_size,
+            fileId: file.file_id,
+            fileName: file.file_name || file.file_unique_id,
+            fileSize: file.file_size,
         });
 
         try {
@@ -165,20 +165,6 @@ class TelegramStorage extends StorageProvider {
         return response;
     }
 
-    parseTotalSizeFromContentRange(contentRange) {
-        if (!contentRange) {
-            return null;
-        }
-
-        const match = /bytes\s+\d+-\d+\/(\d+)/i.exec(contentRange);
-        if (!match) {
-            return null;
-        }
-
-        const totalSize = Number(match[1]);
-        return Number.isFinite(totalSize) ? totalSize : null;
-    }
-
     isDeleteAlreadyApplied(description) {
         if (!description) {
             return false;
@@ -211,8 +197,8 @@ class TelegramStorage extends StorageProvider {
         if (!fileInfo) throw new Error('[TelegramStorage] 上传后未能获取文件标识');
 
         return createStoragePutResult({
-            storageKey: fileInfo.file_id,
-            size: Number(fileInfo.file_size) || null,
+            storageKey: fileInfo.fileId,
+            size: Number(fileInfo.fileSize) || null,
             deleteToken: {
                 messageId: result.message_id,
                 chatId: this.chatId,
@@ -342,8 +328,8 @@ class TelegramStorage extends StorageProvider {
         const fileInfo = this.getFileInfo(responseData);
         if (!fileInfo) throw new Error(`[TelegramStorage] 分块 ${chunkIndex} 上传后未能获取文件标识`);
         return createStorageChunkPutResult({
-            storageKey: fileInfo.file_id,
-            size: Number(fileInfo.file_size) || chunkBuffer.length,
+            storageKey: fileInfo.fileId,
+            size: Number(fileInfo.fileSize) || chunkBuffer.length,
             deleteToken: {
                 messageId: result?.message_id,
                 chatId: this.chatId,

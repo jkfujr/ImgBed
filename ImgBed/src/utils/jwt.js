@@ -10,7 +10,10 @@ function getJwtSettings() {
 }
 
 function getSecretKey() {
-  const secret = getJwtSettings().secret || 'fallback-secret-key-12345678';
+  const secret = getJwtSettings().secret;
+  if (typeof secret !== 'string' || !secret.trim()) {
+    throw new Error('运行配置缺少 jwt.secret，无法签发或校验 JWT');
+  }
   return new TextEncoder().encode(secret);
 }
 
@@ -90,7 +93,6 @@ async function verifyToken(token) {
 }
 
 export {
-  classifyJwtVerificationError,
   signToken,
   verifyToken,
 };

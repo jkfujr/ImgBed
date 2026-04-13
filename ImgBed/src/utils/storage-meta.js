@@ -66,8 +66,6 @@ function resolveStorageInstanceId(record) {
 }
 
 export {
-  normalizeDeleteToken,
-  parseJsonObject,
   parseStorageMeta,
   resolveStorageInstanceId,
   serializeStorageMeta,

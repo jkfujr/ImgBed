@@ -1,5 +1,4 @@
 import {
-  normalizeDeleteToken,
   parseStorageMeta,
   resolveStorageInstanceId,
   serializeStorageMeta,
@@ -62,5 +61,4 @@ export {
   resolveStorageInstanceId,
   isIndexOnlyMode,
   removeStoredArtifacts,
-  normalizeDeleteToken,
 };
