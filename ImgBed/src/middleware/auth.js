@@ -134,16 +134,6 @@ const adminAuth = async (req, res, next) => {
   return next();
 };
 
-const requireAuth = async (req, res, next) => {
-  const { auth, failureReason } = await resolveAuth(req);
-
-  if (!auth) {
-    return res.status(401).json(buildUnauthorizedResponse(failureReason));
-  }
-
-  return next();
-};
-
 const requirePermission = (permission) => {
   return async (req, res, next) => {
     let auth = req.auth;
@@ -174,6 +164,5 @@ export {
   extractBearerToken,
   looksLikeJwt,
   resolveAuth,
-  requireAuth,
   requirePermission,
 };

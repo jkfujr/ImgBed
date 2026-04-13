@@ -71,8 +71,3 @@ export const success = (data, message = '操作成功') => ({
   message,
   data,
 });
-
-export const error = (code, message) => ({
-  code,
-  message,
-});

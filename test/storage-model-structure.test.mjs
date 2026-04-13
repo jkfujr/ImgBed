@@ -155,6 +155,16 @@ function testQuotaCacheTriggerMigrationStaysInternalToV001() {
   console.log('  [OK] v001 quota trigger migration: historical trigger rebuild logic is internal only');
 }
 
+function testQuotaRebuildUsesStorageManagerFacade() {
+  const systemSource = read('ImgBed/src/routes/system.js');
+  const managerSource = read('ImgBed/src/storage/manager.js');
+
+  assert.match(systemSource, /await storageManager\.rebuildQuotaStats\(\);/);
+  assert.ok(!systemSource.includes('storageManager._rebuildAllQuotaStats('));
+  assert.match(managerSource, /async rebuildQuotaStats\(\) \{[\s\S]*return this\.quotaProjectionService\.rebuildAllQuotaStats\(\);[\s\S]*\}/);
+  console.log('  [OK] quota rebuild: route 通过 StorageManager facade 触发容量校正');
+}
+
 function runStaticChecks() {
   testUploadRecordUsesFacadeInsteadOfInstancesMap();
   testResolveFileStoragePrefersStorageInstanceId();
@@ -162,6 +172,7 @@ function runStaticChecks() {
   testStorageManagerDelegatesRuntimeState();
   testQuotaCacheMaintenanceMovesOutOfSchemaTriggers();
   testQuotaCacheTriggerMigrationStaysInternalToV001();
+  testQuotaRebuildUsesStorageManagerFacade();
 }
 
 async function main() {

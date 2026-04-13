@@ -3,7 +3,6 @@ import { API_TOKEN_PERMISSIONS,
   generateTokenId,
   generatePlainApiToken,
   hashApiToken,
-  normalizePermissions,
   parsePermissions,
   isExpired } from '../utils/apiToken.js';
 import { adminAuth } from '../middleware/auth.js';

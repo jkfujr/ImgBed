@@ -27,47 +27,47 @@ function countOccurrences(haystack, needle) {
   return matches ? matches.length : 0;
 }
 
-function testRequireAuthIsUnusedExport() {
+function testRequireAuthHasBeenRemoved() {
   const authSource = read('ImgBed/src/middleware/auth.js');
-  assert.match(authSource, /const requireAuth = async \(req, res, next\) => \{/);
-  assert.match(authSource, /export \{[\s\S]*requireAuth,[\s\S]*\};/);
+  assert.doesNotMatch(authSource, /const requireAuth = async \(req, res, next\) => \{/, 'requireAuth 实现应已删除');
+  assert.doesNotMatch(authSource, /export \{[\s\S]*requireAuth,[\s\S]*\};/, 'requireAuth 导出应已删除');
 
-  const files = collectJsFiles(SRC_ROOT).filter((file) => !file.endsWith(path.join('middleware', 'auth.js')));
+  const files = collectJsFiles(SRC_ROOT);
   const hits = files.filter((file) => fs.readFileSync(file, 'utf8').includes('requireAuth'));
-  assert.deepEqual(hits, [], '除定义文件外不应存在 requireAuth 使用点');
-  console.log('  [OK] requireAuth：仅定义并导出，未进入调用闭环');
+  assert.deepEqual(hits, [], '源码中不应再存在 requireAuth');
+  console.log('  [OK] requireAuth：已从源码中移除');
 }
 
-function testDeleteStorageChannelMetaIsUnusedExport() {
+function testDeleteStorageChannelMetaHasBeenRemoved() {
   const syncSource = read('ImgBed/src/services/system/storage-channel-sync.js');
   const runtimeSource = read('ImgBed/src/bootstrap/application-runtime.js');
   const systemSource = read('ImgBed/src/routes/system.js');
   const mainSource = read('ImgBed/main.js');
 
-  assert.match(syncSource, /function deleteStorageChannelMeta\(id, db\) \{/);
-  assert.match(syncSource, /export \{[\s\S]*deleteStorageChannelMeta,[\s\S]*\};/);
+  assert.doesNotMatch(syncSource, /function deleteStorageChannelMeta\(id, db\) \{/, 'deleteStorageChannelMeta 实现应已删除');
+  assert.doesNotMatch(syncSource, /export \{[\s\S]*deleteStorageChannelMeta,[\s\S]*\};/, 'deleteStorageChannelMeta 导出应已删除');
   assert.match(systemSource, /markStorageChannelDeleted\(id, sqlite\);/);
   assert.match(mainSource, /createApplicationRuntime/);
   assert.match(mainSource, /syncAllStorageChannels,/);
   assert.match(runtimeSource, /await syncAllStorageChannels\(runtimeConfig, sqlite\);/);
 
-  const files = collectJsFiles(SRC_ROOT).filter((file) => !file.endsWith(path.join('services', 'system', 'storage-channel-sync.js')));
+  const files = collectJsFiles(SRC_ROOT);
   const hits = files.filter((file) => fs.readFileSync(file, 'utf8').includes('deleteStorageChannelMeta'));
-  assert.deepEqual(hits, [], '除定义文件外不应存在 deleteStorageChannelMeta 使用点');
-  console.log('  [OK] deleteStorageChannelMeta：未被调用，删除链实际走 markStorageChannelDeleted');
+  assert.deepEqual(hits, [], '源码中不应再存在 deleteStorageChannelMeta');
+  console.log('  [OK] deleteStorageChannelMeta：已从源码中移除，删除链仍走 markStorageChannelDeleted');
 }
 
-function testNormalizePermissionsImportIsUnused() {
+function testNormalizePermissionsUnusedImportHasBeenRemoved() {
   const source = read('ImgBed/src/routes/api-tokens.js');
-  assert.match(source, /normalizePermissions,/);
-  assert.equal(countOccurrences(source, 'normalizePermissions'), 1, 'normalizePermissions 只应在 import 中出现一次');
+  assert.doesNotMatch(source, /normalizePermissions,/, 'api-tokens.js 不应再导入 normalizePermissions');
+  assert.equal(countOccurrences(source, 'normalizePermissions'), 0, 'api-tokens.js 中不应再出现 normalizePermissions');
   assert.match(source, /permissions: parsePermissions\(tokenRow\.permissions\),/);
-  console.log('  [OK] normalizePermissions：在 api-tokens.js 中属于未使用导入');
+  console.log('  [OK] normalizePermissions：未使用导入已移除');
 }
 
-function testResponseErrorIsUnusedExport() {
+function testResponseErrorHasBeenRemoved() {
   const responseSource = read('ImgBed/src/utils/response.js');
-  assert.match(responseSource, /export const error = \(code, message\) => \(\{/);
+  assert.doesNotMatch(responseSource, /export const error = \(code, message\) => \(\{/, 'response.error 导出应已删除');
 
   const files = collectJsFiles(SRC_ROOT).filter((file) => !file.endsWith(path.join('utils', 'response.js')));
   const directImportHits = [];
@@ -88,16 +88,16 @@ function testResponseErrorIsUnusedExport() {
 
   assert.deepEqual(directImportHits, [], '不应存在对 response.error 的显式导入');
   assert.deepEqual(namespaceHits, [], '不应存在 response.js 的 namespace import');
-  console.log('  [OK] response.error：仅导出，未发现显式导入或 namespace 使用');
+  console.log('  [OK] response.error：未使用导出已移除');
 }
 
 function run() {
-  console.log('开始执行报告死代码静态断言测试...');
-  testRequireAuthIsUnusedExport();
-  testDeleteStorageChannelMetaIsUnusedExport();
-  testNormalizePermissionsImportIsUnused();
-  testResponseErrorIsUnusedExport();
-  console.log('报告死代码静态断言测试全部通过');
+  console.log('开始执行 P0 死代码清理静态断言测试...');
+  testRequireAuthHasBeenRemoved();
+  testDeleteStorageChannelMetaHasBeenRemoved();
+  testNormalizePermissionsUnusedImportHasBeenRemoved();
+  testResponseErrorHasBeenRemoved();
+  console.log('P0 死代码清理静态断言测试全部通过');
 }
 
 run();
