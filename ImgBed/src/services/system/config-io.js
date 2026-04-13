@@ -1,27 +1,16 @@
-import {
-  getConfigPath,
-  readRuntimeConfig,
-  writeRuntimeConfig,
-} from '../../config/index.js';
-
-/**
- * 获取系统配置文件的实际路径
- */
-export function getSystemConfigPath() {
-  return getConfigPath();
-}
+import { readRuntimeConfig, writeRuntimeConfig } from '../../config/index.js';
 
 /**
  * 读取系统配置文件
  */
-function readSystemConfig(_configPath) {
+function readSystemConfig() {
   return readRuntimeConfig();
 }
 
 /**
  * 写入系统配置文件
  */
-function writeSystemConfig(_configPath, cfg) {
+function writeSystemConfig(cfg) {
   return writeRuntimeConfig(cfg);
 }
 

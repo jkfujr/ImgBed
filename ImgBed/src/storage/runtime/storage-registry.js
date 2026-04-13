@@ -75,20 +75,15 @@ class StorageRegistry {
   }
 
   async reload() {
-    const db = this.db;
-
     try {
       const fileCfg = readRuntimeConfig();
       const storagesInFile = fileCfg.storage?.storages || [];
-      const dbChannels = db.prepare('SELECT * FROM storage_channels').all();
-      const dbMap = new Map(dbChannels.map((channel) => [channel.id, channel]));
       const nextInstances = new Map();
       const nextConfig = fileCfg.storage || {};
       const nextUploadConfig = fileCfg.upload || {};
 
       for (const sFile of storagesInFile) {
-        const sDb = dbMap.get(sFile.id);
-        const enabled = sDb ? Boolean(sDb.enabled) : Boolean(sFile.enabled);
+        const enabled = Boolean(sFile.enabled);
         if (!enabled) {
           continue;
         }
@@ -97,10 +92,10 @@ class StorageRegistry {
           const instance = await this.createStorageInstance(sFile.type, sFile.config || {});
           nextInstances.set(sFile.id, {
             type: sFile.type,
-            name: sDb ? sDb.name : sFile.name,
-            allowUpload: sDb ? Boolean(sDb.allow_upload) : Boolean(sFile.allowUpload),
-            weight: sDb ? Number(sDb.weight) : (sFile.weight || 1),
-            quotaLimitGB: sDb ? sDb.quota_limit_gb : sFile.quotaLimitGB,
+            name: sFile.name,
+            allowUpload: Boolean(sFile.allowUpload),
+            weight: sFile.weight || 1,
+            quotaLimitGB: sFile.quotaLimitGB,
             disableThresholdPercent: sFile.disableThresholdPercent || 95,
             enableSizeLimit: Boolean(sFile.enableSizeLimit),
             sizeLimitMB: sFile.sizeLimitMB,

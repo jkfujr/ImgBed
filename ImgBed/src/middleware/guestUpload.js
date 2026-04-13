@@ -1,8 +1,6 @@
 import { timingSafeEqual } from 'crypto';
-import { readSystemConfig, getSystemConfigPath } from '../services/system/config-io.js';
+import { readSystemConfig } from '../services/system/config-io.js';
 import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
-
-const configPath = getSystemConfigPath();
 
 function isUploadPasswordValid(providedPassword, uploadPassword) {
   const providedBuffer = Buffer.from(providedPassword, 'utf8');
@@ -20,7 +18,7 @@ function isUploadPasswordValid(providedPassword, uploadPassword) {
  * 检查是否允许访客上传，以及是否需要密码验证
  */
 export const guestUploadAuth = async (req, res, next) => {
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const uploadPassword = cfg.security?.uploadPassword || '';
 

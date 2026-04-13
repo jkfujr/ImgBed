@@ -86,7 +86,7 @@ authApp.put('/password', adminAuth, asyncHandler(async (req, res) => {
       password: newPassword,
     },
   };
-  writeSystemConfig(null, nextConfig);
+  writeSystemConfig(nextConfig);
 
   return res.json(success({}, '密码修改成功'));
 }));

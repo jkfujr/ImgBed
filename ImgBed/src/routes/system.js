@@ -4,7 +4,7 @@ import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
 import { getActiveFilesStats, getTodayUploadCount, getUploadTrend } from '../database/files-dao.js';
-import { readSystemConfig, writeSystemConfig, syncAllowedUploadChannels, getSystemConfigPath } from '../services/system/config-io.js';
+import { readSystemConfig, writeSystemConfig } from '../services/system/config-io.js';
 import { insertStorageChannelMeta, updateStorageChannelMeta, markStorageChannelDeleted } from '../services/system/storage-channel-sync.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
@@ -32,7 +32,6 @@ import { sanitizeSystemConfig } from '../services/system/sanitize-system-config.
 
 const log = createLogger('system');
 const systemApp = express.Router();
-const configPath = getSystemConfigPath();
 
 const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
 const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
@@ -52,7 +51,7 @@ systemApp.use(adminAuth);
  * GET /api/system/config
  */
 systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   return res.json(success(sanitizeSystemConfig(cfg)));
 }));
 
@@ -62,7 +61,7 @@ systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => 
  */
 systemApp.put('/config', asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
 
   if (body.security !== undefined) {
     if (body.security.corsOrigin !== undefined)
@@ -92,7 +91,7 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
     }
   }
 
-  writeSystemConfig(configPath, cfg);
+  writeSystemConfig(cfg);
 
   // 使系统配置缓存失效
   cacheInvalidation.invalidateSystemConfig();
@@ -105,32 +104,21 @@ systemApp.put('/config', asyncHandler(async (req, res) => {
  * GET /api/system/storages
  */
 systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   const fileStorages = cfg.storage?.storages || [];
   const quotaStats = storageManager.getAllQuotaStats();
 
-  const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
-  const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
+  const deletedIds = new Set(
+    sqlite.prepare('SELECT id FROM storage_channels WHERE deleted_at IS NOT NULL').all()
+      .map((row) => row.id)
+  );
 
-  // 过滤逻辑删除的渠道（deleted_at IS NOT NULL）
   const list = fileStorages
-    .filter(s => {
-      const dbCh = dbMap.get(s.id);
-      return !dbCh || dbCh.deleted_at == null;
-    })
-    .map(s => {
-      const dbCh = dbMap.get(s.id);
-      const merged = {
-        ...s,
-        name: dbCh ? dbCh.name : s.name,
-        enabled: dbCh ? Boolean(dbCh.enabled) : s.enabled,
-        allowUpload: dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload,
-        weight: dbCh ? Number(dbCh.weight) : (s.weight || 1),
-        quotaLimitGB: dbCh ? dbCh.quota_limit_gb : s.quotaLimitGB,
-        usedBytes: quotaStats[s.id] || 0
-      };
-      return maskStorage(merged);
-    });
+    .filter((s) => !deletedIds.has(s.id))
+    .map((s) => maskStorage({
+      ...s,
+      usedBytes: quotaStats[s.id] || 0,
+    }));
 
   return res.json(success({ list, default: cfg.storage?.default }));
 }));
@@ -140,33 +128,30 @@ systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) =
  * GET /api/system/storages/stats
  */
 systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   const fileStorages = cfg.storage?.storages || [];
 
-  const dbChannels = sqlite.prepare('SELECT * FROM storage_channels').all();
-  const dbMap = new Map(dbChannels.map(ch => [ch.id, ch]));
+  const deletedIds = new Set(
+    sqlite.prepare('SELECT id FROM storage_channels WHERE deleted_at IS NOT NULL').all()
+      .map((row) => row.id)
+  );
 
   let enabled = 0;
   let allowUpload = 0;
   const byType = {};
 
-  // 只统计未逻辑删除的渠道
-  fileStorages.forEach(s => {
-    const dbCh = dbMap.get(s.id);
-    if (dbCh && dbCh.deleted_at != null) return;
+  fileStorages
+    .filter((s) => !deletedIds.has(s.id))
+    .forEach((s) => {
+      const isEnabled = Boolean(s.enabled);
+      const canUpload = Boolean(s.allowUpload);
 
-    const isEnabled = dbCh ? Boolean(dbCh.enabled) : s.enabled;
-    const canUpload = dbCh ? Boolean(dbCh.allow_upload) : s.allowUpload;
+      if (isEnabled) enabled++;
+      if (canUpload) allowUpload++;
+      byType[s.type] = (byType[s.type] || 0) + 1;
+    });
 
-    if (isEnabled) enabled++;
-    if (canUpload) allowUpload++;
-    byType[s.type] = (byType[s.type] || 0) + 1;
-  });
-
-  const total = fileStorages.filter(s => {
-    const dbCh = dbMap.get(s.id);
-    return !dbCh || dbCh.deleted_at == null;
-  }).length;
+  const total = fileStorages.filter((s) => !deletedIds.has(s.id)).length;
 
   return res.json(success({
     total,
@@ -200,7 +185,7 @@ systemApp.post('/storages/test', asyncHandler(async (req, res) => {
  * GET /api/system/load-balance
  */
 systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res) => {
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   return res.json(success({
     strategy: cfg.storage?.loadBalanceStrategy || 'default',
     scope: cfg.storage?.loadBalanceScope || 'global',
@@ -217,14 +202,14 @@ systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res
  */
 systemApp.put('/load-balance', asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
 
   const validationError = updateLoadBalanceConfig(cfg, body);
   if (validationError) {
     return res.status(validationError.code).json(validationError);
   }
 
-  writeSystemConfig(configPath, cfg);
+  writeSystemConfig(cfg);
   await storageManager.reload();
 
   // 使负载均衡和存储相关缓存失效
@@ -245,7 +230,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
     return res.status(validationError.code).json(validationError);
   }
 
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
 
   if ((cfg.storage.storages || []).some((s) => s.id === body.id)) {
     throw new ValidationError(`渠道 ID "${body.id}" 已存在`);
@@ -255,7 +240,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
   cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
 
   await insertStorageChannelMeta(newStorage, sqlite);
-  await applyStorageConfigChange({ cfg, configPath, storageManager });
+  await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
@@ -270,7 +255,7 @@ systemApp.post('/storages', asyncHandler(async (req, res) => {
 systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
   const body = req.body || {};
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   const idx = (cfg.storage.storages || []).findIndex((s) => s.id === id);
   if (idx === -1) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
@@ -292,7 +277,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
   }
 
   await updateStorageChannelMeta(id, existing, sqlite);
-  await applyStorageConfigChange({ cfg, configPath, storageManager });
+  await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
@@ -306,7 +291,7 @@ systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
  */
 systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   if (cfg.storage.default === id) {
     throw new ValidationError('不能删除当前默认渠道，请先切换默认渠道');
   }
@@ -315,14 +300,13 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
   }
 
-  // 逻辑删除：禁用渠道配置（保留在 config 中以备审计）
-  storage.enabled = false;
-  storage.allowUpload = false;
+  // 逻辑删除：从运行配置移除，数据库保留审计与历史记录
+  cfg.storage.storages = (cfg.storage.storages || []).filter((entry) => entry.id !== id);
 
   // 事务内：标记渠道 deleted_at，冻结关联文件 status = 'channel_deleted'
   markStorageChannelDeleted(id, sqlite);
 
-  await applyStorageConfigChange({ cfg, configPath, storageManager });
+  await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储和文件相关缓存全部失效
   cacheInvalidation.invalidateStorages();
@@ -338,12 +322,12 @@ systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
  */
 systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   if (!(cfg.storage.storages || []).some((s) => s.id === id)) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
   }
   cfg.storage.default = id;
-  writeSystemConfig(configPath, cfg);
+  writeSystemConfig(cfg);
   await storageManager.reload();
 
   // 使存储相关缓存失效
@@ -358,7 +342,7 @@ systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
  */
 systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
   const id = req.params.id;
-  const cfg = readSystemConfig(configPath);
+  const cfg = readSystemConfig();
   const storage = (cfg.storage.storages || []).find((s) => s.id === id);
   if (!storage) {
     throw new NotFoundError(`渠道 "${id}" 不存在`);
@@ -367,7 +351,7 @@ systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
   storage.enabled = !storage.enabled;
 
   await updateStorageChannelMeta(id, storage, sqlite);
-  await applyStorageConfigChange({ cfg, configPath, storageManager });
+  await applyStorageConfigChange({ cfg, storageManager });
 
   // 使存储相关缓存失效
   cacheInvalidation.invalidateStorages();
