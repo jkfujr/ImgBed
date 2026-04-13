@@ -8,7 +8,7 @@ import pLimit from 'p-limit';
 import { Readable } from 'stream';
 import { sqlite } from '../database/index.js';
 import { createLogger } from '../utils/logger.js';
-import { streamToBuffer } from '../utils/stream.js';
+import { toBuffer } from '../utils/storage-io.js';
 import { createStoragePutResult } from './contract.js';
 import { parseStorageMeta, serializeStorageMeta } from '../utils/storage-meta.js';
 
@@ -156,7 +156,7 @@ class ChunkManager {
      * @param {S3Storage} storage - S3 存储渠道实例
      * @param {Buffer} buffer - 完整文件 Buffer
      * @param {Object} options - { fileId, fileName, originalName, mimeType, storageId, config }
-     * @returns {Promise<{ storageKey: string, size: number|null, deleteToken: Object|null, raw: Object|null }>}
+     * @returns {Promise<{ storageKey: string, size: number|null, deleteToken: Object|null }>}
      */
     static async uploadS3Multipart(storage, buffer, options) {
         const config = storage.getChunkConfig();
@@ -246,7 +246,6 @@ class ChunkManager {
                 storageKey: result.storageKey,
                 size: result.size ?? buffer.length,
                 deleteToken: result.deleteToken,
-                raw: result.raw,
             });
         } catch (err) {
             // 失败时中止 multipart upload，释放 S3 资源
@@ -299,7 +298,7 @@ class ChunkManager {
                 }
 
                 const readResult = await storage.getChunkStreamResponse(chunk.storage_key, {});
-                const chunkData = await streamToBuffer(readResult.stream);
+                const chunkData = await toBuffer(readResult.stream);
                 const sliceStart = Math.max(0, start - chunkStart);
                 const sliceEnd = Math.min(chunkSize, resolvedEnd - chunkStart + 1);
                 yield chunkData.subarray(sliceStart, sliceEnd);

@@ -1,8 +1,7 @@
 import pLimit from 'p-limit';
 
 import { createLogger } from '../../utils/logger.js';
-import { streamToBuffer } from '../../utils/stream.js';
-import { toNodeReadable } from '../../utils/storage-io.js';
+import { toBuffer, toNodeReadable } from '../../utils/storage-io.js';
 import ChunkManager from '../../storage/chunk-manager.js';
 import { uploadToStorage } from '../upload/execute-upload.js';
 import {
@@ -93,7 +92,7 @@ async function readSourceFileAsStream(fileRecord, storageManager) {
 
 async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager, logger = log }) {
   const sourceInstanceId = resolveStorageInstanceId(fileRecord);
-  const sourceStorageMeta = parseStorageMeta(fileRecord.storage_meta, fileRecord.storage_config);
+  const sourceStorageMeta = parseStorageMeta(fileRecord.storage_meta);
 
   if (sourceInstanceId === targetChannel) {
     return { status: 'skipped' };
@@ -113,10 +112,11 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     sourceStorageId: sourceInstanceId,
     targetStorageId: targetChannel,
     payload: {
-      sourceStorageId: sourceInstanceId,
-      targetStorageId: targetChannel,
-      previousStorageKey: fileRecord.storage_key,
-      previousDeleteToken: sourceStorageMeta.deleteToken || null,
+      storageId: sourceInstanceId,
+      storageKey: fileRecord.storage_key,
+      deleteToken: sourceStorageMeta.deleteToken || null,
+      isChunked: Boolean(fileRecord.is_chunked),
+      chunkRecords: sourceChunkRecords,
     },
   });
 
@@ -135,7 +135,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
   if (chunkAnalysis.needsChunking) {
     // 分块场景：需要 buffer（各块尺寸有限，chunk-manager 内部逐块处理）
-    const buffer = await streamToBuffer(stream);
+    const buffer = await toBuffer(stream);
     targetUploadResult = await uploadToStorage({
       storage: targetEntry.instance,
       buffer,
@@ -167,8 +167,8 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     sourceStorageId: sourceInstanceId,
     targetStorageId: targetChannel,
     remotePayload: {
-      targetStorageId: targetChannel,
-      targetStorageKey: targetUploadResult.storageResult.storageKey || fileRecord.file_name,
+      storageId: targetChannel,
+      storageKey: targetUploadResult.storageResult.storageKey,
       deleteToken: targetUploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(targetUploadResult.isChunked),
       chunkRecords: targetUploadResult.chunkRecords || [],
@@ -177,7 +177,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
   const cleanupTargetPayload = {
     storageId: targetChannel,
-    storageKey: targetUploadResult.storageResult.storageKey || fileRecord.file_name,
+    storageKey: targetUploadResult.storageResult.storageKey,
     deleteToken: targetUploadResult.storageResult.deleteToken || null,
     isChunked: Boolean(targetUploadResult.isChunked),
     chunkRecords: targetUploadResult.chunkRecords || [],
@@ -197,7 +197,7 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
     updateFileMigrationFields(db, fileRecord.id, {
       storageChannel: targetEntry.type,
-      storageKey: targetUploadResult.storageResult.storageKey || fileRecord.storage_key,
+      storageKey: targetUploadResult.storageResult.storageKey,
       storageMeta: serializeStorageMeta({ deleteToken: targetUploadResult.storageResult.deleteToken }),
       storageInstanceId: targetChannel,
       isChunked: targetUploadResult.isChunked ? 1 : 0,

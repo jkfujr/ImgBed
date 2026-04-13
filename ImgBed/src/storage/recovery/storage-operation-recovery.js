@@ -135,7 +135,7 @@ class StorageOperationRecovery {
     const chunkRecords = fileRecord.is_chunked
       ? db.prepare('SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC').all(fileRecord.id)
       : [];
-    const storageMeta = parseStorageMeta(fileRecord.storage_meta, fileRecord.storage_config);
+    const storageMeta = parseStorageMeta(fileRecord.storage_meta);
 
     const compensationPayload = {
       storageId: instanceId,
@@ -182,8 +182,8 @@ class StorageOperationRecovery {
       const payload = this.parseOperationPayload(operation.compensation_payload);
       await removeStoredArtifacts({
         storageManager: this.storageManager,
-        storageId: payload.storageId || payload.sourceStorageId,
-        storageKey: payload.storageKey || payload.sourceStorageKey,
+        storageId: payload.storageId,
+        storageKey: payload.storageKey,
         deleteToken: payload.deleteToken || null,
         isChunked: Boolean(payload.isChunked),
         chunkRecords: payload.chunkRecords || [],
@@ -205,8 +205,8 @@ class StorageOperationRecovery {
 
     await removeStoredArtifacts({
       storageManager: this.storageManager,
-      storageId: payload.storageId || payload.sourceStorageId || payload.targetStorageId,
-      storageKey: payload.storageKey || payload.sourceStorageKey || payload.targetStorageKey,
+      storageId: payload.storageId,
+      storageKey: payload.storageKey,
       deleteToken: payload.deleteToken || null,
       isChunked: Boolean(payload.isChunked),
       chunkRecords: payload.chunkRecords || [],

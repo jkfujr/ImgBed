@@ -120,7 +120,7 @@ function buildUploadRecord({ fileId, newFileName, originalName, mimeType, fileSi
     mime_type: String(mimeType),
     size: Number(fileSize),
     storage_channel: String(storageMeta?.type || 'unknown'),
-    storage_key: String(storageResult.storageKey || newFileName),
+    storage_key: String(storageResult.storageKey),
     storage_meta: serializeStorageMeta({ deleteToken: storageResult.deleteToken }),
     storage_instance_id: String(finalChannelId),
     upload_ip: String(clientIp),
@@ -216,7 +216,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     targetStorageId: uploadResult.finalChannelId,
     remotePayload: {
       storageId: uploadResult.finalChannelId,
-      storageKey: uploadResult.storageResult.storageKey || fileMeta.newFileName,
+      storageKey: uploadResult.storageResult.storageKey,
       deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],
@@ -272,7 +272,7 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
 
     const cleanupPayload = {
       storageId: uploadResult.finalChannelId,
-      storageKey: uploadResult.storageResult.storageKey || fileMeta.newFileName,
+      storageKey: uploadResult.storageResult.storageKey,
       deleteToken: uploadResult.storageResult.deleteToken || null,
       isChunked: Boolean(uploadResult.isChunked),
       chunkRecords: uploadResult.chunkRecords || [],

@@ -20,6 +20,10 @@ function cleanupTempAppRoot(appRoot) {
 }
 
 function getTestFiles() {
+  if (!fs.existsSync(testsDir)) {
+    return [];
+  }
+
   return fs.readdirSync(testsDir)
     .filter((name) => name.endsWith('.test.mjs'))
     .filter((name) => !filter || name.includes(filter))

@@ -1,5 +1,3 @@
-import { renameColumnIfNeeded } from '../schema-utils.js';
-
 /**
  * chunks 分片表 DDL：CREATE TABLE + 2 个索引 + updated_at 触发器。
  * file_id 外键引用 files(id)，files 表必须先于此表创建。
@@ -29,6 +27,4 @@ export function createChunksSchema(db) {
         UPDATE chunks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
   `);
-
-  renameColumnIfNeeded(db, 'chunks', 'storage_config', 'storage_meta');
 }

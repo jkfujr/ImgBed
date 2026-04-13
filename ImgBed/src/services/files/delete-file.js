@@ -30,7 +30,7 @@ const log = createLogger('delete-file');
  * @param {Object} [logger]
  */
 async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, deleteMode = 'remote_and_index', logger = log }) {
-  const storageMeta = parseStorageMeta(fileRecord.storage_meta, fileRecord.storage_config);
+  const storageMeta = parseStorageMeta(fileRecord.storage_meta);
   const instanceId = resolveStorageInstanceId(fileRecord);
   const fileSize = Number(fileRecord.size) || 0;
   const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
@@ -63,7 +63,15 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
     });
     markOperationRemoteDone(db, operationId, {
       sourceStorageId: instanceId,
-      remotePayload: { deletedAt: new Date().toISOString(), deleteMode },
+      remotePayload: {
+        storageId: instanceId,
+        storageKey: fileRecord.storage_key,
+        deleteToken: storageMeta.deleteToken || null,
+        isChunked: Boolean(fileRecord.is_chunked),
+        chunkRecords,
+        deleteMode,
+        deletedAt: new Date().toISOString(),
+      },
     });
   } catch (err) {
     // 仅删索引模式下，远端删除失败不阻止流程

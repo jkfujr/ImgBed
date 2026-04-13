@@ -65,7 +65,6 @@ function createStoragePutResult({
   storageKey,
   size = null,
   deleteToken = null,
-  raw = null,
 } = {}) {
   if (!storageKey) {
     throw new Error('storageKey 不能为空');
@@ -75,7 +74,6 @@ function createStoragePutResult({
     storageKey: String(storageKey),
     size: toFiniteNumber(size),
     deleteToken: deleteToken && typeof deleteToken === 'object' ? deleteToken : null,
-    raw: raw && typeof raw === 'object' ? raw : null,
   };
 }
 
@@ -83,20 +81,17 @@ function createStorageChunkPutResult({
   storageKey,
   size,
   deleteToken = null,
-  raw = null,
 } = {}) {
   const result = createStoragePutResult({
     storageKey,
     size,
     deleteToken,
-    raw,
   });
 
   return {
     storageKey: result.storageKey,
     size: result.size ?? 0,
     deleteToken: result.deleteToken,
-    raw: result.raw,
   };
 }
 

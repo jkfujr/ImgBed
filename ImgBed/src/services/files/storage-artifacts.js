@@ -1,14 +1,9 @@
 import {
   normalizeDeleteToken,
-  parseJsonObject,
   parseStorageMeta,
   resolveStorageInstanceId,
   serializeStorageMeta,
 } from '../../utils/storage-meta.js';
-
-function parseStorageConfig(rawConfig) {
-  return parseJsonObject(rawConfig);
-}
 
 /**
  * 判断是否为"仅删索引"模式
@@ -37,7 +32,7 @@ async function removeStoredArtifacts({
       if (!chunkStorage) {
         throw new Error(`分块渠道不可用: ${chunk.storage_id}`);
       }
-      const chunkMeta = parseStorageMeta(chunk.storage_meta, chunk.storage_config);
+      const chunkMeta = parseStorageMeta(chunk.storage_meta);
       const deleted = await chunkStorage.deleteChunk(chunk.storage_key, chunkMeta.deleteToken || null);
       if (deleted === false) {
         throw new Error(`分块删除失败: ${chunk.storage_key}`);
@@ -62,8 +57,6 @@ async function removeStoredArtifacts({
 }
 
 export {
-  parseStorageConfig,
-  parseJsonObject,
   parseStorageMeta,
   serializeStorageMeta,
   resolveStorageInstanceId,

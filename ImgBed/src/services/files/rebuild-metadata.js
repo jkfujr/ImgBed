@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { updateFileImageMetadata, getImageFilesForMetadataRebuild } from '../../database/files-dao.js';
-import { streamToBuffer } from '../../utils/stream.js';
+import { toBuffer } from '../../utils/storage-io.js';
 import { resolveStorageInstanceId } from './storage-artifacts.js';
 
 function sleep(ms) {
@@ -43,7 +43,7 @@ async function rebuildMetadataForFile(file, { db, storageManager, logger = conso
   }
 
   const readResult = await storage.getStreamResponse(file.storage_key || file.id);
-  const buffer = await streamToBuffer(readResult.stream);
+  const buffer = await toBuffer(readResult.stream);
   if (!buffer || buffer.length === 0) {
     logger.warn(`[Maintenance] 文件内容为空: ${file.id}`);
     return { status: 'skipped', reason: 'empty_buffer' };

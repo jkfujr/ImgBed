@@ -22,17 +22,17 @@ function normalizeDeleteToken(deleteToken) {
 
   const normalized = {};
 
-  if (deleteToken.messageId || deleteToken.message_id) {
-    normalized.messageId = deleteToken.messageId || deleteToken.message_id;
+  if (deleteToken.messageId) {
+    normalized.messageId = deleteToken.messageId;
   }
-  if (deleteToken.chatId || deleteToken.chat_id) {
-    normalized.chatId = deleteToken.chatId || deleteToken.chat_id;
+  if (deleteToken.chatId) {
+    normalized.chatId = deleteToken.chatId;
   }
-  if (deleteToken.channelId || deleteToken.channel_id) {
-    normalized.channelId = deleteToken.channelId || deleteToken.channel_id;
+  if (deleteToken.channelId) {
+    normalized.channelId = deleteToken.channelId;
   }
-  if (deleteToken.attachmentId || deleteToken.attachment_id) {
-    normalized.attachmentId = deleteToken.attachmentId || deleteToken.attachment_id;
+  if (deleteToken.attachmentId) {
+    normalized.attachmentId = deleteToken.attachmentId;
   }
   if (deleteToken.messageIdPath) {
     normalized.messageIdPath = deleteToken.messageIdPath;
@@ -41,33 +41,9 @@ function normalizeDeleteToken(deleteToken) {
   return Object.keys(normalized).length > 0 ? normalized : { ...deleteToken };
 }
 
-function extractLegacyDeleteToken(legacyMeta) {
-  if (!legacyMeta || typeof legacyMeta !== 'object') {
-    return null;
-  }
-
-  const extraResult = legacyMeta.extra_result && typeof legacyMeta.extra_result === 'object'
-    ? legacyMeta.extra_result
-    : legacyMeta;
-
-  const normalized = normalizeDeleteToken(extraResult);
-  if (!normalized) {
-    return null;
-  }
-
-  if (normalized.messageId || normalized.chatId || normalized.channelId || normalized.attachmentId) {
-    return normalized;
-  }
-
-  return null;
-}
-
-function parseStorageMeta(storageMeta, legacyStorageConfig = null) {
+function parseStorageMeta(storageMeta) {
   const currentMeta = parseJsonObject(storageMeta);
-  const legacyMeta = parseJsonObject(legacyStorageConfig);
-  const deleteToken = normalizeDeleteToken(currentMeta.deleteToken)
-    || extractLegacyDeleteToken(currentMeta)
-    || extractLegacyDeleteToken(legacyMeta);
+  const deleteToken = normalizeDeleteToken(currentMeta.deleteToken);
 
   return {
     deleteToken,
@@ -86,21 +62,10 @@ function serializeStorageMeta({ deleteToken = null } = {}) {
 }
 
 function resolveStorageInstanceId(record) {
-  if (record?.storage_instance_id) {
-    return record.storage_instance_id;
-  }
-
-  const currentMeta = parseJsonObject(record?.storage_meta);
-  if (currentMeta.instanceId || currentMeta.instance_id) {
-    return currentMeta.instanceId || currentMeta.instance_id;
-  }
-
-  const legacyMeta = parseJsonObject(record?.storage_config);
-  return legacyMeta.instance_id || legacyMeta.instanceId || null;
+  return record?.storage_instance_id || null;
 }
 
 export {
-  extractLegacyDeleteToken,
   normalizeDeleteToken,
   parseJsonObject,
   parseStorageMeta,

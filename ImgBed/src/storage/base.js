@@ -11,7 +11,6 @@ class StorageProvider {
    *   storageKey: string,
    *   size: number|null,
    *   deleteToken: Record<string, unknown>|null,
-   *   raw: Record<string, unknown>|null,
    * }>}
    */
   async put(file, options) { throw new Error('未实现 put()'); }
@@ -84,7 +83,6 @@ class StorageProvider {
    *   storageKey: string,
    *   size: number,
    *   deleteToken: Record<string, unknown>|null,
-   *   raw: Record<string, unknown>|null,
    * }>}
    */
   async putChunk(chunkBuffer, options) {
