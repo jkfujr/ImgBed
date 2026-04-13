@@ -18,6 +18,23 @@ function isRetryableError(error) {
   return false;
 }
 
+function isFailoverEligibleError(error) {
+  if (!error || error._doNotFailover) {
+    return false;
+  }
+
+  if (isRetryableError(error)) {
+    return true;
+  }
+
+  const status = error.status || error.statusCode || error.response?.status;
+  if (status === 400 || status === 401 || status === 403 || status === 404 || status === 409) {
+    return true;
+  }
+
+  return !status;
+}
+
 async function uploadToStorage({ storage, buffer, fileId, newFileName, originalName, mimeType, finalChannelId, storageManager, config }) {
   const limits = storageManager.getEffectiveUploadLimits(finalChannelId);
 
@@ -155,7 +172,7 @@ async function executeUploadWithFailover({
 
       const canRetry = err._sizeLimit
         ? (failoverEnabled || lbActive)
-        : (failoverEnabled && isRetryableError(err));
+        : (failoverEnabled && isFailoverEligibleError(err));
 
       if (!canRetry || attempt >= maxRetries) {
         if (err._sizeLimit) {
@@ -186,5 +203,6 @@ async function executeUploadWithFailover({
 }
 
 export { executeUploadWithFailover,
+  isFailoverEligibleError,
   isRetryableError,
   uploadToStorage, };

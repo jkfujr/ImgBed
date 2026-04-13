@@ -28,6 +28,46 @@ class TelegramStorage extends StorageProvider {
         return fetchWithProxy(url, options, this.proxyUrl);
     }
 
+    async parseTelegramResponse(response) {
+        const rawText = await response.text();
+        if (!rawText) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(rawText);
+        } catch {
+            return {
+                ok: false,
+                description: rawText,
+            };
+        }
+    }
+
+    createTelegramApiError(response, responseData, method) {
+        const description = responseData?.description || response.statusText || '未知错误';
+        const error = new Error(`Telegram 接口请求失败: ${description}`);
+        error.status = response.status;
+        error.statusCode = response.status;
+        error.response = { status: response.status };
+        error.telegramDescription = responseData?.description || null;
+        error.telegramMethod = method;
+        return error;
+    }
+
+    shouldFallbackToDocument(error, method) {
+        if (method === 'sendDocument') {
+            return false;
+        }
+
+        const description = String(error?.telegramDescription || error?.message || '').toLowerCase();
+        return (error?.status === 400 || error?.statusCode === 400) && (
+            description.includes('photo_invalid_dimensions')
+            || description.includes('image_process_failed')
+            || description.includes('wrong type of the webp')
+        );
+    }
+
     /**
      * 根据文件 MIME 类型选择 Telegram 发送接口
      * 规则：
@@ -71,11 +111,11 @@ class TelegramStorage extends StorageProvider {
             body: formData
         });
         log.debug({ status: response.status, statusText: response.statusText }, 'API response');
+        const responseData = await this.parseTelegramResponse(response);
         if (!response.ok) {
-            throw new Error(`Telegram 接口请求失败: ${response.statusText}`);
+            throw this.createTelegramApiError(response, responseData, functionName);
         }
 
-        const responseData = await response.json();
         return responseData;
     }
 
@@ -183,10 +223,27 @@ class TelegramStorage extends StorageProvider {
 
         // 根据文件类型选择发送接口
         const { method, paramName } = this.selectSendMethod(mimeType, fileName);
+        let responseData;
 
-        const responseData = await this.sendFile(
-            fileBlob, this.chatId, method, paramName, '', fileName || 'file'
-        );
+        try {
+            responseData = await this.sendFile(
+                fileBlob, this.chatId, method, paramName, '', fileName || 'file'
+            );
+        } catch (error) {
+            if (!this.shouldFallbackToDocument(error, method)) {
+                throw error;
+            }
+
+            log.warn({
+                method,
+                description: error.telegramDescription || error.message,
+                fileName,
+            }, 'Telegram 图片模式上传被拒绝，降级为文档上传');
+
+            responseData = await this.sendFile(
+                fileBlob, this.chatId, 'sendDocument', 'document', '', fileName || 'file'
+            );
+        }
 
         if (!responseData.ok) {
             throw new Error(`[TelegramStorage] 上传失败: ${responseData.description}`);
