@@ -116,12 +116,60 @@ async function testIncrementOperationRetryCountCallsDb() {
   console.log('  [OK] incrementOperationRetryCount sends operationId to db');
 }
 
+async function testExecuteCompensationPassesTelegramDeleteOptions() {
+  const db = makeTrackingDb();
+  let capturedOptions = null;
+  const recovery = createRecoveryService({
+    db,
+    storageManager: {
+      getStorage() {
+        return {
+          async delete(storageKey, options) {
+            capturedOptions = { storageKey, options };
+            return true;
+          },
+        };
+      },
+    },
+  });
+
+  db._operationRow = {
+    id: 'op-tg',
+    status: 'compensation_pending',
+    retry_count: 0,
+  };
+
+  await recovery.executeCompensation({
+    id: 'op-tg',
+    compensation_payload: JSON.stringify({
+      storageId: 'telegram-1',
+      storageKey: 'tg-file-id',
+      isChunked: false,
+      deleteMode: 'remote_and_index',
+      tgOptions: {
+        messageId: 8,
+        chatId: '-5244533769',
+      },
+    }),
+  });
+
+  assert.deepEqual(capturedOptions, {
+    storageKey: 'tg-file-id',
+    options: {
+      messageId: 8,
+      chatId: '-5244533769',
+    },
+  }, '恢复补偿时应把 Telegram 删除参数透传给存储层');
+  console.log('  [OK] StorageOperationRecovery.executeCompensation 透传 Telegram 删除参数');
+}
+
 async function run() {
   console.log('\n== recovery / compensation retry tests ==');
   await testExecuteRecoveryIncrementsCountOnFailure();
   await testExecuteRecoveryMarksFailedWhenMaxRetriesReached();
   await testExecuteRecoveryDoesNotIncrementOnSuccess();
   await testIncrementOperationRetryCountCallsDb();
+  await testExecuteCompensationPassesTelegramDeleteOptions();
   console.log('\ncompensation-retry tests passed\n');
 }
 

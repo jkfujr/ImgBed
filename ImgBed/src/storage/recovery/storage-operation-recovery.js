@@ -180,6 +180,8 @@ class StorageOperationRecovery {
         storageKey: payload.storageKey || payload.sourceStorageKey,
         isChunked: Boolean(payload.isChunked),
         chunkRecords: payload.chunkRecords || [],
+        deleteMode: payload.deleteMode,
+        tgOptions: payload.tgOptions || {},
       });
     }
 
@@ -201,6 +203,8 @@ class StorageOperationRecovery {
       storageKey: payload.storageKey || payload.sourceStorageKey || payload.targetStorageKey,
       isChunked: Boolean(payload.isChunked),
       chunkRecords: payload.chunkRecords || [],
+      deleteMode: payload.deleteMode,
+      tgOptions: payload.tgOptions || {},
     });
 
     markOperationCompensated(db, operation.id, { compensationPayload: payload });

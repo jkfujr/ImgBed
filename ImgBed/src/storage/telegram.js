@@ -177,6 +177,15 @@ class TelegramStorage extends StorageProvider {
         return Number.isFinite(totalSize) ? totalSize : null;
     }
 
+    isDeleteAlreadyApplied(description) {
+        if (!description) {
+            return false;
+        }
+
+        const normalized = String(description).toLowerCase();
+        return normalized.includes('message to delete not found');
+    }
+
     // --- 以下为 StorageProvider 接口实现，映射旧逻辑 ---
 
     async put(file, options) {
@@ -280,6 +289,9 @@ class TelegramStorage extends StorageProvider {
             const data = await response.json();
             if (data.ok) {
                 log.info({ fileId, messageId, chatId }, 'Telegram 消息删除成功');
+                return true;
+            } else if (this.isDeleteAlreadyApplied(data.description)) {
+                log.warn({ fileId, messageId, chatId, description: data.description }, 'Telegram 消息已不存在，按幂等删除成功处理');
                 return true;
             } else {
                 // 48h 限制等错误在这里打出来，方便排查
