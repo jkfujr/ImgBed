@@ -14,6 +14,7 @@ export function createStorageOperationsSchema(db) {
       remote_payload JSON,
       compensation_payload JSON,
       error_message TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -29,3 +30,4 @@ export function createStorageOperationsSchema(db) {
       END;
   `);
 }
+

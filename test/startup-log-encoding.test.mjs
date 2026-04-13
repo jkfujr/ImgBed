@@ -22,7 +22,7 @@ function testStartupLogMessagesUseReadableChineseText() {
 
   assert.match(databaseSource, /(数据库连接已建立|鏁版嵁搴撹繛鎺ュ凡寤虹珛)/);
   assert.match(schemaSource, /(数据库表结构初始化完成|鏁版嵁搴撹〃缁撴瀯鍒濆鍖栧畬鎴)/);
-  assert.match(migrateSource, /(数据库已是最新版本，跳过迁移|鏁版嵁搴撳凡鏄渶鏂扮増鏈紝璺宠繃杩佺Щ)/);
+  assert.match(migrateSource, /(数据库结构已登记为 v0|鏁版嵁搴撶粨鏋勫凡鐧昏涓簙0)/);
   assert.match(responseCacheSource, /(响应缓存服务已初始化|鍝嶅簲缂撳瓨鏈嶅姟宸插垵濮嬪寲)/);
   assert.match(archiveSource, /(容量事件归档服务已初始化|瀹归噺浜嬩欢褰掓。鏈嶅姟宸插垵濮嬪寲)/);
   assert.match(schedulerSource, /(归档调度器已启动|褰掓。璋冨害鍣ㄥ凡鍚姩)/);

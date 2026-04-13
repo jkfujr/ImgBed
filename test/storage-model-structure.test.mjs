@@ -131,28 +131,17 @@ function testStorageManagerDelegatesRuntimeState() {
   console.log('  [OK] manager.js: runtime state now delegates to registry, selector, quota, recovery, and scheduler services');
 }
 
-function testQuotaCacheMaintenanceMovesOutOfSchemaTriggers() {
+function testQuotaCacheMaintenanceLivesInLatestSchemaOnly() {
   const schemaSource = read('ImgBed/src/database/schemas/storage-quota-cache.js');
-  const v003Source = read('ImgBed/src/database/migrations/v003.js');
   const migrateSource = read('ImgBed/src/database/migrate.js');
 
   assert.ok(!schemaSource.includes('CREATE TRIGGER'), 'storage-quota-cache schema should not define triggers');
   assert.ok(!schemaSource.includes('trg_quota_cache_after_insert'));
   assert.ok(!schemaSource.includes('trg_quota_cache_after_delete'));
   assert.ok(!schemaSource.includes('trg_quota_cache_after_update'));
-  assert.ok(!v003Source.includes('rebuildQuotaCacheTriggers'));
-  assert.match(migrateSource, /import \{ migrateV004 \} from '\.\/migrations\/v004\.js';/);
-  assert.match(migrateSource, /\{ version: 4, migrate: migrateV004 \}/);
-  console.log('  [OK] quota cache maintenance: schema and migrations no longer keep trigger-based projection');
-}
-
-function testQuotaCacheTriggerMigrationStaysInternalToV001() {
-  const v001Source = read('ImgBed/src/database/migrations/v001.js');
-
-  assert.ok(!v001Source.includes('export function rebuildQuotaCacheTriggers'));
-  assert.match(v001Source, /function applyV001QuotaCacheTriggerMigration\(db\)/);
-  assert.match(v001Source, /export function migrateV001\(db\) \{[\s\S]*applyV001QuotaCacheTriggerMigration\(db\);[\s\S]*\}/);
-  console.log('  [OK] v001 quota trigger migration: historical trigger rebuild logic is internal only');
+  assert.ok(!migrateSource.includes('./migrations/'));
+  assert.match(migrateSource, /export const SCHEMA_VERSION = 0;/);
+  console.log('  [OK] quota cache maintenance: schema 已固化为最新结构，迁移模块不再依赖历史脚本');
 }
 
 function testQuotaRebuildUsesStorageManagerFacade() {
@@ -170,8 +159,7 @@ function runStaticChecks() {
   testResolveFileStoragePrefersStorageInstanceId();
   testFilesSchemaKeepsBothStorageColumns();
   testStorageManagerDelegatesRuntimeState();
-  testQuotaCacheMaintenanceMovesOutOfSchemaTriggers();
-  testQuotaCacheTriggerMigrationStaysInternalToV001();
+  testQuotaCacheMaintenanceLivesInLatestSchemaOnly();
   testQuotaRebuildUsesStorageManagerFacade();
 }
 
