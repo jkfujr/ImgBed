@@ -13,16 +13,12 @@ import { resolveUploadChannel } from '../services/upload/resolve-upload.js';
 import { executeUploadWithFailover } from '../services/upload/execute-upload.js';
 import {
   buildQuotaEvent,
-  createStorageOperation,
-  insertQuotaEvents,
-  markOperationCommitted,
-  markOperationCompensated,
-  markOperationCompensationPending,
-  markOperationCompleted,
-  markOperationFailed,
-  markOperationRemoteDone,
 } from '../services/system/storage-operations.js';
-import { buildStorageArtifactPayload } from '../services/system/storage-operation-payload.js';
+import {
+  buildStorageArtifactPayload,
+  buildStoragePayloadFromStorageResult,
+} from '../services/system/storage-operation-payload.js';
+import { createStorageOperationLifecycle } from '../services/system/storage-operation-lifecycle.js';
 import { removeStoredArtifacts } from '../services/files/storage-artifacts.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, QuotaExceededError } from '../errors/AppError.js';
@@ -181,12 +177,15 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
   }
 
   const fileMeta = await extractFileMetadata(file);
-  const operationId = createStorageOperation(sqlite, {
+  const lifecycle = createStorageOperationLifecycle({
+    db: sqlite,
+    storageManager,
     operationType: 'upload',
     fileId: fileMeta.fileId,
     targetStorageId: channelId,
     payload: { originalName: fileMeta.originalName },
   });
+  const { operationId } = lifecycle;
 
   const uploadResult = await executeUploadWithFailover({
     initialChannelId: channelId,
@@ -199,14 +198,14 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     config,
   });
 
-  markOperationRemoteDone(sqlite, operationId, {
+  const remotePayload = buildStoragePayloadFromStorageResult(uploadResult.storageResult, {
+    isChunked: Boolean(uploadResult.isChunked),
+    chunkRecords: uploadResult.chunkRecords || [],
+  });
+
+  lifecycle.markRemoteDone({
     targetStorageId: uploadResult.finalChannelId,
-    remotePayload: buildStorageArtifactPayload({
-      storageKey: uploadResult.storageResult.storageKey,
-      deleteToken: uploadResult.storageResult.deleteToken || null,
-      isChunked: Boolean(uploadResult.isChunked),
-      chunkRecords: uploadResult.chunkRecords || [],
-    }),
+    remotePayload,
   });
 
   if (uploadResult.failedChannels.length > 0) {
@@ -234,61 +233,51 @@ uploadApp.post('/', guestUploadAuth, requirePermission('upload:image'), upload.s
     clientIp: req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown',
   });
 
-  const persistUpload = sqlite.transaction(() => {
+  const persistUpload = () => {
     insertFile(sqlite, dbRecord);
-
     ChunkManager.insertChunks(uploadResult.chunkRecords || [], sqlite);
-    insertQuotaEvents(sqlite, [buildQuotaEvent({
-      operationId,
-      fileId: fileMeta.fileId,
-      storageId: uploadResult.finalChannelId,
-      eventType: 'upload',
-      bytesDelta: storedFileSize,
-      fileCountDelta: 1,
-      payload: { storageKey: dbRecord.storage_key },
-    })]);
-    markOperationCommitted(sqlite, operationId, { targetStorageId: uploadResult.finalChannelId });
+  };
+
+  const quotaEvents = [buildQuotaEvent({
+    operationId,
+    fileId: fileMeta.fileId,
+    storageId: uploadResult.finalChannelId,
+    eventType: 'upload',
+    bytesDelta: storedFileSize,
+    fileCountDelta: 1,
+    payload: { storageKey: dbRecord.storage_key },
+  })];
+
+  const cleanupPayload = buildStorageArtifactPayload({
+    storageKey: uploadResult.storageResult.storageKey,
+    deleteToken: uploadResult.storageResult.deleteToken || null,
+    isChunked: Boolean(uploadResult.isChunked),
+    chunkRecords: uploadResult.chunkRecords || [],
   });
 
-  // 保留补偿 try-catch: 数据库写入失败需要清理远端
   try {
-    persistUpload();
-  } catch (insertErr) {
-    log.error({ err: insertErr, dbRecord }, '数据库写入失败');
-
-    const cleanupPayload = buildStorageArtifactPayload({
-      storageKey: uploadResult.storageResult.storageKey,
-      deleteToken: uploadResult.storageResult.deleteToken || null,
-      isChunked: Boolean(uploadResult.isChunked),
-      chunkRecords: uploadResult.chunkRecords || [],
-    });
-
-    markOperationCompensationPending(sqlite, operationId, {
+    await lifecycle.commit({
+      persist: persistUpload,
+      quotaEvents,
       targetStorageId: uploadResult.finalChannelId,
-      compensationPayload: cleanupPayload,
-      error: insertErr,
+      committedCompensationPayload: null,
+      failureCompensationPayload: cleanupPayload,
+      executeCompensation: async () => {
+        await removeStoredArtifacts({
+          storageManager,
+          storageId: uploadResult.finalChannelId,
+          storageKey: cleanupPayload.storageKey,
+          deleteToken: cleanupPayload.deleteToken,
+          isChunked: cleanupPayload.isChunked,
+          chunkRecords: cleanupPayload.chunkRecords,
+        });
+      },
     });
-
-    try {
-      await removeStoredArtifacts({
-        storageManager,
-        storageId: uploadResult.finalChannelId,
-        storageKey: cleanupPayload.storageKey,
-        deleteToken: cleanupPayload.deleteToken,
-        isChunked: cleanupPayload.isChunked,
-        chunkRecords: cleanupPayload.chunkRecords,
-      });
-      markOperationCompensated(sqlite, operationId, { compensationPayload: cleanupPayload });
-    } catch (cleanupErr) {
-      log.error({ err: cleanupErr }, '上传补偿失败');
-      markOperationFailed(sqlite, operationId, cleanupErr);
-    }
-
-    throw insertErr;
+  } catch (error) {
+    log.error({ err: error, dbRecord, operationId }, '上传提交流程失败');
+    throw error;
   }
 
-  await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
-  markOperationCompleted(sqlite, operationId);
   log.info({ fileId: fileMeta.fileId, channel: uploadResult.finalChannelId }, '文件上传成功');
 
   // 使文件列表和存储统计缓存失效

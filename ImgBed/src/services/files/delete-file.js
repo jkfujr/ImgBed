@@ -2,14 +2,12 @@ import pLimit from 'p-limit';
 import { createLogger } from '../../utils/logger.js';
 import {
   buildQuotaEvent,
-  createStorageOperation,
-  insertQuotaEvents,
-  markOperationCommitted,
-  markOperationCompensationPending,
-  markOperationCompleted,
-  markOperationRemoteDone,
 } from '../system/storage-operations.js';
 import { buildStorageArtifactPayload } from '../system/storage-operation-payload.js';
+import {
+  COMMIT_FAILURE_MODE,
+  createStorageOperationLifecycle,
+} from '../system/storage-operation-lifecycle.js';
 import {
   isIndexOnlyMode,
   parseStorageMeta,
@@ -44,12 +42,15 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
     deleteMode,
   });
 
-  const operationId = createStorageOperation(db, {
+  const lifecycle = createStorageOperationLifecycle({
+    db,
+    storageManager,
     operationType: 'delete',
     fileId: fileRecord.id,
     sourceStorageId: instanceId,
     payload: compensationPayload,
   });
+  const { operationId } = lifecycle;
 
   try {
     await removeStoredArtifacts({
@@ -61,56 +62,47 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
       chunkRecords,
       deleteMode,
     });
-    markOperationRemoteDone(db, operationId, {
+    lifecycle.markRemoteDone({
       sourceStorageId: instanceId,
-      remotePayload: buildStorageArtifactPayload({
-        storageKey: fileRecord.storage_key,
-        deleteToken: storageMeta.deleteToken || null,
-        isChunked: Boolean(fileRecord.is_chunked),
-        chunkRecords,
-        deleteMode,
-      }),
+      remotePayload: compensationPayload,
     });
   } catch (err) {
     // 仅删索引模式下，远端删除失败不阻止流程
     if (isIndexOnlyMode(deleteMode)) {
       logger.warn(`[delete-file] 仅删索引模式：远端删除失败跳过 — ${err.message}`);
     } else {
-      markOperationCompensationPending(db, operationId, {
+      await lifecycle.failBeforeCommit({
         sourceStorageId: instanceId,
         compensationPayload,
         error: err,
       });
-      logger.warn(`[delete-file] 文件 ${fileRecord.id} 远端清理失败，本地记录保留，已标记待补偿: ${err.message}`);
-      throw err;
     }
   }
 
-  const persistDelete = db.transaction(() => {
+  const persistDelete = () => {
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
     deleteFileById(db, fileRecord.id);
+  };
 
-    if (instanceId) {
-      insertQuotaEvents(db, [buildQuotaEvent({
-        operationId,
-        fileId: fileRecord.id,
-        storageId: instanceId,
-        eventType: 'delete',
-        bytesDelta: -fileSize,
-        fileCountDelta: -1,
-        payload: { storageKey: fileRecord.storage_key },
-      })]);
-    }
+  const quotaEvents = instanceId
+    ? [buildQuotaEvent({
+      operationId,
+      fileId: fileRecord.id,
+      storageId: instanceId,
+      eventType: 'delete',
+      bytesDelta: -fileSize,
+      fileCountDelta: -1,
+      payload: { storageKey: fileRecord.storage_key },
+    })]
+    : [];
 
-    markOperationCommitted(db, operationId, {
-      sourceStorageId: instanceId,
-      compensationPayload,
-    });
+  await lifecycle.commit({
+    persist: persistDelete,
+    quotaEvents,
+    sourceStorageId: instanceId,
+    committedCompensationPayload: compensationPayload,
+    onCommitFailure: COMMIT_FAILURE_MODE.LEAVE_REMOTE_DONE,
   });
-
-  persistDelete();
-  await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
-  markOperationCompleted(db, operationId);
 
   return {
     id: fileRecord.id,

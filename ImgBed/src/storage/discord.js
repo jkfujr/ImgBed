@@ -3,8 +3,21 @@ import { createLogger } from '../utils/logger.js';
 import { fetchWithProxy } from '../network/proxy.js';
 import { toBlob } from '../utils/storage-io.js';
 import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
+import { runRemoteRetry, waitForDelay } from './remote-retry.js';
 
 const log = createLogger('discord');
+const DEFAULT_MESSAGE_RETRY_BUDGET_MS = 8000;
+const DEFAULT_MESSAGE_RETRY_LIMIT = 3;
+
+function getDiscordRetryDelayMs(response, attempt) {
+    const retryAfter = response?.headers?.get?.('Retry-After');
+    const headerDelayMs = retryAfter ? parseFloat(retryAfter) * 1000 : NaN;
+    if (Number.isFinite(headerDelayMs) && headerDelayMs >= 0) {
+        return headerDelayMs;
+    }
+
+    return 1000 * (attempt + 1);
+}
 
 /**
      * Discord API 封装类
@@ -17,6 +30,9 @@ class DiscordStorage extends StorageProvider {
         this.channelId = config.channelId;
         this.proxyUrl = config.proxyUrl || '';
         this.baseURL = 'https://discord.com/api/v10';
+        this.retryWait = typeof config?.__retryWaitForTest === 'function'
+            ? config.__retryWaitForTest
+            : waitForDelay;
         this.defaultHeaders = {
             'Authorization': `Bot ${this.botToken}`,
             'User-Agent': 'DiscordBot (ImgBed-Node, 1.0)'
@@ -89,42 +105,50 @@ class DiscordStorage extends StorageProvider {
     /**
      * 获取消息信息（用于获取文件 URL）
      */
-    async getMessage(channelId, messageId, maxRetries = 3) {
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                const response = await this.requestDiscord(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
+    async getMessage(channelId, messageId, maxRetries = DEFAULT_MESSAGE_RETRY_LIMIT) {
+        try {
+            const response = await runRemoteRetry({
+                execute: () => this.requestDiscord(`${this.baseURL}/channels/${channelId}/messages/${messageId}`, {
                     method: 'GET',
                     headers: this.defaultHeaders
-                });
-
-                // 429 速率限制：等待后重试
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After');
-                    const waitTime = retryAfter ? parseFloat(retryAfter) * 1000 : 1000 * (attempt + 1);
-                    log.warn({ waitTime, attempt: attempt + 1, maxRetries }, '触发限流，等待后重试');
-
-                    if (attempt < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, waitTime));
-                        continue;
+                }),
+                shouldRetry: ({ value, error }, { attempt }) => {
+                    if (error) {
+                        return {
+                            retry: true,
+                            delayMs: 500 * (attempt + 1),
+                            reason: 'network_error',
+                        };
                     }
-                }
 
-                if (!response.ok) {
-                    log.error({ status: response.status, statusText: response.statusText }, '获取消息失败');
-                    return null;
-                }
+                    if (value?.status === 429) {
+                        return {
+                            retry: true,
+                            delayMs: getDiscordRetryDelayMs(value, attempt),
+                            reason: 'rate_limit',
+                        };
+                    }
 
-                return await response.json();
-            } catch (error) {
-                log.error({ err: error }, '读取消息失败');
-                if (attempt < maxRetries) {
-                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                    continue;
-                }
+                    return { retry: false };
+                },
+                maxRetries,
+                maxTotalDelayMs: DEFAULT_MESSAGE_RETRY_BUDGET_MS,
+                wait: this.retryWait,
+                logger: log,
+                logContext: { channelId, messageId },
+                logMessage: 'Discord 读取消息触发重试',
+            });
+
+            if (!response.ok) {
+                log.error({ status: response.status, statusText: response.statusText }, '获取消息失败');
                 return null;
             }
+
+            return await response.json();
+        } catch (error) {
+            log.error({ err: error, channelId, messageId }, '读取消息失败');
+            return null;
         }
-        return null;
     }
 
     /**
@@ -283,3 +307,8 @@ class DiscordStorage extends StorageProvider {
 }
 
 export default DiscordStorage;
+export {
+    DEFAULT_MESSAGE_RETRY_BUDGET_MS,
+    DEFAULT_MESSAGE_RETRY_LIMIT,
+    getDiscordRetryDelayMs,
+};

@@ -29,6 +29,23 @@ function buildStorageArtifactPayload({
   return payload;
 }
 
+function buildStoragePayloadFromStorageResult(
+  storageResult,
+  {
+    isChunked = false,
+    chunkRecords = [],
+    deleteMode = undefined,
+  } = {},
+) {
+  return buildStorageArtifactPayload({
+    storageKey: storageResult?.storageKey,
+    deleteToken: storageResult?.deleteToken || null,
+    isChunked,
+    chunkRecords,
+    deleteMode,
+  });
+}
+
 function resolveOperationStorageId(operation, { payloadField = 'compensation_payload' } = {}) {
   if (payloadField === 'remote_payload') {
     return operation?.target_storage_id || null;
@@ -53,5 +70,6 @@ function resolveOperationStorageId(operation, { payloadField = 'compensation_pay
 
 export {
   buildStorageArtifactPayload,
+  buildStoragePayloadFromStorageResult,
   resolveOperationStorageId,
 };

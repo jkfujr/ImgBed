@@ -1,10 +1,13 @@
 import StorageProvider from './base.js';
 import { createStoragePutResult, createStorageReadResult, parseContentRange } from './contract.js';
 import { toBuffer, toNodeReadable } from '../utils/storage-io.js';
+import { runRemoteRetry } from './remote-retry.js';
+import { createLogger } from '../utils/logger.js';
 
 let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
 let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
 let s3ModuleLoaded = false;
+const log = createLogger('s3');
 
 /**
  * 延迟加载 AWS SDK（仅在实例化时按需导入）
@@ -98,21 +101,39 @@ class S3Storage extends StorageProvider {
     }
 
     async sendGetObject(params) {
-        const command = new GetObjectCommand(params);
+        let useChecksumMode = false;
+        return runRemoteRetry({
+            execute: async () => {
+                const nextParams = useChecksumMode
+                    ? { ...params, ChecksumMode: 'ENABLED' }
+                    : params;
+                const command = new GetObjectCommand(nextParams);
+                return this.s3.send(command);
+            },
+            shouldRetry: ({ error }, { attempt }) => {
+                if (!error?.message || !error.message.includes('Checksum mismatch')) {
+                    return { retry: false };
+                }
 
-        try {
-            return await this.s3.send(command);
-        } catch (error) {
-            if (error.message && error.message.includes('Checksum mismatch')) {
-                console.error(`[S3Storage] 校验和不匹配警告 (fileId: ${params.Key}):`, error.message);
-                const retryCommand = new GetObjectCommand({
-                    ...params,
-                    ChecksumMode: 'ENABLED'
-                });
-                return this.s3.send(retryCommand);
-            }
-            throw error;
-        }
+                if (attempt >= 1) {
+                    return { retry: false };
+                }
+
+                return {
+                    retry: true,
+                    delayMs: 0,
+                    reason: 'checksum_mismatch',
+                    beforeRetry: async () => {
+                        useChecksumMode = true;
+                    },
+                };
+            },
+            maxRetries: 1,
+            maxTotalDelayMs: 0,
+            logger: log,
+            logContext: { key: params.Key, bucket: params.Bucket },
+            logMessage: 'S3 读取对象因校验和不匹配重试',
+        });
     }
 
     async put(file, options) {

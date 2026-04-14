@@ -6,6 +6,33 @@ import { createStorageChunkPutResult, createStoragePutResult, createStorageReadR
 
 const log = createLogger('telegram');
 
+function shouldFallbackToTelegramDocument(error, method) {
+    if (method === 'sendDocument') {
+        return false;
+    }
+
+    const description = String(error?.telegramDescription || error?.message || '').toLowerCase();
+    return (error?.status === 400 || error?.statusCode === 400) && (
+        description.includes('photo_invalid_dimensions')
+        || description.includes('image_process_failed')
+        || description.includes('wrong type of the webp')
+    );
+}
+
+function selectTelegramSendMethod(mimeType, fileName) {
+    const lowerName = (fileName || '').toLowerCase();
+    const lowerMime = (mimeType || '').toLowerCase();
+
+    if (lowerMime === 'image/gif' || lowerMime === 'image/webp' || lowerName.endsWith('.gif') || lowerName.endsWith('.webp')) {
+        return { method: 'sendAnimation', paramName: 'animation' };
+    }
+    if (lowerMime === 'image/svg+xml' || lowerMime === 'image/x-icon' || lowerName.endsWith('.svg') || lowerName.endsWith('.ico')) {
+        return { method: 'sendDocument', paramName: 'document' };
+    }
+
+    return { method: 'sendPhoto', paramName: 'photo' };
+}
+
 /**
  * Telegram API 封装类
  * 实现 StorageProvider 统一接口
@@ -55,19 +82,6 @@ class TelegramStorage extends StorageProvider {
         return error;
     }
 
-    shouldFallbackToDocument(error, method) {
-        if (method === 'sendDocument') {
-            return false;
-        }
-
-        const description = String(error?.telegramDescription || error?.message || '').toLowerCase();
-        return (error?.status === 400 || error?.statusCode === 400) && (
-            description.includes('photo_invalid_dimensions')
-            || description.includes('image_process_failed')
-            || description.includes('wrong type of the webp')
-        );
-    }
-
     /**
      * 根据文件 MIME 类型选择 Telegram 发送接口
      * 规则：
@@ -76,17 +90,7 @@ class TelegramStorage extends StorageProvider {
      *   其他图片  → sendPhoto
      */
     selectSendMethod(mimeType, fileName) {
-        const lowerName = (fileName || '').toLowerCase();
-        const lowerMime = (mimeType || '').toLowerCase();
-
-        if (lowerMime === 'image/gif' || lowerMime === 'image/webp' || lowerName.endsWith('.gif') || lowerName.endsWith('.webp')) {
-            return { method: 'sendAnimation', paramName: 'animation' };
-        }
-        if (lowerMime === 'image/svg+xml' || lowerMime === 'image/x-icon' || lowerName.endsWith('.svg') || lowerName.endsWith('.ico')) {
-            return { method: 'sendDocument', paramName: 'document' };
-        }
-        // 默认走 sendPhoto
-        return { method: 'sendPhoto', paramName: 'photo' };
+        return selectTelegramSendMethod(mimeType, fileName);
     }
 
     /**
@@ -230,7 +234,7 @@ class TelegramStorage extends StorageProvider {
                 fileBlob, this.chatId, method, paramName, '', fileName || 'file'
             );
         } catch (error) {
-            if (!this.shouldFallbackToDocument(error, method)) {
+            if (!shouldFallbackToTelegramDocument(error, method)) {
                 throw error;
             }
 
@@ -396,3 +400,7 @@ class TelegramStorage extends StorageProvider {
 }
 
 export default TelegramStorage;
+export {
+    selectTelegramSendMethod,
+    shouldFallbackToTelegramDocument,
+};

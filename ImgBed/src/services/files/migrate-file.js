@@ -6,14 +6,12 @@ import ChunkManager from '../../storage/chunk-manager.js';
 import { uploadToStorage } from '../upload/execute-upload.js';
 import {
   buildQuotaEvent,
-  createStorageOperation,
-  insertQuotaEvents,
-  markOperationCommitted,
-  markOperationCompensationPending,
-  markOperationCompleted,
-  markOperationRemoteDone,
 } from '../system/storage-operations.js';
-import { buildStorageArtifactPayload } from '../system/storage-operation-payload.js';
+import {
+  buildStorageArtifactPayload,
+  buildStoragePayloadFromStorageResult,
+} from '../system/storage-operation-payload.js';
+import { createStorageOperationLifecycle } from '../system/storage-operation-lifecycle.js';
 import {
   parseStorageMeta,
   removeStoredArtifacts,
@@ -106,19 +104,23 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
 
   const { stream, sourceChunkRecords } = await readSourceFileAsStream(fileRecord, storageManager);
   const fileSize = Number(fileRecord.size) || 0;
+  const sourceCleanupPayload = buildStorageArtifactPayload({
+    storageKey: fileRecord.storage_key,
+    deleteToken: sourceStorageMeta.deleteToken || null,
+    isChunked: Boolean(fileRecord.is_chunked),
+    chunkRecords: sourceChunkRecords,
+  });
 
-  const operationId = createStorageOperation(db, {
+  const lifecycle = createStorageOperationLifecycle({
+    db,
+    storageManager,
     operationType: 'migrate',
     fileId: fileRecord.id,
     sourceStorageId: sourceInstanceId,
     targetStorageId: targetChannel,
-    payload: buildStorageArtifactPayload({
-      storageKey: fileRecord.storage_key,
-      deleteToken: sourceStorageMeta.deleteToken || null,
-      isChunked: Boolean(fileRecord.is_chunked),
-      chunkRecords: sourceChunkRecords,
-    }),
+    payload: sourceCleanupPayload,
   });
+  const { operationId } = lifecycle;
 
   // 判断是否需要分块（基于已知 fileSize，无需读入 buffer）
   const limits = storageManager.getEffectiveUploadLimits(targetChannel);
@@ -163,32 +165,18 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
     };
   }
 
-  markOperationRemoteDone(db, operationId, {
-    sourceStorageId: sourceInstanceId,
-    targetStorageId: targetChannel,
-    remotePayload: buildStorageArtifactPayload({
-      storageKey: targetUploadResult.storageResult.storageKey,
-      deleteToken: targetUploadResult.storageResult.deleteToken || null,
-      isChunked: Boolean(targetUploadResult.isChunked),
-      chunkRecords: targetUploadResult.chunkRecords || [],
-    }),
-  });
-
-  const cleanupTargetPayload = buildStorageArtifactPayload({
-    storageKey: targetUploadResult.storageResult.storageKey,
-    deleteToken: targetUploadResult.storageResult.deleteToken || null,
+  const targetCleanupPayload = buildStoragePayloadFromStorageResult(targetUploadResult.storageResult, {
     isChunked: Boolean(targetUploadResult.isChunked),
     chunkRecords: targetUploadResult.chunkRecords || [],
   });
 
-  const sourceCleanupPayload = buildStorageArtifactPayload({
-    storageKey: fileRecord.storage_key,
-    deleteToken: sourceStorageMeta.deleteToken || null,
-    isChunked: Boolean(fileRecord.is_chunked),
-    chunkRecords: sourceChunkRecords,
+  lifecycle.markRemoteDone({
+    sourceStorageId: sourceInstanceId,
+    targetStorageId: targetChannel,
+    remotePayload: targetCleanupPayload,
   });
 
-  const persistMigration = db.transaction(() => {
+  const persistMigration = () => {
     db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
     ChunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
 
@@ -200,61 +188,51 @@ async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, s
       isChunked: targetUploadResult.isChunked ? 1 : 0,
       chunkCount: Number(targetUploadResult.chunkCount) || 0,
     });
+  };
 
-    insertQuotaEvents(db, [
-      buildQuotaEvent({
-        operationId,
-        fileId: fileRecord.id,
-        storageId: sourceInstanceId,
-        eventType: 'migrate_out',
-        bytesDelta: -fileSize,
-        fileCountDelta: -1,
-      }),
-      buildQuotaEvent({
-        operationId,
-        fileId: fileRecord.id,
-        storageId: targetChannel,
-        eventType: 'migrate_in',
-        bytesDelta: fileSize,
-        fileCountDelta: 1,
-      }),
-    ]);
-
-    markOperationCommitted(db, operationId, {
-      sourceStorageId: sourceInstanceId,
-      targetStorageId: targetChannel,
-      compensationPayload: sourceCleanupPayload,
-    });
-  });
-
-  try {
-    persistMigration();
-  } catch (err) {
-    markOperationCompensationPending(db, operationId, {
-      sourceStorageId: sourceInstanceId,
-      targetStorageId: targetChannel,
-      compensationPayload: cleanupTargetPayload,
-      error: err,
-    });
-    logger.warn(`[Files API] 迁移 ${fileRecord.id} 本地更新失败，目标端待补偿: ${err.message}`);
-    throw err;
-  }
-
-  await storageManager.applyPendingQuotaEvents({ operationId, adjustUsageStats: true });
-
-  try {
-    await removeStoredArtifacts({
-      storageManager,
+  const quotaEvents = [
+    buildQuotaEvent({
+      operationId,
+      fileId: fileRecord.id,
       storageId: sourceInstanceId,
-      storageKey: sourceCleanupPayload.storageKey,
-      deleteToken: sourceCleanupPayload.deleteToken,
-      isChunked: sourceCleanupPayload.isChunked,
-      chunkRecords: sourceCleanupPayload.chunkRecords,
+      eventType: 'migrate_out',
+      bytesDelta: -fileSize,
+      fileCountDelta: -1,
+    }),
+    buildQuotaEvent({
+      operationId,
+      fileId: fileRecord.id,
+      storageId: targetChannel,
+      eventType: 'migrate_in',
+      bytesDelta: fileSize,
+      fileCountDelta: 1,
+    }),
+  ];
+
+  try {
+    await lifecycle.commit({
+      persist: persistMigration,
+      quotaEvents,
+      sourceStorageId: sourceInstanceId,
+      targetStorageId: targetChannel,
+      committedCompensationPayload: sourceCleanupPayload,
+      failureCompensationPayload: targetCleanupPayload,
+      afterCommit: async () => {
+        await removeStoredArtifacts({
+          storageManager,
+          storageId: sourceInstanceId,
+          storageKey: sourceCleanupPayload.storageKey,
+          deleteToken: sourceCleanupPayload.deleteToken,
+          isChunked: sourceCleanupPayload.isChunked,
+          chunkRecords: sourceCleanupPayload.chunkRecords,
+        });
+      },
     });
-    markOperationCompleted(db, operationId);
-  } catch (cleanupErr) {
-    logger.warn(`[Files API] 迁移 ${fileRecord.id} 已提交，但源端清理待补偿: ${cleanupErr.message}`);
-    throw cleanupErr;
+  } catch (error) {
+    if (error?.message) {
+      logger.warn(`[Files API] 迁移 ${fileRecord.id} 处理失败: ${error.message}`);
+    }
+    throw error;
   }
 
   return { status: 'success' };
