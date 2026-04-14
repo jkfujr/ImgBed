@@ -1,7 +1,9 @@
-import ChunkManager from '../../storage/chunk-manager.js';
-import { createStoragePutResult } from '../../storage/contract.js';
 import { createLogger } from '../../utils/logger.js';
 import { createUploadError } from './resolve-upload.js';
+import {
+  executePlannedBufferWrite,
+  resolveStorageWritePlan,
+} from './storage-write.js';
 
 const log = createLogger('execute-upload');
 const MAX_RETRIES = 3;
@@ -36,109 +38,6 @@ function isFailoverEligibleError(error) {
   return !status;
 }
 
-function createSizeLimitError(message) {
-  const error = createUploadError(413, message);
-  error._sizeLimit = true;
-  return error;
-}
-
-function assertUploadWithinLimits({ buffer, limits }) {
-  if (limits.enableMaxLimit) {
-    const maxLimitBytes = limits.maxLimitMB * 1024 * 1024;
-    if (buffer.length > maxLimitBytes) {
-      throw createSizeLimitError(`文件体积超出最大限制 ${limits.maxLimitMB}MB`);
-    }
-  }
-
-  if (limits.enableSizeLimit) {
-    const sizeLimitBytes = limits.sizeLimitMB * 1024 * 1024;
-    if (buffer.length > sizeLimitBytes && !limits.enableChunking) {
-      throw createSizeLimitError(`文件体积超出大小限制 ${limits.sizeLimitMB}MB`);
-    }
-  }
-}
-
-function analyzeChunkingPlan({ storage, bufferLength, limits }) {
-  return ChunkManager.analyze(storage, bufferLength, {
-    channelConfig: limits.enableChunking ? {
-      enableChunking: true,
-      sizeLimitMB: limits.sizeLimitMB,
-      chunkSizeMB: limits.chunkSizeMB,
-      maxChunks: limits.maxChunks,
-    } : null,
-  });
-}
-
-async function executeStorageWrite({
-  storage,
-  buffer,
-  fileId,
-  newFileName,
-  originalName,
-  mimeType,
-  finalChannelId,
-  config,
-  limits,
-}) {
-  const chunkAnalysis = analyzeChunkingPlan({
-    storage,
-    bufferLength: buffer.length,
-    limits,
-  });
-
-  if (chunkAnalysis.needsChunking && chunkAnalysis.config.mode === 'native') {
-    const storageResult = await ChunkManager.uploadS3Multipart(storage, buffer, {
-      fileId,
-      fileName: newFileName,
-      originalName,
-      mimeType,
-      storageId: finalChannelId,
-      config,
-    });
-
-    return {
-      storageResult,
-      isChunked: 0,
-      chunkCount: 0,
-      chunkRecords: [],
-    };
-  }
-
-  if (chunkAnalysis.needsChunking) {
-    const result = await ChunkManager.uploadChunked(storage, buffer, {
-      fileId,
-      fileName: newFileName,
-      originalName,
-      mimeType,
-      storageId: finalChannelId,
-    });
-
-    return {
-      storageResult: createStoragePutResult({
-        storageKey: fileId,
-        size: buffer.length,
-      }),
-      isChunked: 1,
-      chunkCount: result.chunkCount,
-      chunkRecords: result.chunkRecords,
-    };
-  }
-
-  const storageResult = createStoragePutResult(await storage.put(buffer, {
-    id: fileId,
-    fileName: newFileName,
-    originalName,
-    mimeType,
-  }));
-
-  return {
-    storageResult,
-    isChunked: 0,
-    chunkCount: 0,
-    chunkRecords: [],
-  };
-}
-
 async function uploadToStorage({
   storage,
   buffer,
@@ -150,19 +49,22 @@ async function uploadToStorage({
   storageManager,
   config,
 }) {
-  const limits = storageManager.getEffectiveUploadLimits(finalChannelId);
-  assertUploadWithinLimits({ buffer, limits });
+  const plan = resolveStorageWritePlan({
+    storage,
+    fileSize: buffer.length,
+    storageId: finalChannelId,
+    storageManager,
+  });
 
-  return executeStorageWrite({
+  return executePlannedBufferWrite({
+    plan,
     storage,
     buffer,
     fileId,
     newFileName,
     originalName,
     mimeType,
-    finalChannelId,
     config,
-    limits,
   });
 }
 

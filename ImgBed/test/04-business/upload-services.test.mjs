@@ -13,6 +13,10 @@ const configModule = await import(resolveProjectModuleUrl('src', 'config', 'inde
 configModule.loadStartupConfig();
 
 const { createUploadError, resolveUploadChannel } = await import(resolveProjectModuleUrl('src', 'services', 'upload', 'resolve-upload.js'));
+const {
+  executePlannedBufferWrite,
+  resolveStorageWritePlan,
+} = await import(resolveProjectModuleUrl('src', 'services', 'upload', 'storage-write.js'));
 const { executeUploadWithFailover, uploadToStorage } = await import(resolveProjectModuleUrl('src', 'services', 'upload', 'execute-upload.js'));
 const chunkManagerModule = await import(resolveProjectModuleUrl('src', 'storage', 'chunk-manager.js'));
 const ChunkManager = chunkManagerModule.default;
@@ -68,6 +72,93 @@ test('resolveUploadChannel 会优先走负载均衡选路，并把 preferredType
   assert.equal(result.channelId, 'channel-balanced');
   assert.equal(result.storage, storage);
   assert.deepEqual(selectCalls, ['s3']);
+});
+
+test('resolveStorageWritePlan 会在无需分块时返回 direct 计划', () => {
+  const storage = createStorageDouble({});
+  const plan = resolveStorageWritePlan({
+    storage,
+    fileSize: 4,
+    storageId: 'storage-direct',
+    storageManager: {
+      getEffectiveUploadLimits() {
+        return {
+          enableMaxLimit: false,
+          maxLimitMB: 20,
+          enableSizeLimit: false,
+          sizeLimitMB: 20,
+          enableChunking: false,
+          chunkSizeMB: 5,
+          maxChunks: 10,
+        };
+      },
+    },
+    ChunkManager: {
+      analyze(inputStorage, fileSize, options) {
+        assert.equal(inputStorage, storage);
+        assert.equal(fileSize, 4);
+        assert.equal(options.channelConfig, null);
+        return { needsChunking: false };
+      },
+    },
+  });
+
+  assert.equal(plan.mode, 'direct');
+  assert.equal(plan.storageId, 'storage-direct');
+  assert.equal(plan.fileSize, 4);
+});
+
+test('resolveStorageWritePlan 会把需要分块的目标统一归一化为 chunked 或 native', () => {
+  const storage = createStorageDouble({});
+  const storageManager = {
+    getEffectiveUploadLimits() {
+      return {
+        enableMaxLimit: false,
+        maxLimitMB: 20,
+        enableSizeLimit: true,
+        sizeLimitMB: 1,
+        enableChunking: true,
+        chunkSizeMB: 1,
+        maxChunks: 10,
+      };
+    },
+  };
+
+  const genericPlan = resolveStorageWritePlan({
+    storage,
+    fileSize: 6,
+    storageId: 'storage-generic',
+    storageManager,
+    ChunkManager: {
+      analyze() {
+        return {
+          needsChunking: true,
+          config: {
+            mode: 'generic',
+          },
+        };
+      },
+    },
+  });
+  const nativePlan = resolveStorageWritePlan({
+    storage,
+    fileSize: 6,
+    storageId: 'storage-native',
+    storageManager,
+    ChunkManager: {
+      analyze() {
+        return {
+          needsChunking: true,
+          config: {
+            mode: 'native',
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(genericPlan.mode, 'chunked');
+  assert.equal(nativePlan.mode, 'native');
 });
 
 test('resolveUploadChannel 在无默认渠道或默认渠道缺失时会抛出 500', () => {
@@ -207,6 +298,140 @@ test('uploadToStorage 在普通分块模式下会委托 ChunkManager.uploadChunk
   assert.equal(result.chunkCount, 2);
   assert.equal(result.storageResult.storageKey, 'chunked-file');
   assert.equal(result.chunkRecords.length, 2);
+});
+
+test('executePlannedBufferWrite 会按既有计划执行 chunked / native / direct 三类写入', async () => {
+  const chunkCalls = [];
+  const nativeCalls = [];
+  const directCalls = [];
+  const storage = createStorageDouble({
+    putImpl(buffer, meta) {
+      directCalls.push({
+        size: buffer.length,
+        meta,
+      });
+      return {
+        storageKey: 'direct-plan-key',
+        size: buffer.length,
+        deleteToken: null,
+      };
+    },
+  });
+
+  const chunkManager = {
+    async uploadChunked(_storage, buffer, options) {
+      chunkCalls.push({
+        size: buffer.length,
+        options,
+      });
+      return {
+        chunkCount: 2,
+        chunkRecords: [{ chunk_index: 0 }, { chunk_index: 1 }],
+      };
+    },
+    async uploadS3Multipart(_storage, buffer, options) {
+      nativeCalls.push({
+        size: buffer.length,
+        options,
+      });
+      return {
+        storageKey: 'native-plan-key',
+        size: buffer.length,
+        deleteToken: { uploadId: 'u-1' },
+      };
+    },
+  };
+
+  const chunkedResult = await executePlannedBufferWrite({
+    plan: {
+      mode: 'chunked',
+      storageId: 'storage-generic',
+    },
+    storage,
+    buffer: Buffer.from('abcdef'),
+    fileId: 'chunked-file',
+    newFileName: 'chunked-file.png',
+    originalName: 'chunked-file.png',
+    mimeType: 'image/png',
+    ChunkManager: chunkManager,
+  });
+  const nativeResult = await executePlannedBufferWrite({
+    plan: {
+      mode: 'native',
+      storageId: 'storage-native',
+    },
+    storage,
+    buffer: Buffer.from('native'),
+    fileId: 'native-file',
+    newFileName: 'native-file.png',
+    originalName: 'native-file.png',
+    mimeType: 'image/png',
+    config: {
+      performance: {
+        s3Multipart: {
+          enabled: true,
+        },
+      },
+    },
+    ChunkManager: chunkManager,
+  });
+  const directResult = await executePlannedBufferWrite({
+    plan: {
+      mode: 'direct',
+      storageId: 'storage-direct',
+    },
+    storage,
+    buffer: Buffer.from('demo'),
+    fileId: 'direct-file',
+    newFileName: 'direct-file.png',
+    originalName: 'direct-file.png',
+    mimeType: 'image/png',
+    ChunkManager: chunkManager,
+  });
+
+  assert.equal(chunkedResult.isChunked, 1);
+  assert.equal(chunkedResult.chunkCount, 2);
+  assert.equal(chunkedResult.storageResult.storageKey, 'chunked-file');
+  assert.equal(nativeResult.isChunked, 0);
+  assert.equal(nativeResult.storageResult.storageKey, 'native-plan-key');
+  assert.equal(directResult.isChunked, 0);
+  assert.equal(directResult.storageResult.storageKey, 'direct-plan-key');
+  assert.deepEqual(chunkCalls, [{
+    size: 6,
+    options: {
+      fileId: 'chunked-file',
+      fileName: 'chunked-file.png',
+      originalName: 'chunked-file.png',
+      mimeType: 'image/png',
+      storageId: 'storage-generic',
+    },
+  }]);
+  assert.deepEqual(nativeCalls, [{
+    size: 6,
+    options: {
+      fileId: 'native-file',
+      fileName: 'native-file.png',
+      originalName: 'native-file.png',
+      mimeType: 'image/png',
+      storageId: 'storage-native',
+      config: {
+        performance: {
+          s3Multipart: {
+            enabled: true,
+          },
+        },
+      },
+    },
+  }]);
+  assert.deepEqual(directCalls, [{
+    size: 4,
+    meta: {
+      id: 'direct-file',
+      fileName: 'direct-file.png',
+      originalName: 'direct-file.png',
+      mimeType: 'image/png',
+    },
+  }]);
 });
 
 test('uploadToStorage 在直传模式下会调用 storage.put 并透传基础元数据', async () => {

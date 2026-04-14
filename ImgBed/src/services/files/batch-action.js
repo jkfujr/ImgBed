@@ -1,5 +1,5 @@
 import { deleteFilesBatch } from './delete-file.js';
-import { createFilesError, migrateFilesBatch } from './migrate-file.js';
+import { createFileMigrationService, createFilesError } from './migrate-file.js';
 import { ensureExistingDirectoryPath, normalizeDirectoryPath } from '../../utils/directory-path.js';
 import { getActiveFilesByIds, moveFilesToDirectory } from '../../database/files-dao.js';
 
@@ -31,7 +31,17 @@ async function moveFilesBatch(ids, targetDirectory, db) {
   };
 }
 
-async function executeFilesBatchAction({ action, ids, targetDirectory, targetChannel, deleteMode, db, storageManager, ChunkManager }) {
+async function executeFilesBatchAction({
+  action,
+  ids,
+  targetDirectory,
+  targetChannel,
+  deleteMode,
+  db,
+  storageManager,
+  ChunkManager,
+  fileMigrationService = null,
+}) {
   validateBatchIds(ids);
 
   if (action === 'delete') {
@@ -53,10 +63,13 @@ async function executeFilesBatchAction({ action, ids, targetDirectory, targetCha
 
   if (action === 'migrate') {
     const files = getActiveFilesByIds(db, ids);
-    const results = await migrateFilesBatch(files, {
-      targetChannel,
+    const migrationService = fileMigrationService || createFileMigrationService({
       db,
       storageManager,
+      ChunkManager,
+    });
+    const results = await migrationService.migrateFilesBatch(files, {
+      targetChannel,
     });
 
     return {

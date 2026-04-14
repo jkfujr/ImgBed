@@ -1,296 +1,54 @@
-import pLimit from 'p-limit';
-
-import { createLogger } from '../../utils/logger.js';
-import { toBuffer, toNodeReadable } from '../../utils/storage-io.js';
 import ChunkManager from '../../storage/chunk-manager.js';
-import { uploadToStorage } from '../upload/execute-upload.js';
 import {
-  buildQuotaEvent,
-} from '../system/storage-operations.js';
-import {
-  buildStorageArtifactPayload,
-  buildStoragePayloadFromStorageResult,
-} from '../system/storage-operation-payload.js';
-import { createStorageOperationLifecycle } from '../system/storage-operation-lifecycle.js';
-import {
-  parseStorageMeta,
-  removeStoredArtifacts,
-  resolveStorageInstanceId,
-  serializeStorageMeta,
-} from './storage-artifacts.js';
-import { updateFileMigrationFields } from '../../database/files-dao.js';
+  createFileMigrationService,
+  createFilesError,
+  validateMigrationTarget,
+} from './file-migration-service.js';
 
-const log = createLogger('migrate-file');
-
-const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
-
-function createFilesError(status, message) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
-
-function validateMigrationTarget(targetChannel, storageManager) {
-  if (!targetChannel) {
-    throw createFilesError(400, '迁移操作必须指定 target_channel（目标渠道ID）');
-  }
-
-  const targetEntry = storageManager.getStorageMeta(targetChannel);
-  if (!targetEntry) {
-    throw createFilesError(404, `目标渠道不存在: ${targetChannel}`);
-  }
-
-  if (!storageManager.isUploadAllowed(targetChannel)) {
-    throw createFilesError(403, `目标渠道不支持写入: ${targetChannel}`);
-  }
-
-  if (!WRITABLE_STORAGE_TYPES.has(targetEntry.type)) {
-    throw createFilesError(403, `目标渠道类型 ${targetEntry.type} 不支持作为迁移目标`);
-  }
-
-  return targetEntry;
-}
-
-/**
- * 读取源文件，返回 Node.js Readable 流（非分块）或分块流
- * 仅在分块场景下才读取完整 buffer（各块尺寸有限，不会 OOM）
- */
-async function readSourceFileAsStream(fileRecord, storageManager) {
-  const sourceInstanceId = resolveStorageInstanceId(fileRecord);
-
-  if (!sourceInstanceId) {
-    throw new Error('源文件缺少存储实例标识字段 storage_instance_id');
-  }
-
-  if (fileRecord.is_chunked) {
-    const chunkRecords = await ChunkManager.getChunks(fileRecord.id);
-    const stream = ChunkManager.createChunkedReadStream(
-      chunkRecords,
-      (storageId) => storageManager.getStorage(storageId),
-      { totalSize: Number(fileRecord.size) || 0 }
-    );
-    return {
-      sourceInstanceId,
-      sourceChunkRecords: chunkRecords,
-      stream,
-    };
-  }
-
-  const sourceEntry = storageManager.getStorageMeta(sourceInstanceId);
-  if (!sourceEntry) {
-    throw new Error('源渠道不存在');
-  }
-
-  const readResult = await sourceEntry.instance.getStreamResponse(fileRecord.storage_key);
-  return {
-    sourceInstanceId,
-    sourceChunkRecords: [],
-    stream: toNodeReadable(readResult.stream),
-  };
-}
-
-async function migrateFileRecord(fileRecord, { targetChannel, targetEntry, db, storageManager, logger = log }) {
-  const sourceInstanceId = resolveStorageInstanceId(fileRecord);
-  const sourceStorageMeta = parseStorageMeta(fileRecord.storage_meta);
-
-  if (sourceInstanceId === targetChannel) {
-    return { status: 'skipped' };
-  }
-
-  const sourceEntry = storageManager.getStorageMeta(sourceInstanceId);
-  if (!sourceEntry) {
-    return { status: 'failed', reason: '源渠道不存在' };
-  }
-
-  const { stream, sourceChunkRecords } = await readSourceFileAsStream(fileRecord, storageManager);
-  const fileSize = Number(fileRecord.size) || 0;
-  const sourceCleanupPayload = buildStorageArtifactPayload({
-    storageKey: fileRecord.storage_key,
-    deleteToken: sourceStorageMeta.deleteToken || null,
-    isChunked: Boolean(fileRecord.is_chunked),
-    chunkRecords: sourceChunkRecords,
-  });
-
-  const lifecycle = createStorageOperationLifecycle({
+async function migrateFileRecord(fileRecord, {
+  targetChannel,
+  targetEntry,
+  db,
+  storageManager,
+  logger,
+  ChunkManager: chunkManager = ChunkManager,
+} = {}) {
+  const service = createFileMigrationService({
     db,
     storageManager,
-    operationType: 'migrate',
-    fileId: fileRecord.id,
-    sourceStorageId: sourceInstanceId,
-    targetStorageId: targetChannel,
-    payload: sourceCleanupPayload,
-  });
-  const { operationId } = lifecycle;
-
-  // 判断是否需要分块（基于已知 fileSize，无需读入 buffer）
-  const limits = storageManager.getEffectiveUploadLimits(targetChannel);
-  const chunkAnalysis = ChunkManager.analyze(targetEntry.instance, fileSize, {
-    channelConfig: limits.enableChunking ? {
-      enableChunking: true,
-      sizeLimitMB: limits.sizeLimitMB,
-      chunkSizeMB: limits.chunkSizeMB,
-      maxChunks: limits.maxChunks,
-    } : null,
+    logger,
+    ChunkManager: chunkManager,
   });
 
-  let targetUploadResult;
-
-  if (chunkAnalysis.needsChunking) {
-    // 分块场景：需要 buffer（各块尺寸有限，chunk-manager 内部逐块处理）
-    const buffer = await toBuffer(stream);
-    targetUploadResult = await uploadToStorage({
-      storage: targetEntry.instance,
-      buffer,
-      fileId: fileRecord.id,
-      newFileName: fileRecord.file_name,
-      originalName: fileRecord.original_name,
-      mimeType: fileRecord.mime_type,
-      finalChannelId: targetChannel,
-      storageManager,
-    });
-  } else {
-    // 非分块场景：直接流式写入目标存储
-    const storageResult = await targetEntry.instance.put(stream, {
-      id: fileRecord.id,
-      fileName: fileRecord.file_name,
-      originalName: fileRecord.original_name,
-      mimeType: fileRecord.mime_type,
-      contentLength: fileSize || undefined,
-    });
-    targetUploadResult = {
-      storageResult,
-      isChunked: 0,
-      chunkCount: 0,
-      chunkRecords: [],
-    };
-  }
-
-  const targetCleanupPayload = buildStoragePayloadFromStorageResult(targetUploadResult.storageResult, {
-    isChunked: Boolean(targetUploadResult.isChunked),
-    chunkRecords: targetUploadResult.chunkRecords || [],
+  return service.migrateFileRecord(fileRecord, {
+    targetChannel,
+    targetEntry,
   });
-
-  lifecycle.markRemoteDone({
-    sourceStorageId: sourceInstanceId,
-    targetStorageId: targetChannel,
-    remotePayload: targetCleanupPayload,
-  });
-
-  const persistMigration = () => {
-    db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
-    ChunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
-
-    updateFileMigrationFields(db, fileRecord.id, {
-      storageChannel: targetEntry.type,
-      storageKey: targetUploadResult.storageResult.storageKey,
-      storageMeta: serializeStorageMeta({ deleteToken: targetUploadResult.storageResult.deleteToken }),
-      storageInstanceId: targetChannel,
-      isChunked: targetUploadResult.isChunked ? 1 : 0,
-      chunkCount: Number(targetUploadResult.chunkCount) || 0,
-    });
-  };
-
-  const quotaEvents = [
-    buildQuotaEvent({
-      operationId,
-      fileId: fileRecord.id,
-      storageId: sourceInstanceId,
-      eventType: 'migrate_out',
-      bytesDelta: -fileSize,
-      fileCountDelta: -1,
-    }),
-    buildQuotaEvent({
-      operationId,
-      fileId: fileRecord.id,
-      storageId: targetChannel,
-      eventType: 'migrate_in',
-      bytesDelta: fileSize,
-      fileCountDelta: 1,
-    }),
-  ];
-
-  try {
-    await lifecycle.commit({
-      persist: persistMigration,
-      quotaEvents,
-      sourceStorageId: sourceInstanceId,
-      targetStorageId: targetChannel,
-      committedCompensationPayload: sourceCleanupPayload,
-      failureCompensationPayload: targetCleanupPayload,
-      afterCommit: async () => {
-        await removeStoredArtifacts({
-          storageManager,
-          storageId: sourceInstanceId,
-          storageKey: sourceCleanupPayload.storageKey,
-          deleteToken: sourceCleanupPayload.deleteToken,
-          isChunked: sourceCleanupPayload.isChunked,
-          chunkRecords: sourceCleanupPayload.chunkRecords,
-        });
-      },
-    });
-  } catch (error) {
-    if (error?.message) {
-      logger.warn(`[Files API] 迁移 ${fileRecord.id} 处理失败: ${error.message}`);
-    }
-    throw error;
-  }
-
-  return { status: 'success' };
 }
 
-async function migrateFilesBatch(files, { targetChannel, db, storageManager, logger = log }) {
-  const targetEntry = validateMigrationTarget(targetChannel, storageManager);
-  const limit = pLimit(3);
-  const results = {
-    total: files.length,
-    success: 0,
-    failed: 0,
-    skipped: 0,
-    errors: [],
-  };
+async function migrateFilesBatch(files, {
+  targetChannel,
+  db,
+  storageManager,
+  logger,
+  ChunkManager: chunkManager = ChunkManager,
+} = {}) {
+  const service = createFileMigrationService({
+    db,
+    storageManager,
+    logger,
+    ChunkManager: chunkManager,
+  });
 
-  const tasks = files.map((fileRecord) =>
-    limit(async () => {
-      try {
-        const result = await migrateFileRecord(fileRecord, {
-          targetChannel,
-          targetEntry,
-          db,
-          storageManager,
-          logger,
-        });
-
-        return { fileRecord, result };
-      } catch (err) {
-        logger.error(`[Files API] 迁移文件 ${fileRecord.id} 失败:`, err.message);
-        return { fileRecord, error: err };
-      }
-    })
-  );
-
-  const taskResults = await Promise.all(tasks);
-
-  for (const item of taskResults) {
-    if (item.error) {
-      results.failed++;
-      results.errors.push({ id: item.fileRecord.id, reason: item.error.message });
-      continue;
-    }
-
-    if (item.result.status === 'success') {
-      results.success++;
-    } else if (item.result.status === 'skipped') {
-      results.skipped++;
-    } else {
-      results.failed++;
-      results.errors.push({ id: item.fileRecord.id, reason: item.result.reason || '迁移失败' });
-    }
-  }
-
-  return results;
+  return service.migrateFilesBatch(files, {
+    targetChannel,
+  });
 }
 
-export { createFilesError,
+export {
+  createFileMigrationService,
+  createFilesError,
   validateMigrationTarget,
   migrateFileRecord,
-  migrateFilesBatch, };
+  migrateFilesBatch,
+};

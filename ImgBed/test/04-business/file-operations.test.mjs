@@ -24,7 +24,7 @@ configModule.loadStartupConfig();
 
 const { deleteFileRecord, deleteFilesBatch } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'delete-file.js'));
 const { executeFilesBatchAction } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'batch-action.js'));
-const { migrateFileRecord } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'migrate-file.js'));
+const { migrateFileRecord, validateMigrationTarget } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'migrate-file.js'));
 const { rebuildMetadataTask } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'rebuild-metadata.js'));
 
 function buildFileRecord(overrides = {}) {
@@ -153,6 +153,62 @@ function createMigrationStorageManager({ sourceBuffer = Buffer.from('demo') } = 
     },
   };
 }
+
+test('validateMigrationTarget 会覆盖 400、404、403 边界', () => {
+  assert.throws(
+    () => validateMigrationTarget('', {
+      getStorageMeta() {
+        return null;
+      },
+      isUploadAllowed() {
+        return false;
+      },
+    }),
+    (error) => error.status === 400 && /target_channel/.test(error.message),
+  );
+
+  assert.throws(
+    () => validateMigrationTarget('missing-target', {
+      getStorageMeta() {
+        return null;
+      },
+      isUploadAllowed() {
+        return false;
+      },
+    }),
+    (error) => error.status === 404 && /目标渠道不存在/.test(error.message),
+  );
+
+  assert.throws(
+    () => validateMigrationTarget('target-readonly', {
+      getStorageMeta() {
+        return {
+          id: 'target-readonly',
+          type: 's3',
+        };
+      },
+      isUploadAllowed() {
+        return false;
+      },
+    }),
+    (error) => error.status === 403 && /不支持写入/.test(error.message),
+  );
+
+  assert.throws(
+    () => validateMigrationTarget('target-webdav', {
+      getStorageMeta() {
+        return {
+          id: 'target-webdav',
+          type: 'webdav',
+        };
+      },
+      isUploadAllowed() {
+        return true;
+      },
+    }),
+    (error) => error.status === 403 && /不支持作为迁移目标/.test(error.message),
+  );
+});
 
 test('deleteFileRecord 在 index_only 模式下会删除索引与 chunks，但不会触发远端删除', async (t) => {
   const db = createTestDb();
@@ -343,6 +399,67 @@ test('executeFilesBatchAction 的 move 分支会规范化目录并更新文件�
   assert.equal(result.code, 0);
   assert.match(result.message, /\/gallery/);
   assert.equal(getFileById(db, 'file-move-1').directory, '/gallery');
+});
+
+test('executeFilesBatchAction 的 migrate 分支会通过注入 fileMigrationService 分发并聚合结果', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+
+  insertFileRecord(db, {
+    id: 'file-batch-migrate-1',
+    storageKey: 'source-key-1',
+    storageInstanceId: 'source-1',
+  });
+  insertFileRecord(db, {
+    id: 'file-batch-migrate-2',
+    storageKey: 'source-key-2',
+    storageInstanceId: 'source-1',
+  });
+
+  const calls = [];
+  const fileMigrationService = {
+    async migrateFilesBatch(files, options) {
+      calls.push({
+        files: files.map((item) => item.id),
+        options,
+      });
+      return {
+        total: 2,
+        success: 1,
+        failed: 0,
+        skipped: 1,
+        errors: [],
+      };
+    },
+  };
+
+  const result = await executeFilesBatchAction({
+    action: 'migrate',
+    ids: ['file-batch-migrate-1', 'file-batch-migrate-2'],
+    targetChannel: 'target-1',
+    db,
+    storageManager: null,
+    ChunkManager: null,
+    fileMigrationService,
+  });
+
+  assert.deepEqual(calls, [{
+    files: ['file-batch-migrate-1', 'file-batch-migrate-2'],
+    options: {
+      targetChannel: 'target-1',
+    },
+  }]);
+  assert.deepEqual(result, {
+    code: 0,
+    message: '迁移完成：成功 1，失败 0，跳过 1',
+    data: {
+      total: 2,
+      success: 1,
+      failed: 0,
+      skipped: 1,
+      errors: [],
+    },
+  });
 });
 
 test('rebuildMetadataTask 会统计 updated、skipped、failed 三类结果', async (t) => {
