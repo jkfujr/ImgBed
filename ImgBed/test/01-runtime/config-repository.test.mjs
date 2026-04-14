@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { ConfigFileError } from '../../src/errors/AppError.js';
-import { createConfigRepository } from '../../src/config/config-loader.js';
+import { buildDefaultConfig, createConfigRepository } from '../../src/config/config-loader.js';
 import {
   cleanupPath,
   createLoggerDouble,
@@ -42,6 +42,8 @@ test('loadStartupConfig 会创建默认配置并建立最近一次有效快照',
   assert.equal(fs.existsSync(fixture.configPath), true);
   assert.equal(startupConfig.storage.default, 'local-1');
   assert.equal(startupConfig.jwt.secret.length, 128);
+  assert.equal(startupConfig.admin.password, undefined);
+  assert.equal(typeof startupConfig.admin.passwordHash, 'string');
   assert.equal(lastKnownGood.jwt.secret, startupConfig.jwt.secret);
   assert.equal(fixture.loggerDouble.records.info.length >= 2, true);
 });
@@ -80,6 +82,11 @@ test('writeRuntimeConfig 会持久化配置并刷新最近一次有效快照', (
       ...startupConfig.security,
       corsOrigin: 'https://example.com',
     },
+    admin: {
+      ...startupConfig.admin,
+      username: 'next-admin',
+      password: 'next-password',
+    },
   };
 
   const writtenConfig = fixture.repository.writeRuntimeConfig(nextConfig);
@@ -87,7 +94,39 @@ test('writeRuntimeConfig 会持久化配置并刷新最近一次有效快照', (
 
   assert.equal(writtenConfig.jwt.secret, 'next-secret-value');
   assert.equal(persistedConfig.security.corsOrigin, 'https://example.com');
+  assert.equal(writtenConfig.admin.username, 'next-admin');
+  assert.equal(writtenConfig.admin.password, undefined);
+  assert.equal(typeof writtenConfig.admin.passwordHash, 'string');
+  assert.equal(persistedConfig.admin.password, undefined);
+  assert.equal(typeof persistedConfig.admin.passwordHash, 'string');
   assert.equal(fixture.repository.getLastKnownGoodConfig().jwt.secret, 'next-secret-value');
+});
+
+test('loadStartupConfig 会自动迁移旧版管理员明文密码配置', (t) => {
+  const fixture = createRepositoryFixture();
+  t.after(() => cleanupPath(fixture.appRoot));
+
+  fs.mkdirSync(path.dirname(fixture.configPath), { recursive: true });
+  fs.writeFileSync(fixture.configPath, JSON.stringify({
+    ...buildDefaultConfig({
+      jwtSecret: 'legacy-secret',
+      randomBytes: () => Buffer.alloc(16, 0x22),
+    }),
+    admin: {
+      username: 'legacy-admin',
+      password: 'legacy-password',
+    },
+  }, null, 2), 'utf8');
+
+  const startupConfig = fixture.repository.loadStartupConfig();
+  const persistedConfig = JSON.parse(fs.readFileSync(fixture.configPath, 'utf8'));
+
+  assert.equal(startupConfig.admin.username, 'legacy-admin');
+  assert.equal(startupConfig.admin.password, undefined);
+  assert.equal(typeof startupConfig.admin.passwordHash, 'string');
+  assert.equal(persistedConfig.admin.password, undefined);
+  assert.equal(typeof persistedConfig.admin.passwordHash, 'string');
+  assert.equal(fixture.loggerDouble.records.info.some((args) => String(args[1]).includes('自动迁移为哈希存储')), true);
 });
 
 test('缺少 jwt.secret 时会抛出 ConfigFileError', (t) => {

@@ -6,6 +6,7 @@ import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, AuthError } from '../errors/AppError.js';
 import { success } from '../utils/response.js';
+import { hashAdminPassword } from '../utils/admin-password.js';
 
 const authApp = express.Router();
 
@@ -78,12 +79,14 @@ authApp.put('/password', adminAuth, asyncHandler(async (req, res) => {
   }
 
   const runtimeConfig = readRuntimeConfig();
+  const nextAdminConfig = {
+    ...(runtimeConfig.admin || {}),
+    passwordHash: hashAdminPassword(newPassword),
+  };
+  delete nextAdminConfig.password;
   const nextConfig = {
     ...runtimeConfig,
-    admin: {
-      ...(runtimeConfig.admin || {}),
-      password: newPassword,
-    },
+    admin: nextAdminConfig,
   };
   writeRuntimeConfig(nextConfig);
 

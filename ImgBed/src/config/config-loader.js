@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ConfigFileError } from '../errors/AppError.js';
+import { hashAdminPassword, normalizeAdminPasswordConfig } from '../utils/admin-password.js';
 
 const DEFAULT_CONFIG_CACHE_TTL_MS = 5000;
 const LOCAL_TEST_JWT_SECRET = 'dev-secret-for-local-tests-only';
@@ -28,7 +29,7 @@ export function generateRandomString(length, randomBytes = crypto.randomBytes) {
   return randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
 }
 
-export function buildDefaultConfig({ jwtSecret } = {}) {
+export function buildDefaultConfig({ jwtSecret, randomBytes = crypto.randomBytes } = {}) {
   return {
     server: {
       port: 13000,
@@ -43,7 +44,7 @@ export function buildDefaultConfig({ jwtSecret } = {}) {
     },
     admin: {
       username: 'admin',
-      password: 'admin',
+      passwordHash: hashAdminPassword('admin', { randomBytes }),
     },
     storage: {
       default: 'local-1',
@@ -109,7 +110,50 @@ function parseConfigText(rawData) {
 function createFreshConfig(randomBytes) {
   return buildDefaultConfig({
     jwtSecret: generateRandomString(128, randomBytes),
+    randomBytes,
   });
+}
+
+function normalizeSensitiveConfig(config, randomBytes) {
+  const { adminConfig, changed } = normalizeAdminPasswordConfig(config?.admin, { randomBytes });
+
+  if (!changed) {
+    return {
+      config,
+      changed: false,
+    };
+  }
+
+  return {
+    config: {
+      ...config,
+      admin: adminConfig,
+    },
+    changed: true,
+  };
+}
+
+function persistNormalizedConfig({ config, fsImpl, configPath, logger, randomBytes, stats }) {
+  const normalizedResult = normalizeSensitiveConfig(config, randomBytes);
+
+  if (!normalizedResult.changed) {
+    return {
+      config,
+      stats,
+    };
+  }
+
+  writeConfigFile({
+    fsImpl,
+    configPath,
+    config: normalizedResult.config,
+  });
+  logger.info({ configPath }, '检测到管理员明文密码配置，已自动迁移为哈希存储');
+
+  return {
+    config: normalizedResult.config,
+    stats: fsImpl.statSync(configPath),
+  };
 }
 
 function createInvalidConfigError({ kind, configPath, backupPath = null, cause, message }) {
@@ -174,11 +218,18 @@ export function loadConfigFile({
   const rawData = fsImpl.readFileSync(configPath, 'utf8');
 
   try {
-    const config = validateRequiredConfig({
+    let config = validateRequiredConfig({
       config: parseConfigText(rawData),
       configPath,
       kind: 'invalid_existing',
     });
+    ({ config } = persistNormalizedConfig({
+      config,
+      fsImpl,
+      configPath,
+      logger,
+      randomBytes,
+    }));
     warnIfUsingLocalTestSecret({ config, logger, configPath });
     return config;
   } catch (cause) {
@@ -251,12 +302,20 @@ export function createConfigRepository({
       }
 
       try {
-        const { value, stats } = parseExistingFile();
+        let { value, stats } = parseExistingFile();
         validateRequiredConfig({
           config: value,
           configPath,
           kind: 'invalid_existing',
         });
+        ({ config: value, stats } = persistNormalizedConfig({
+          config: value,
+          fsImpl,
+          configPath,
+          logger,
+          randomBytes,
+          stats,
+        }));
         warnIfUsingLocalTestSecret({ config: value, logger, configPath });
         return setCache(value, stats);
       } catch (cause) {
@@ -294,13 +353,21 @@ export function createConfigRepository({
         }
 
         const rawData = fsImpl.readFileSync(configPath, 'utf8');
-        const value = parseConfigText(rawData);
+        let value = parseConfigText(rawData);
         validateRequiredConfig({
           config: value,
           configPath,
           kind: 'runtime_invalid',
           message: 'config.json 缺少必填项 jwt.secret，当前进程无法继续读取运行配置',
         });
+        ({ config: value, stats } = persistNormalizedConfig({
+          config: value,
+          fsImpl,
+          configPath,
+          logger,
+          randomBytes,
+          stats,
+        }));
         warnIfUsingLocalTestSecret({ config: value, logger, configPath });
         return cloneConfig(setCache(value, stats));
       } catch (cause) {
@@ -320,8 +387,9 @@ export function createConfigRepository({
 
     writeRuntimeConfig(nextConfig) {
       ensureDataRoot();
+      const normalizedConfig = normalizeSensitiveConfig(cloneConfig(nextConfig), randomBytes).config;
       const snapshot = validateRequiredConfig({
-        config: cloneConfig(nextConfig),
+        config: normalizedConfig,
         configPath,
         kind: 'runtime_invalid',
         message: '写入配置失败：jwt.secret 不能为空',

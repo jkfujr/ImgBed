@@ -7,6 +7,11 @@ export function sanitizeSystemConfig(config) {
     sanitized.jwt.secret = '******';
   }
 
+  if (sanitized.admin) {
+    delete sanitized.admin.password;
+    delete sanitized.admin.passwordHash;
+  }
+
   if (Array.isArray(sanitized.storage?.storages)) {
     sanitized.storage.storages = sanitized.storage.storages.map((storage) => {
       const nextStorage = {

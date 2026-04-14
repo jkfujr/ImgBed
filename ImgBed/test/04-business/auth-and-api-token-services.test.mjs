@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { verifyAdminCredentials } from '../../src/services/auth/verify-credentials.js';
+import { hashAdminPassword } from '../../src/utils/admin-password.js';
 import {
   createTempAppRoot,
   resolveProjectModuleUrl,
@@ -16,15 +17,23 @@ configModule.loadStartupConfig();
 const { validateTokenInput, createTokenRecord } = await import(resolveProjectModuleUrl('src', 'services', 'api-tokens', 'create-token.js'));
 const apiTokenUtils = await import(resolveProjectModuleUrl('src', 'utils', 'apiToken.js'));
 
-test('verifyAdminCredentials 只接受配置中的明文用户名和明文密码完全匹配', async () => {
-  const adminConfig = {
+test('verifyAdminCredentials 支持哈希密码并兼容旧版明文配置', async () => {
+  const hashedAdminConfig = {
+    username: 'admin',
+    passwordHash: hashAdminPassword('plain-password', {
+      randomBytes: () => Buffer.alloc(16, 0x34),
+    }),
+  };
+  const legacyAdminConfig = {
     username: 'admin',
     password: 'plain-password',
   };
 
-  assert.equal(await verifyAdminCredentials('admin', 'plain-password', adminConfig), true);
-  assert.equal(await verifyAdminCredentials('admin', 'wrong-password', adminConfig), false);
-  assert.equal(await verifyAdminCredentials('', 'plain-password', adminConfig), false);
+  assert.equal(await verifyAdminCredentials('admin', 'plain-password', hashedAdminConfig), true);
+  assert.equal(await verifyAdminCredentials('admin', 'wrong-password', hashedAdminConfig), false);
+  assert.equal(await verifyAdminCredentials('admin', 'plain-password', legacyAdminConfig), true);
+  assert.equal(await verifyAdminCredentials('admin', 'wrong-password', legacyAdminConfig), false);
+  assert.equal(await verifyAdminCredentials('', 'plain-password', hashedAdminConfig), false);
 });
 
 test('validateTokenInput 会接受合法权限和未来的自定义过期时间', () => {

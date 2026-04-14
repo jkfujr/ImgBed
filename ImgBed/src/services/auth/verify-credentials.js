@@ -1,3 +1,9 @@
+import {
+  isAdminPasswordHash,
+  safeCompareText,
+  verifyAdminPasswordHash,
+} from '../../utils/admin-password.js';
+
 /**
  * 认证服务 - 密码验证
  */
@@ -14,7 +20,15 @@ async function verifyAdminCredentials(username, password, adminConfig) {
     return false;
   }
 
-  return username === adminConfig?.username && password === adminConfig?.password;
+  if (!safeCompareText(username, adminConfig?.username || '')) {
+    return false;
+  }
+
+  if (isAdminPasswordHash(adminConfig?.passwordHash)) {
+    return verifyAdminPasswordHash(password, adminConfig.passwordHash);
+  }
+
+  return safeCompareText(password, adminConfig?.password || '');
 }
 
 export { verifyAdminCredentials };
