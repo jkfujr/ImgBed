@@ -6,6 +6,7 @@ export function createApplicationRuntime({
   runMigrations,
   freezeFilesByMissingStorageInstances = () => ({ changes: 0 }),
   initResponseCache,
+  destroyResponseCache,
   initQuotaEventsArchive,
   initArchiveScheduler,
   stopArchiveScheduler,
@@ -112,6 +113,7 @@ export function createApplicationRuntime({
 
       storageManager.stopMaintenance();
       stopArchiveScheduler();
+      destroyResponseCache();
 
       server.close(async () => {
         log.info('HTTP 服务已关闭');

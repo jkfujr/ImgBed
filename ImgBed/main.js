@@ -89,6 +89,7 @@ async function createRuntime() {
     runMigrations: migrateModule.runMigrations,
     freezeFilesByMissingStorageInstances: filesDaoModule.freezeFilesByMissingStorageInstances,
     initResponseCache: responseCacheModule.initResponseCache,
+    destroyResponseCache: responseCacheModule.destroyResponseCache,
     initQuotaEventsArchive: quotaArchiveModule.initQuotaEventsArchive,
     initArchiveScheduler: archiveSchedulerModule.initArchiveScheduler,
     stopArchiveScheduler: archiveSchedulerModule.stopArchiveScheduler,

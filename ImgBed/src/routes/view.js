@@ -13,6 +13,7 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('view');
 const viewApp = express.Router();
+const FILE_ID_PATTERN = /^[0-9a-f]{12}_[A-Za-z0-9_]+\.[A-Za-z0-9]+$/;
 
 /**
  * 生成 ETag（基于文件 ID 和更新时间）
@@ -85,8 +86,13 @@ const checkReferer = (req) => {
  * 获取具体文件的直读数据流
  * GET /:id
  */
-viewApp.get('/:id', asyncHandler(async (req, res) => {
+viewApp.get('/:id', asyncHandler(async (req, res, next) => {
     const id = req.params.id;
+    if (!FILE_ID_PATTERN.test(id)) {
+        next();
+        return;
+    }
+
     const startTime = Date.now();
 
     // 设置请求超时（15秒）

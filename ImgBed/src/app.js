@@ -1,7 +1,7 @@
 import express from 'express';
 import pinoHttp from 'pino-http';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { resolveAppPath } from './config/app-root.js';
 import { getLastKnownGoodConfig } from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
 import { createLogger } from './utils/logger.js';
@@ -14,11 +14,24 @@ import systemRouter from './routes/system.js';
 import viewRouter from './routes/view.js';
 import publicRouter from './routes/public.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const logger = createLogger('app');
 const app = express();
+const staticPath = resolveAppPath('static');
+const indexPath = path.join(staticPath, 'index.html');
+
+function isSpaNavigationRequest(req) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return false;
+  }
+
+  const accept = req.get('Accept') || '';
+  const acceptsHtml = accept.includes('text/html') || accept.includes('application/xhtml+xml');
+  if (!acceptsHtml) {
+    return false;
+  }
+
+  return path.extname(req.path || '') === '';
+}
 
 app.disable('x-powered-by');
 
@@ -60,23 +73,25 @@ app.use('/api/system', systemRouter);
 // 挂载公开接口路由
 app.use('/api/public', publicRouter);
 
+// API 未命中必须在进入根路径路由前返回 JSON 404
+app.use('/api', notFoundHandler);
+
 // 挂载图片直读路由到根路径
 app.use('/', viewRouter);
 
 // 静态文件服务（前端资源）
-const staticPath = path.join(__dirname, '..', 'static');
 app.use(express.static(staticPath));
 
-// SPA 回退：所有未匹配的路由返回 index.html（如果存在）
-app.use((_req, res) => {
-  const indexPath = path.join(staticPath, 'index.html');
+// 仅浏览器导航请求使用 SPA 回退
+app.use((req, res, next) => {
+  if (!isSpaNavigationRequest(req)) {
+    next();
+    return;
+  }
 
-  // 检查 index.html 是否存在
-  import('fs').then(fs => {
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.send('ImgBed 后端 API 正在运行！前端文件未找到，请先构建前端。');
+  res.sendFile(indexPath, (error) => {
+    if (error) {
+      next(error);
     }
   });
 });

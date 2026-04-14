@@ -1,12 +1,14 @@
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('response-cache');
+const RESPONSE_CACHE_NOT_INITIALIZED_MESSAGE = '响应缓存尚未初始化，请先调用 initResponseCache()';
 
 class ResponseCache {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
     this.ttlSeconds = options.ttlSeconds || 60;
     this.maxKeys = options.maxKeys || 1000;
+    this.destroyed = false;
     this.cache = new Map();
     this.stats = {
       hits: 0,
@@ -15,7 +17,9 @@ class ResponseCache {
       deletes: 0,
       evictions: 0,
     };
-    this.cleanupInterval = setInterval(() => this._cleanup(), 30000);
+    this.cleanupInterval = this.enabled
+      ? setInterval(() => this._cleanup(), 30000)
+      : null;
 
     log.info(
       { enabled: this.enabled, ttlSeconds: this.ttlSeconds, maxKeys: this.maxKeys },
@@ -149,10 +153,17 @@ class ResponseCache {
   }
 
   destroy() {
+    if (this.destroyed) {
+      return;
+    }
+
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+
+    this.destroyed = true;
+    this.enabled = false;
     this.cache.clear();
     log.info('响应缓存服务已销毁');
   }
@@ -161,19 +172,25 @@ class ResponseCache {
 let responseCacheInstance = null;
 
 export function initResponseCache(config = {}) {
-  if (responseCacheInstance) {
-    responseCacheInstance.destroy();
-  }
-
+  destroyResponseCache();
   responseCacheInstance = new ResponseCache(config);
   return responseCacheInstance;
 }
 
 export function getResponseCache() {
   if (!responseCacheInstance) {
-    responseCacheInstance = new ResponseCache();
+    throw new Error(RESPONSE_CACHE_NOT_INITIALIZED_MESSAGE);
   }
   return responseCacheInstance;
+}
+
+export function destroyResponseCache() {
+  if (!responseCacheInstance) {
+    return;
+  }
+
+  responseCacheInstance.destroy();
+  responseCacheInstance = null;
 }
 
 export default ResponseCache;

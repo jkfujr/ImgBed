@@ -7,7 +7,11 @@ import asyncHandler from '../../src/middleware/asyncHandler.js';
 import { cacheMiddleware } from '../../src/middleware/cache.js';
 import { notFoundHandler, registerErrorHandlers } from '../../src/middleware/errorHandler.js';
 import { createProxyFetcher, normalizeProxyUrl } from '../../src/network/proxy-core.js';
-import { initResponseCache } from '../../src/services/cache/response-cache.js';
+import {
+  destroyResponseCache,
+  getResponseCache,
+  initResponseCache,
+} from '../../src/services/cache/response-cache.js';
 import { ConfigFileError, ValidationError } from '../../src/errors/AppError.js';
 import { success } from '../../src/utils/response.js';
 import { requestServer } from '../helpers/runtime-test-helpers.mjs';
@@ -24,6 +28,36 @@ async function startExpressApp(buildApp) {
     server,
     async stop() {
       await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+function createIntervalHarness() {
+  const intervalCalls = [];
+  const clearedIntervals = [];
+  const originalSetInterval = global.setInterval;
+  const originalClearInterval = global.clearInterval;
+
+  global.setInterval = (handler, delayMs) => {
+    const timer = {
+      handler,
+      delayMs,
+      unref() {},
+    };
+    intervalCalls.push(timer);
+    return timer;
+  };
+
+  global.clearInterval = (timer) => {
+    clearedIntervals.push(timer);
+  };
+
+  return {
+    intervalCalls,
+    clearedIntervals,
+    restore() {
+      global.setInterval = originalSetInterval;
+      global.clearInterval = originalClearInterval;
     },
   };
 }
@@ -71,13 +105,94 @@ test('createProxyFetcher 只在提供代理时注入 dispatcher，并复用同�
   assert.deepEqual(agentCreations, ['http://127.0.0.1:7890/']);
 });
 
-test('cacheMiddleware 会按身份隔离 GET 缓存，并跳过非 GET 请求', async (t) => {
+test('getResponseCache 在未初始化时会抛出明确错误', { concurrency: false }, (t) => {
+  destroyResponseCache();
+  t.after(() => destroyResponseCache());
+
+  assert.throws(
+    () => getResponseCache(),
+    /响应缓存尚未初始化，请先调用 initResponseCache\(\)/,
+  );
+});
+
+test('initResponseCache 在缓存禁用时不会注册清理定时器', { concurrency: false }, (t) => {
+  destroyResponseCache();
+  const timerHarness = createIntervalHarness();
+  t.after(() => {
+    timerHarness.restore();
+    destroyResponseCache();
+  });
+
+  const cache = initResponseCache({
+    enabled: false,
+    ttlSeconds: 60,
+    maxKeys: 10,
+  });
+
+  assert.equal(cache.enabled, false);
+  assert.equal(cache.cleanupInterval, null);
+  assert.deepEqual(timerHarness.intervalCalls, []);
+});
+
+test('destroyResponseCache 会清理单例并允许重复调用', { concurrency: false }, (t) => {
+  destroyResponseCache();
+  const cache = initResponseCache({
+    enabled: true,
+    ttlSeconds: 60,
+    maxKeys: 10,
+  });
+  t.after(() => destroyResponseCache());
+
+  assert.equal(getResponseCache(), cache);
+
+  destroyResponseCache();
+  destroyResponseCache();
+
+  assert.equal(cache.cleanupInterval, null);
+  assert.equal(cache.enabled, false);
+  assert.throws(
+    () => getResponseCache(),
+    /响应缓存尚未初始化，请先调用 initResponseCache\(\)/,
+  );
+});
+
+test('重复 initResponseCache 会先销毁旧实例', { concurrency: false }, (t) => {
+  destroyResponseCache();
+  const timerHarness = createIntervalHarness();
+  t.after(() => {
+    timerHarness.restore();
+    destroyResponseCache();
+  });
+
+  const first = initResponseCache({
+    enabled: true,
+    ttlSeconds: 60,
+    maxKeys: 10,
+  });
+  const firstTimer = first.cleanupInterval;
+
+  const second = initResponseCache({
+    enabled: true,
+    ttlSeconds: 120,
+    maxKeys: 20,
+  });
+
+  assert.notEqual(second, first);
+  assert.equal(first.cleanupInterval, null);
+  assert.equal(first.enabled, false);
+  assert.equal(second.ttlSeconds, 120);
+  assert.equal(timerHarness.intervalCalls.length, 2);
+  assert.deepEqual(timerHarness.clearedIntervals, [firstTimer]);
+});
+
+test('cacheMiddleware 会按身份隔离 GET 缓存，并跳过非 GET 请求', { concurrency: false }, async (t) => {
+  destroyResponseCache();
   const cache = initResponseCache({
     enabled: true,
     ttlSeconds: 60,
     maxKeys: 32,
   });
-  t.after(() => cache.destroy());
+  t.after(() => destroyResponseCache());
 
   let counter = 0;
   const appHandle = await startExpressApp((app) => {
@@ -121,6 +236,10 @@ test('cacheMiddleware 会按身份隔离 GET 缓存，并跳过非 GET 请求', 
   assert.equal(postAliceBody.data.counter, 3);
   assert.equal(stats.hits, 1);
   assert.equal(stats.sets, 2);
+
+  cache.destroy();
+  assert.equal(cache.cleanupInterval, null);
+  assert.equal(cache.enabled, false);
 });
 
 test('asyncHandler、notFoundHandler 和 registerErrorHandlers 会输出一致的 HTTP 错误响应', async (t) => {
