@@ -209,6 +209,139 @@ test('uploadToStorage 在普通分块模式下会委托 ChunkManager.uploadChunk
   assert.equal(result.chunkRecords.length, 2);
 });
 
+test('uploadToStorage 在直传模式下会调用 storage.put 并透传基础元数据', async () => {
+  const putCalls = [];
+  const storage = createStorageDouble({
+    putImpl(buffer, meta) {
+      putCalls.push({
+        size: buffer.length,
+        meta,
+      });
+      return {
+        storageKey: 'direct-key',
+        size: buffer.length,
+        deleteToken: { key: 'del-1' },
+      };
+    },
+  });
+
+  const result = await uploadToStorage({
+    storage,
+    buffer: Buffer.from('demo'),
+    fileId: 'direct-file',
+    newFileName: 'direct-file.png',
+    originalName: 'origin-name.png',
+    mimeType: 'image/png',
+    finalChannelId: 'storage-direct',
+    storageManager: {
+      getEffectiveUploadLimits() {
+        return {
+          enableMaxLimit: false,
+          maxLimitMB: 20,
+          enableSizeLimit: false,
+          sizeLimitMB: 20,
+          enableChunking: false,
+          chunkSizeMB: 5,
+          maxChunks: 10,
+        };
+      },
+    },
+    config: {},
+  });
+
+  assert.equal(result.isChunked, 0);
+  assert.equal(result.chunkCount, 0);
+  assert.deepEqual(result.chunkRecords, []);
+  assert.equal(result.storageResult.storageKey, 'direct-key');
+  assert.deepEqual(putCalls, [{
+    size: 4,
+    meta: {
+      id: 'direct-file',
+      fileName: 'direct-file.png',
+      originalName: 'origin-name.png',
+      mimeType: 'image/png',
+    },
+  }]);
+});
+
+test('uploadToStorage 在 S3 原生 multipart 模式下会委托 ChunkManager.uploadS3Multipart', async (t) => {
+  const originalAnalyze = ChunkManager.analyze;
+  const originalUploadS3Multipart = ChunkManager.uploadS3Multipart;
+  const multipartCalls = [];
+
+  ChunkManager.analyze = () => ({
+    needsChunking: true,
+    config: {
+      mode: 'native',
+    },
+  });
+  ChunkManager.uploadS3Multipart = async (_storage, buffer, options) => {
+    multipartCalls.push({
+      size: buffer.length,
+      options,
+    });
+    return {
+      storageKey: 'multipart-key',
+      size: buffer.length,
+      deleteToken: { uploadId: 'u-1' },
+    };
+  };
+
+  t.after(() => {
+    ChunkManager.analyze = originalAnalyze;
+    ChunkManager.uploadS3Multipart = originalUploadS3Multipart;
+  });
+
+  const config = {
+    performance: {
+      s3Multipart: {
+        enabled: true,
+        concurrency: 2,
+      },
+    },
+  };
+
+  const result = await uploadToStorage({
+    storage: createStorageDouble({}),
+    buffer: Buffer.from('multipart'),
+    fileId: 'multipart-file',
+    newFileName: 'multipart-file.png',
+    originalName: 'multipart-file.png',
+    mimeType: 'image/png',
+    finalChannelId: 'storage-s3',
+    storageManager: {
+      getEffectiveUploadLimits() {
+        return {
+          enableMaxLimit: false,
+          maxLimitMB: 20,
+          enableSizeLimit: true,
+          sizeLimitMB: 1,
+          enableChunking: true,
+          chunkSizeMB: 1,
+          maxChunks: 10,
+        };
+      },
+    },
+    config,
+  });
+
+  assert.equal(result.isChunked, 0);
+  assert.equal(result.chunkCount, 0);
+  assert.deepEqual(result.chunkRecords, []);
+  assert.equal(result.storageResult.storageKey, 'multipart-key');
+  assert.deepEqual(multipartCalls, [{
+    size: 9,
+    options: {
+      fileId: 'multipart-file',
+      fileName: 'multipart-file.png',
+      originalName: 'multipart-file.png',
+      mimeType: 'image/png',
+      storageId: 'storage-s3',
+      config,
+    },
+  }]);
+});
+
 test('executeUploadWithFailover 会在首个渠道失败后切换到备选渠道并保留失败轨迹', async () => {
   const primaryStorage = createStorageDouble({
     putImpl() {
@@ -274,4 +407,225 @@ test('executeUploadWithFailover 会在首个渠道失败后切换到备选渠道
     },
   ]);
   assert.deepEqual(selectCalls, [['primary']]);
+});
+
+test('executeUploadWithFailover 在渠道实例缺失且无法切换时会返回 500', async () => {
+  const storageManager = {
+    getStorage() {
+      return null;
+    },
+    getEffectiveUploadLimits() {
+      return {
+        enableMaxLimit: false,
+        maxLimitMB: 20,
+        enableSizeLimit: false,
+        sizeLimitMB: 20,
+        enableChunking: false,
+        chunkSizeMB: 5,
+        maxChunks: 10,
+      };
+    },
+    selectUploadChannel() {
+      return null;
+    },
+  };
+
+  await assert.rejects(() => executeUploadWithFailover({
+    initialChannelId: 'missing',
+    buffer: Buffer.from('demo'),
+    fileId: 'file-missing',
+    newFileName: 'file-missing.png',
+    originalName: 'file-missing.png',
+    mimeType: 'image/png',
+    storageManager,
+    config: {
+      storage: {
+        failoverEnabled: true,
+        loadBalanceStrategy: 'default',
+      },
+    },
+  }), (error) => {
+    assert.equal(error.status, 500);
+    assert.equal(error.message, '找不到可用的存储渠道');
+    return true;
+  });
+});
+
+test('executeUploadWithFailover 在部分 4xx 错误下仍会切换到备选渠道', async () => {
+  const primaryStorage = createStorageDouble({
+    putImpl() {
+      throw createUploadError(404, 'primary missing');
+    },
+  });
+  const backupStorage = createStorageDouble({
+    putResult: {
+      storageKey: 'backup-4xx',
+      size: 4,
+      deleteToken: null,
+    },
+  });
+
+  const storageManager = {
+    getStorage(channelId) {
+      if (channelId === 'primary') return primaryStorage;
+      if (channelId === 'backup') return backupStorage;
+      return null;
+    },
+    getEffectiveUploadLimits() {
+      return {
+        enableMaxLimit: false,
+        maxLimitMB: 20,
+        enableSizeLimit: false,
+        sizeLimitMB: 20,
+        enableChunking: false,
+        chunkSizeMB: 5,
+        maxChunks: 10,
+      };
+    },
+    selectUploadChannel(_preferredType, excludeIds = []) {
+      return excludeIds.includes('primary') ? 'backup' : 'primary';
+    },
+  };
+
+  const result = await executeUploadWithFailover({
+    initialChannelId: 'primary',
+    buffer: Buffer.from('demo'),
+    fileId: 'file-4xx',
+    newFileName: 'file-4xx.png',
+    originalName: 'file-4xx.png',
+    mimeType: 'image/png',
+    storageManager,
+    config: {
+      storage: {
+        failoverEnabled: true,
+        loadBalanceStrategy: 'default',
+      },
+    },
+  });
+
+  assert.equal(result.finalChannelId, 'backup');
+  assert.equal(result.storageResult.storageKey, 'backup-4xx');
+  assert.deepEqual(result.failedChannels, [{
+    id: 'primary',
+    error: 'primary missing',
+  }]);
+});
+
+test('executeUploadWithFailover 在 _sizeLimit 错误下仍可能继续切换到其他渠道', async () => {
+  const storageManager = {
+    getStorage(channelId) {
+      if (channelId === 'primary') {
+        return createStorageDouble({});
+      }
+      if (channelId === 'backup') {
+        return createStorageDouble({
+          putResult: {
+            storageKey: 'backup-size-limit',
+            size: 2 * 1024 * 1024,
+            deleteToken: null,
+          },
+        });
+      }
+      return null;
+    },
+    getEffectiveUploadLimits(channelId) {
+      if (channelId === 'primary') {
+        return {
+          enableMaxLimit: false,
+          maxLimitMB: 20,
+          enableSizeLimit: true,
+          sizeLimitMB: 1,
+          enableChunking: false,
+          chunkSizeMB: 1,
+          maxChunks: 10,
+        };
+      }
+
+      return {
+        enableMaxLimit: false,
+        maxLimitMB: 20,
+        enableSizeLimit: false,
+        sizeLimitMB: 20,
+        enableChunking: false,
+        chunkSizeMB: 5,
+        maxChunks: 10,
+      };
+    },
+    selectUploadChannel(_preferredType, excludeIds = []) {
+      return excludeIds.includes('primary') ? 'backup' : 'primary';
+    },
+  };
+
+  const result = await executeUploadWithFailover({
+    initialChannelId: 'primary',
+    buffer: Buffer.alloc(2 * 1024 * 1024),
+    fileId: 'file-size-limit',
+    newFileName: 'file-size-limit.png',
+    originalName: 'file-size-limit.png',
+    mimeType: 'image/png',
+    storageManager,
+    config: {
+      storage: {
+        failoverEnabled: false,
+        loadBalanceStrategy: 'weighted',
+      },
+    },
+  });
+
+  assert.equal(result.finalChannelId, 'backup');
+  assert.equal(result.storageResult.storageKey, 'backup-size-limit');
+  assert.deepEqual(result.failedChannels, [{
+    id: 'primary',
+    error: '文件体积超出大小限制 1MB',
+  }]);
+});
+
+test('executeUploadWithFailover 在没有备选渠道时会返回统一失败错误', async () => {
+  const primaryStorage = createStorageDouble({
+    putImpl() {
+      const error = createUploadError(503, 'primary unavailable');
+      error.code = 'ECONNRESET';
+      throw error;
+    },
+  });
+
+  const storageManager = {
+    getStorage(channelId) {
+      return channelId === 'primary' ? primaryStorage : null;
+    },
+    getEffectiveUploadLimits() {
+      return {
+        enableMaxLimit: false,
+        maxLimitMB: 20,
+        enableSizeLimit: false,
+        sizeLimitMB: 20,
+        enableChunking: false,
+        chunkSizeMB: 5,
+        maxChunks: 10,
+      };
+    },
+    selectUploadChannel() {
+      return null;
+    },
+  };
+
+  await assert.rejects(() => executeUploadWithFailover({
+    initialChannelId: 'primary',
+    buffer: Buffer.from('demo'),
+    fileId: 'file-no-backup',
+    newFileName: 'file-no-backup.png',
+    originalName: 'file-no-backup.png',
+    mimeType: 'image/png',
+    storageManager,
+    config: {
+      storage: {
+        failoverEnabled: true,
+        loadBalanceStrategy: 'default',
+      },
+    },
+  }), (error) => {
+    assert.equal(error.status, 500);
+    assert.equal(error.message, '所有可用渠道均已尝试，上传失败');
+    return true;
+  });
 });

@@ -470,3 +470,159 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
   assert.equal(payload.invalidStorageType.status, 400);
   assert.equal(payload.invalidStorageType.body.message, '不支持的存储类型: unknown');
 });
+
+test('真实 multipart 上传成功链会写入数据库、完成生命周期并支持公开直链访问', () => {
+  const script = `
+    const { loadStartupConfig, writeRuntimeConfig } = await import('./src/config/index.js');
+    const baseConfig = loadStartupConfig();
+    writeRuntimeConfig({
+      ...baseConfig,
+      security: {
+        ...baseConfig.security,
+        guestUploadEnabled: true,
+        uploadPassword: '',
+      },
+      storage: {
+        ...baseConfig.storage,
+        default: 'local-main',
+        allowedUploadChannels: ['local-main'],
+        loadBalanceStrategy: 'default',
+        failoverEnabled: true,
+        storages: [
+          {
+            id: 'local-main',
+            name: '本地主渠道',
+            type: 'local',
+            enabled: true,
+            allowUpload: true,
+            config: {
+              basePath: './data/storage',
+            },
+          },
+        ],
+      },
+      performance: {
+        ...baseConfig.performance,
+        responseCache: {
+          enabled: true,
+          ttlSeconds: 60,
+          maxKeys: 100,
+        },
+      },
+    });
+
+    const { sqlite } = await import('./src/database/index.js');
+    const { initSchema } = await import('./src/database/schema.js');
+    const {
+      initResponseCache,
+      destroyResponseCache,
+    } = await import('./src/services/cache/response-cache.js');
+    const storageManager = (await import('./src/storage/manager.js')).default;
+    const app = (await import('./src/app.js')).default;
+
+    initSchema(sqlite);
+    initResponseCache({
+      enabled: true,
+      ttlSeconds: 60,
+      maxKeys: 100,
+    });
+    await storageManager.initialize();
+
+    const server = await new Promise((resolve) => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    const address = server.address();
+    const baseUrl = \`http://127.0.0.1:\${address.port}\`;
+
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=';
+    const pngBuffer = Buffer.from(pngBase64, 'base64');
+
+    try {
+      const form = new FormData();
+      form.set('directory', '/');
+      form.set('tags', 'cover,banner');
+      form.set('is_public', '1');
+      form.set('file', new Blob([pngBuffer], { type: 'image/png' }), 'demo.png');
+
+      const uploadResponse = await fetch(baseUrl + '/api/upload', {
+        method: 'POST',
+        body: form,
+      });
+      const uploadBody = JSON.parse(await uploadResponse.text());
+      const fileId = uploadBody.data.id;
+
+      const dbFile = sqlite.prepare('SELECT * FROM files WHERE id = ?').get(fileId);
+      const storageOperation = sqlite.prepare(\`
+        SELECT * FROM storage_operations
+        WHERE file_id = ? AND operation_type = 'upload'
+        ORDER BY created_at DESC
+        LIMIT 1
+      \`).get(fileId);
+
+      const viewResponse = await fetch(baseUrl + '/' + fileId);
+      const viewBuffer = Buffer.from(await viewResponse.arrayBuffer());
+
+      console.log('JSON_RESULT ' + JSON.stringify({
+        upload: {
+          status: uploadResponse.status,
+          body: uploadBody,
+        },
+        dbFile: dbFile ? {
+          ...dbFile,
+          tags: dbFile.tags ? JSON.parse(dbFile.tags) : null,
+        } : null,
+        storageOperation: storageOperation ? {
+          ...storageOperation,
+          remote_payload: storageOperation.remote_payload ? JSON.parse(storageOperation.remote_payload) : null,
+          compensation_payload: storageOperation.compensation_payload ? JSON.parse(storageOperation.compensation_payload) : null,
+        } : null,
+        view: {
+          status: viewResponse.status,
+          contentType: viewResponse.headers.get('content-type'),
+          bodyBase64: viewBuffer.toString('base64'),
+        },
+      }));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      storageManager.stopMaintenance();
+      destroyResponseCache();
+    }
+  `;
+
+  const execution = runIsolatedModuleScript(script, {
+    appRootPrefix: 'imgbed-http-upload-success-',
+  });
+
+  assert.equal(execution.status, 0, execution.stderr || execution.stdout);
+
+  const payload = parseJsonResult(execution);
+
+  assert.equal(payload.upload.status, 200);
+  assert.equal(payload.upload.body.message, '文件上传成功');
+  assert.equal(payload.upload.body.data.original_name, 'demo.png');
+  assert.equal(payload.upload.body.data.width, 1);
+  assert.equal(payload.upload.body.data.height, 1);
+  assert.equal(payload.upload.body.data.failover, undefined);
+
+  assert.ok(payload.dbFile);
+  assert.equal(payload.dbFile.id, payload.upload.body.data.id);
+  assert.equal(payload.dbFile.directory, '/');
+  assert.equal(payload.dbFile.storage_instance_id, 'local-main');
+  assert.equal(payload.dbFile.storage_channel, 'local');
+  assert.equal(payload.dbFile.uploader_type, 'guest');
+  assert.deepEqual(payload.dbFile.tags, ['cover', 'banner']);
+  assert.equal(payload.dbFile.is_public, 1);
+  assert.equal(payload.dbFile.width, 1);
+  assert.equal(payload.dbFile.height, 1);
+
+  assert.ok(payload.storageOperation);
+  assert.equal(payload.storageOperation.status, 'completed');
+  assert.equal(payload.storageOperation.target_storage_id, 'local-main');
+  assert.equal(payload.storageOperation.operation_type, 'upload');
+  assert.equal(payload.storageOperation.remote_payload.storageKey, payload.upload.body.data.id);
+  assert.equal(payload.storageOperation.compensation_payload, null);
+
+  assert.equal(payload.view.status, 200);
+  assert.equal(payload.view.contentType, 'image/png');
+  assert.equal(payload.view.bodyBase64, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=');
+});
