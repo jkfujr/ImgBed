@@ -2,6 +2,46 @@
  * 更新系统配置字段
  */
 
+function applySystemConfigUpdates(cfg, body = {}) {
+  if (body.security !== undefined) {
+    cfg.security = cfg.security || {};
+
+    if (body.security.corsOrigin !== undefined) {
+      cfg.security.corsOrigin = String(body.security.corsOrigin);
+    }
+    if (body.security.guestUploadEnabled !== undefined) {
+      cfg.security.guestUploadEnabled = Boolean(body.security.guestUploadEnabled);
+    }
+    if (body.security.uploadPassword !== undefined) {
+      cfg.security.uploadPassword = String(body.security.uploadPassword);
+    }
+  }
+
+  if (body.storage?.default !== undefined) {
+    cfg.storage = cfg.storage || {};
+    cfg.storage.default = String(body.storage.default);
+  }
+
+  if (body.server?.port !== undefined) {
+    cfg.server = cfg.server || {};
+    cfg.server.port = Number(body.server.port);
+  }
+
+  updateUploadConfig(cfg, body.upload);
+
+  if (body.performance !== undefined) {
+    cfg.performance = cfg.performance || {};
+    if (body.performance.s3Multipart !== undefined) {
+      cfg.performance.s3Multipart = {
+        enabled: Boolean(body.performance.s3Multipart.enabled),
+        concurrency: Number(body.performance.s3Multipart.concurrency) || 4,
+        maxConcurrency: Number(body.performance.s3Multipart.maxConcurrency) || 8,
+        minPartSize: 5242880,
+      };
+    }
+  }
+}
+
 /**
  * 更新上传配置字段
  */
@@ -69,5 +109,8 @@ function applyStorageFieldUpdates(existing, body) {
   if (body.maxLimitMB !== undefined) existing.maxLimitMB = Number(body.maxLimitMB) || 100;
 }
 
-export { updateUploadConfig,
-  applyStorageFieldUpdates, };
+export {
+  applySystemConfigUpdates,
+  updateUploadConfig,
+  applyStorageFieldUpdates,
+};

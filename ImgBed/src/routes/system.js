@@ -11,11 +11,18 @@ import {
 } from '../database/files-dao.js';
 import { readRuntimeConfig, writeRuntimeConfig } from '../config/index.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
-import { updateUploadConfig, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
+import { createSystemConfigService } from '../services/system/system-config-service.js';
+import { createStorageConfigService } from '../services/system/storage-config-service.js';
+import { createMaintenanceService } from '../services/system/maintenance-service.js';
+import { createDashboardService } from '../services/system/dashboard-service.js';
+import { applySystemConfigUpdates, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
-import { buildNewStorageChannel, validateStorageChannelInput } from '../services/system/create-storage-channel.js';
-import asyncHandler from '../middleware/asyncHandler.js';
-import { ValidationError, NotFoundError } from '../errors/AppError.js';
+import {
+  VALID_STORAGE_TYPES,
+  applyStorageConfigPatch,
+  buildNewStorageChannel,
+  validateStorageChannelInput,
+} from '../services/system/create-storage-channel.js';
 import { createLogger } from '../utils/logger.js';
 import {
   systemConfigCache,
@@ -26,537 +33,160 @@ import {
   dashboardOverviewCache,
   dashboardUploadTrendCache,
   dashboardAccessStatsCache,
-  cacheInvalidation
+  cacheInvalidation,
 } from '../middleware/cache.js';
 import { getResponseCache } from '../services/cache/response-cache.js';
 import { getQuotaEventsArchive } from '../services/archive/quota-events-archive.js';
 import { getArchiveScheduler } from '../services/archive/archive-scheduler.js';
-import { success } from '../utils/response.js';
-import { sanitizeSystemConfig } from '../services/system/sanitize-system-config.js';
+import {
+  STORAGE_SENSITIVE_KEYS,
+  sanitizeStorageChannel,
+  sanitizeSystemConfig,
+} from '../services/system/sanitize-system-config.js';
+import { summarizeStorages } from '../services/system/storage-summary.js';
+import { createSystemConfigRouter } from './system/config-router.js';
+import { createSystemStoragesRouter } from './system/storages-router.js';
+import { createSystemMaintenanceRouter } from './system/maintenance-router.js';
+import { createSystemRuntimeRouter } from './system/runtime-router.js';
+import { createSystemDashboardRouter } from './system/dashboard-router.js';
 
-const log = createLogger('system');
-const systemApp = express.Router();
-
-const SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
-const VALID_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
-const freezeStorageFiles = sqlite.transaction((storageInstanceId) => {
-  freezeFilesByStorageInstance(sqlite, storageInstanceId);
-});
-
-function maskStorage(s) {
-  const masked = { ...s, config: { ...(s.config || {}) } };
-  for (const k of SENSITIVE_KEYS) {
-    if (masked.config[k] !== undefined) masked.config[k] = '***';
-  }
-  return masked;
-}
-
-function summarizeStorages(storages) {
-  let enabled = 0;
-  let allowUpload = 0;
-  const byType = {};
-
-  for (const storage of storages) {
-    if (storage.enabled) {
-      enabled++;
-    }
-    if (storage.allowUpload) {
-      allowUpload++;
-    }
-    byType[storage.type] = (byType[storage.type] || 0) + 1;
+function createFreezeStorageFiles(db) {
+  if (typeof db.transaction === 'function') {
+    return db.transaction((storageInstanceId) => {
+      freezeFilesByStorageInstance(db, storageInstanceId);
+    });
   }
 
-  return {
-    total: storages.length,
-    enabled,
-    allowUpload,
-    byType,
+  return (storageInstanceId) => {
+    freezeFilesByStorageInstance(db, storageInstanceId);
   };
 }
 
-systemApp.use(adminAuth);
+function buildSystemDependencies(overrides = {}) {
+  const db = overrides.db || sqlite;
+  const logger = overrides.logger || createLogger('system');
 
-/**
- * 读取系统配置（脱敏）
- * GET /api/system/config
- */
-systemApp.get('/config', systemConfigCache(), asyncHandler(async (_req, res) => {
-  const cfg = readRuntimeConfig();
-  return res.json(success(sanitizeSystemConfig(cfg)));
-}));
+  const deps = {
+    adminAuth: overrides.adminAuth || adminAuth,
+    db,
+    storageManager: overrides.storageManager || storageManager,
+    readRuntimeConfig: overrides.readRuntimeConfig || readRuntimeConfig,
+    writeRuntimeConfig: overrides.writeRuntimeConfig || writeRuntimeConfig,
+    getResponseCache: overrides.getResponseCache || getResponseCache,
+    getQuotaEventsArchive: overrides.getQuotaEventsArchive || getQuotaEventsArchive,
+    getArchiveScheduler: overrides.getArchiveScheduler || getArchiveScheduler,
+    systemConfigCache: overrides.systemConfigCache || systemConfigCache,
+    storagesListCache: overrides.storagesListCache || storagesListCache,
+    storagesStatsCache: overrides.storagesStatsCache || storagesStatsCache,
+    quotaStatsCache: overrides.quotaStatsCache || quotaStatsCache,
+    loadBalanceCache: overrides.loadBalanceCache || loadBalanceCache,
+    dashboardOverviewCache: overrides.dashboardOverviewCache || dashboardOverviewCache,
+    dashboardUploadTrendCache: overrides.dashboardUploadTrendCache || dashboardUploadTrendCache,
+    dashboardAccessStatsCache: overrides.dashboardAccessStatsCache || dashboardAccessStatsCache,
+    cacheInvalidation: overrides.cacheInvalidation || cacheInvalidation,
+    sanitizeSystemConfig: overrides.sanitizeSystemConfig || sanitizeSystemConfig,
+    sanitizeStorageChannel: overrides.sanitizeStorageChannel || sanitizeStorageChannel,
+    summarizeStorages: overrides.summarizeStorages || summarizeStorages,
+    applySystemConfigUpdates: overrides.applySystemConfigUpdates || applySystemConfigUpdates,
+    updateLoadBalanceConfig: overrides.updateLoadBalanceConfig || updateLoadBalanceConfig,
+    applyStorageConfigChange: overrides.applyStorageConfigChange || applyStorageConfigChange,
+    validateStorageChannelInput: overrides.validateStorageChannelInput || validateStorageChannelInput,
+    buildNewStorageChannel: overrides.buildNewStorageChannel || buildNewStorageChannel,
+    applyStorageFieldUpdates: overrides.applyStorageFieldUpdates || applyStorageFieldUpdates,
+    applyStorageConfigPatch: overrides.applyStorageConfigPatch || applyStorageConfigPatch,
+    validStorageTypes: overrides.validStorageTypes || VALID_STORAGE_TYPES,
+    preserveNullConfigKeys: overrides.preserveNullConfigKeys || STORAGE_SENSITIVE_KEYS,
+    freezeStorageFiles: overrides.freezeStorageFiles || createFreezeStorageFiles(db),
+    getActiveFilesStats: overrides.getActiveFilesStats || getActiveFilesStats,
+    getTodayUploadCount: overrides.getTodayUploadCount || getTodayUploadCount,
+    getUploadTrend: overrides.getUploadTrend || getUploadTrend,
+    logger,
+  };
 
-/**
- * 更新系统配置
- * PUT /api/system/config
- */
-systemApp.put('/config', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const cfg = readRuntimeConfig();
+  deps.systemConfigService = overrides.systemConfigService || createSystemConfigService({
+    readRuntimeConfig: deps.readRuntimeConfig,
+    writeRuntimeConfig: deps.writeRuntimeConfig,
+    cacheInvalidation: deps.cacheInvalidation,
+    applySystemConfigUpdates: deps.applySystemConfigUpdates,
+  });
 
-  if (body.security !== undefined) {
-    if (body.security.corsOrigin !== undefined)
-      cfg.security.corsOrigin = String(body.security.corsOrigin);
-    if (body.security.guestUploadEnabled !== undefined)
-      cfg.security.guestUploadEnabled = Boolean(body.security.guestUploadEnabled);
-    if (body.security.uploadPassword !== undefined)
-      cfg.security.uploadPassword = String(body.security.uploadPassword);
-  }
-  if (body.storage?.default !== undefined)
-    cfg.storage.default = String(body.storage.default);
-  if (body.server?.port !== undefined)
-    cfg.server.port = Number(body.server.port);
+  deps.storageConfigService = overrides.storageConfigService || createStorageConfigService({
+    readRuntimeConfig: deps.readRuntimeConfig,
+    writeRuntimeConfig: deps.writeRuntimeConfig,
+    storageManager: deps.storageManager,
+    cacheInvalidation: deps.cacheInvalidation,
+    freezeStorageFiles: deps.freezeStorageFiles,
+    updateLoadBalanceConfig: deps.updateLoadBalanceConfig,
+    applyStorageConfigChange: deps.applyStorageConfigChange,
+    validateStorageChannelInput: deps.validateStorageChannelInput,
+    buildNewStorageChannel: deps.buildNewStorageChannel,
+    applyStorageFieldUpdates: deps.applyStorageFieldUpdates,
+    applyStorageConfigPatch: deps.applyStorageConfigPatch,
+    validStorageTypes: deps.validStorageTypes,
+    preserveNullConfigKeys: deps.preserveNullConfigKeys,
+  });
 
-  updateUploadConfig(cfg, body.upload);
+  deps.maintenanceService = overrides.maintenanceService || createMaintenanceService({
+    db: deps.db,
+    storageManager: deps.storageManager,
+    logger: deps.logger,
+  });
 
-  // 更新性能配置
-  if (body.performance !== undefined) {
-    cfg.performance = cfg.performance || {};
-    if (body.performance.s3Multipart !== undefined) {
-      cfg.performance.s3Multipart = {
-        enabled: Boolean(body.performance.s3Multipart.enabled),
-        concurrency: Number(body.performance.s3Multipart.concurrency) || 4,
-        maxConcurrency: Number(body.performance.s3Multipart.maxConcurrency) || 8,
-        minPartSize: 5242880
-      };
-    }
-  }
+  deps.dashboardService = overrides.dashboardService || createDashboardService({
+    db: deps.db,
+    readRuntimeConfig: deps.readRuntimeConfig,
+    getActiveFilesStats: deps.getActiveFilesStats,
+    getTodayUploadCount: deps.getTodayUploadCount,
+    getUploadTrend: deps.getUploadTrend,
+    summarizeStorages: deps.summarizeStorages,
+  });
 
-  writeRuntimeConfig(cfg);
+  return deps;
+}
 
-  // 使系统配置缓存失效
-  cacheInvalidation.invalidateSystemConfig();
+function createSystemRouter(overrides = {}) {
+  const deps = buildSystemDependencies(overrides);
+  const router = express.Router();
 
-  return res.json(success(null, '配置已保存，部分配置需重启服务后生效'));
-}));
-
-/**
- * 获取存储渠道列表（含完整 config，敏感字段脱敏）
- * GET /api/system/storages
- */
-systemApp.get('/storages', storagesListCache(), asyncHandler(async (_req, res) => {
-  const cfg = readRuntimeConfig();
-  const fileStorages = cfg.storage?.storages || [];
-  const quotaStats = storageManager.getAllQuotaStats();
-
-  const list = fileStorages
-    .map((s) => maskStorage({
-      ...s,
-      usedBytes: quotaStats[s.id] || 0,
-    }));
-
-  return res.json(success({ list, default: cfg.storage?.default }));
-}));
-
-/**
- * 获取存储渠道统计信息
- * GET /api/system/storages/stats
- */
-systemApp.get('/storages/stats', storagesStatsCache(), asyncHandler(async (_req, res) => {
-  const cfg = readRuntimeConfig();
-  return res.json(success(summarizeStorages(cfg.storage?.storages || [])));
-}));
-
-/**
- * 测试存储渠道连接
- * POST /api/system/storages/test
- */
-systemApp.post('/storages/test', asyncHandler(async (req, res) => {
-  const { type, config: storageConfig } = req.body || {};
-
-  if (!type || !VALID_TYPES.includes(type)) {
-    throw new ValidationError(`不支持的存储类型: ${type}`);
-  }
-
-  const result = await storageManager.testConnection(type, storageConfig || {});
-  if (result.ok) {
-    return res.json(success(result, '连接成功'));
-  } else {
-    throw new ValidationError(result.message);
-  }
-}));
-
-/**
- * 获取负载均衡配置
- * GET /api/system/load-balance
- */
-systemApp.get('/load-balance', loadBalanceCache(), asyncHandler(async (_req, res) => {
-  const cfg = readRuntimeConfig();
-  return res.json(success({
-    strategy: cfg.storage?.loadBalanceStrategy || 'default',
-    scope: cfg.storage?.loadBalanceScope || 'global',
-    enabledTypes: cfg.storage?.loadBalanceEnabledTypes || [],
-    weights: cfg.storage?.loadBalanceWeights || {},
-    failoverEnabled: cfg.storage?.failoverEnabled !== false,
-    stats: storageManager.getUsageStats()
+  router.use(deps.adminAuth);
+  router.use(createSystemConfigRouter({
+    systemConfigCache: deps.systemConfigCache,
+    readRuntimeConfig: deps.readRuntimeConfig,
+    sanitizeSystemConfig: deps.sanitizeSystemConfig,
+    systemConfigService: deps.systemConfigService,
   }));
-}));
-
-/**
- * 更新负载均衡配置
- * PUT /api/system/load-balance
- */
-systemApp.put('/load-balance', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const cfg = readRuntimeConfig();
-
-  const validationError = updateLoadBalanceConfig(cfg, body);
-  if (validationError) {
-    return res.status(validationError.code).json(validationError);
-  }
-
-  writeRuntimeConfig(cfg);
-  await storageManager.reload();
-
-  // 使负载均衡和存储相关缓存失效
-  cacheInvalidation.invalidateStorages();
-
-  return res.json(success(null, '负载均衡配置已更新'));
-}));
-
-/**
- * 新增存储渠道
- * POST /api/system/storages
- */
-systemApp.post('/storages', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-
-  const validationError = validateStorageChannelInput(body, VALID_TYPES);
-  if (validationError) {
-    return res.status(validationError.code).json(validationError);
-  }
-
-  const cfg = readRuntimeConfig();
-
-  if ((cfg.storage.storages || []).some((s) => s.id === body.id)) {
-    throw new ValidationError(`渠道 ID "${body.id}" 已存在`);
-  }
-
-  const newStorage = buildNewStorageChannel(body);
-  cfg.storage.storages = [...(cfg.storage.storages || []), newStorage];
-
-  await applyStorageConfigChange({ cfg, storageManager });
-
-  // 使存储相关缓存失效
-  cacheInvalidation.invalidateStorages();
-
-  return res.json(success(maskStorage(newStorage), '存储渠道已新增'));
-}));
-
-/**
- * 编辑存储渠道
- * PUT /api/system/storages/:id
- */
-systemApp.put('/storages/:id', asyncHandler(async (req, res) => {
-  const id = req.params.id;
-  const body = req.body || {};
-  const cfg = readRuntimeConfig();
-  const idx = (cfg.storage.storages || []).findIndex((s) => s.id === id);
-  if (idx === -1) {
-    throw new NotFoundError(`渠道 "${id}" 不存在`);
-  }
-
-  const existing = cfg.storage.storages[idx];
-  applyStorageFieldUpdates(existing, body);
-
-  if (body.config !== undefined) {
-    existing.config = existing.config || {};
-    for (const [k, v] of Object.entries(body.config)) {
-      if (SENSITIVE_KEYS.includes(k) && v === null) continue;
-      if (existing.type === 's3' && k === 'pathStyle') {
-        existing.config[k] = v === true || v === 'true';
-        continue;
-      }
-      existing.config[k] = v;
-    }
-  }
-
-  await applyStorageConfigChange({ cfg, storageManager });
-
-  // 使存储相关缓存失效
-  cacheInvalidation.invalidateStorages();
-
-  return res.json(success(maskStorage(existing), '存储渠道已更新'));
-}));
-
-/**
- * 删除存储渠道
- * DELETE /api/system/storages/:id
- */
-systemApp.delete('/storages/:id', asyncHandler(async (req, res) => {
-  const id = req.params.id;
-  const cfg = readRuntimeConfig();
-  if (cfg.storage.default === id) {
-    throw new ValidationError('不能删除当前默认渠道，请先切换默认渠道');
-  }
-  const storage = (cfg.storage.storages || []).find((s) => s.id === id);
-  if (!storage) {
-    throw new NotFoundError(`渠道 "${id}" 不存在`);
-  }
-
-  cfg.storage.storages = (cfg.storage.storages || []).filter((entry) => entry.id !== id);
-
-  freezeStorageFiles(id);
-  await applyStorageConfigChange({ cfg, storageManager });
-
-  // 使存储和文件相关缓存全部失效
-  cacheInvalidation.invalidateStorages();
-  cacheInvalidation.invalidateFiles();
-  cacheInvalidation.invalidateDashboard();
-
-  return res.json(success(null, '存储渠道已删除，关联文件已冻结'));
-}));
-
-/**
- * 设为默认存储渠道
- * PUT /api/system/storages/:id/default
- */
-systemApp.put('/storages/:id/default', asyncHandler(async (req, res) => {
-  const id = req.params.id;
-  const cfg = readRuntimeConfig();
-  if (!(cfg.storage.storages || []).some((s) => s.id === id)) {
-    throw new NotFoundError(`渠道 "${id}" 不存在`);
-  }
-  cfg.storage.default = id;
-  await applyStorageConfigChange({ cfg, storageManager });
-
-  // 使存储相关缓存失效
-  cacheInvalidation.invalidateStorages();
-
-  return res.json(success(null, `已将 "${id}" 设为默认渠道`));
-}));
-
-/**
- * 启用/禁用存储渠道
- * PUT /api/system/storages/:id/toggle
- */
-systemApp.put('/storages/:id/toggle', asyncHandler(async (req, res) => {
-  const id = req.params.id;
-  const cfg = readRuntimeConfig();
-  const storage = (cfg.storage.storages || []).find((s) => s.id === id);
-  if (!storage) {
-    throw new NotFoundError(`渠道 "${id}" 不存在`);
-  }
-
-  storage.enabled = !storage.enabled;
-
-  await applyStorageConfigChange({ cfg, storageManager });
-
-  // 使存储相关缓存失效
-  cacheInvalidation.invalidateStorages();
-
-  return res.json(success(
-    { enabled: storage.enabled },
-    `渠道 "${id}" 已${storage.enabled ? '启用' : '禁用'}`
-  ));
-}));
-
-/**
- * 获取各存储渠道已用容量统计
- * GET /api/system/quota-stats
- */
-systemApp.get('/quota-stats', quotaStatsCache(), asyncHandler(async (_req, res) => {
-  const stats = storageManager.getAllQuotaStats();
-  return res.json(success({ stats }));
-}));
-
-/**
- * 手动触发全量容量校正
- * POST /api/system/maintenance/rebuild-quota-stats
- */
-systemApp.post('/maintenance/rebuild-quota-stats', asyncHandler(async (_req, res) => {
-  (async () => {
-    try {
-      log.info('手动触发容量校正任务');
-      await storageManager.rebuildQuotaStats();
-      log.info('容量校正任务完成');
-    } catch (err) {
-      log.error({ err }, '容量校正任务失败');
-    }
-  })();
-
-  return res.json(success({ status: 'processing' }, '容量校正任务已在后台启动'));
-}));
-
-/**
- * 获取容量校正历史记录
- * GET /api/system/maintenance/quota-history
- */
-systemApp.get('/maintenance/quota-history', asyncHandler(async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit || '10'), 100);
-  const storageId = req.query.storage_id;
-
-  let query = 'SELECT * FROM storage_quota_history';
-  const params = [];
-
-  if (storageId) {
-    query += ' WHERE storage_id = ?';
-    params.push(storageId);
-  }
-
-  query += ' ORDER BY recorded_at DESC LIMIT ?';
-  params.push(limit);
-
-  const history = sqlite.prepare(query).all(...params);
-
-  return res.json(success({ history }));
-}));
-
-/**
- * 获取响应缓存统计信息
- * GET /api/system/cache/stats
- */
-systemApp.get('/cache/stats', asyncHandler(async (_req, res) => {
-  const cache = getResponseCache();
-  const stats = cache.getStats();
-
-  return res.json(success(stats));
-}));
-
-/**
- * 清空响应缓存
- * POST /api/system/cache/clear
- */
-systemApp.post('/cache/clear', asyncHandler(async (_req, res) => {
-  cacheInvalidation.invalidateAll();
-
-  return res.json(success(null, '缓存已清空'));
-}));
-
-/**
- * 获取事件归档统计信息
- * GET /api/system/archive/stats
- */
-systemApp.get('/archive/stats', asyncHandler(async (_req, res) => {
-  const archive = getQuotaEventsArchive();
-  const stats = archive.getStats();
-
-  return res.json(success(stats));
-}));
-
-/**
- * 手动触发归档任务
- * POST /api/system/archive/run
- */
-systemApp.post('/archive/run', asyncHandler(async (_req, res) => {
-  const scheduler = getArchiveScheduler();
-  const result = await scheduler.runNow();
-
-  if (result.skipped) {
-    return res.json(success(result, '归档任务正在执行中，已跳过本次触发'));
-  }
-
-  return res.json(success(result, '归档任务执行完成'));
-}));
-
-/**
- * 获取归档调度器状态
- * GET /api/system/archive/scheduler
- */
-systemApp.get('/archive/scheduler', asyncHandler(async (_req, res) => {
-  const scheduler = getArchiveScheduler();
-  const status = scheduler.getStatus();
-
-  return res.json(success(status));
-}));
-
-/**
- * 仪表盘 - 系统概览统计
- * GET /api/system/dashboard/overview
- */
-systemApp.get('/dashboard/overview', dashboardOverviewCache(), asyncHandler(async (_req, res) => {
-  const { count: totalFiles, sum: totalSize } = getActiveFilesStats(sqlite);
-  const todayUploads = getTodayUploadCount(sqlite);
-  const cfg = readRuntimeConfig();
-  const storageSummary = summarizeStorages(cfg.storage?.storages || []);
-
-  // 查询今日访问次数
-  const todayAccessResult = sqlite.prepare(`
-    SELECT COUNT(*) as count FROM access_logs
-    WHERE DATE(created_at) = DATE('now')
-  `).get();
-  const todayAccess = todayAccessResult?.count || 0;
-
-  return res.json(success({
-    totalFiles,
-    totalSize,
-    todayUploads,
-    todayAccess,
-    totalChannels: storageSummary.total,
-    enabledChannels: storageSummary.enabled
+  router.use(createSystemStoragesRouter({
+    storagesListCache: deps.storagesListCache,
+    storagesStatsCache: deps.storagesStatsCache,
+    loadBalanceCache: deps.loadBalanceCache,
+    quotaStatsCache: deps.quotaStatsCache,
+    readRuntimeConfig: deps.readRuntimeConfig,
+    sanitizeStorageChannel: deps.sanitizeStorageChannel,
+    summarizeStorages: deps.summarizeStorages,
+    storageManager: deps.storageManager,
+    storageConfigService: deps.storageConfigService,
   }));
-}));
-
-/**
- * 仪表盘 - 上传趋势统计
- * GET /api/system/dashboard/upload-trend?days=7
- */
-systemApp.get('/dashboard/upload-trend', dashboardUploadTrendCache(), asyncHandler(async (req, res) => {
-  const days = parseInt(req.query.days) || 7;
-
-  // 验证参数
-  if (![7, 30, 90].includes(days)) {
-    throw new ValidationError('days 参数必须是 7、30 或 90');
-  }
-
-  const trend = getUploadTrend(sqlite, days);
-
-  return res.json(success({ trend }));
-}));
-
-/**
- * 仪表盘 - 访问统计
- * GET /api/system/dashboard/access-stats
- */
-systemApp.get('/dashboard/access-stats', dashboardAccessStatsCache(), asyncHandler(async (_req, res) => {
-  // 今日访问次数（排除管理员访问）
-  const todayAccessResult = sqlite.prepare(`
-    SELECT COUNT(*) as count FROM access_logs
-    WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
-  `).get();
-  const todayAccess = todayAccessResult?.count || 0;
-
-  // 今日独立访客数（排除管理员访问）
-  const todayVisitorsResult = sqlite.prepare(`
-    SELECT COUNT(DISTINCT ip) as count FROM access_logs
-    WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
-  `).get();
-  const todayVisitors = todayVisitorsResult?.count || 0;
-
-  // 热门文件 TOP 5（排除管理员访问）
-  const topFiles = sqlite.prepare(`
-    SELECT
-      access_logs.file_id as fileId,
-      files.file_name as fileName,
-      files.original_name as originalName,
-      COUNT(access_logs.id) as accessCount
-    FROM access_logs
-    INNER JOIN files ON access_logs.file_id = files.id
-    WHERE DATE(access_logs.created_at) >= DATE('now', '-7 days')
-      AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
-      AND files.status = 'active'
-    GROUP BY access_logs.file_id
-    ORDER BY accessCount DESC
-    LIMIT 5
-  `).all();
-
-  // 近7天访问趋势（排除管理员访问）
-  const accessTrend = sqlite.prepare(`
-    SELECT
-      DATE(created_at) as date,
-      COUNT(*) as accessCount
-    FROM access_logs
-    WHERE created_at >= datetime('now', '-7 days')
-      AND (is_admin = 0 OR is_admin IS NULL)
-    GROUP BY DATE(created_at)
-    ORDER BY date ASC
-  `).all();
-
-  return res.json(success({
-    todayAccess,
-    todayVisitors,
-    topFiles,
-    accessTrend
+  router.use(createSystemMaintenanceRouter({
+    maintenanceService: deps.maintenanceService,
   }));
-}));
+  router.use(createSystemRuntimeRouter({
+    getResponseCache: deps.getResponseCache,
+    getQuotaEventsArchive: deps.getQuotaEventsArchive,
+    getArchiveScheduler: deps.getArchiveScheduler,
+    cacheInvalidation: deps.cacheInvalidation,
+  }));
+  router.use(createSystemDashboardRouter({
+    dashboardOverviewCache: deps.dashboardOverviewCache,
+    dashboardUploadTrendCache: deps.dashboardUploadTrendCache,
+    dashboardAccessStatsCache: deps.dashboardAccessStatsCache,
+    dashboardService: deps.dashboardService,
+  }));
+
+  return router;
+}
+
+const systemApp = createSystemRouter();
+
+export { createSystemRouter };
 
 export default systemApp;

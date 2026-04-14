@@ -187,6 +187,34 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
         username: 'admin',
         password: 'admin-pass',
       },
+      storage: {
+        ...baseConfig.storage,
+        default: 's3-main',
+        loadBalanceStrategy: 'weighted',
+        loadBalanceScope: 'byType',
+        loadBalanceEnabledTypes: ['s3'],
+        loadBalanceWeights: {
+          's3-main': 7,
+        },
+        failoverEnabled: true,
+        storages: [
+          {
+            id: 's3-main',
+            name: '主 S3',
+            type: 's3',
+            enabled: true,
+            allowUpload: true,
+            weight: 7,
+            config: {
+              endpoint: 'https://example.com',
+              bucket: 'demo-bucket',
+              secretAccessKey: 'secret-value',
+              token: 's3-token',
+              pathStyle: true,
+            },
+          },
+        ],
+      },
       performance: {
         ...baseConfig.performance,
         responseCache: {
@@ -205,6 +233,11 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
       initResponseCache,
       destroyResponseCache,
     } = await import('./src/services/cache/response-cache.js');
+    const { initQuotaEventsArchive } = await import('./src/services/archive/quota-events-archive.js');
+    const {
+      initArchiveScheduler,
+      stopArchiveScheduler,
+    } = await import('./src/services/archive/archive-scheduler.js');
     const app = (await import('./src/app.js')).default;
 
     initSchema(sqlite);
@@ -212,6 +245,16 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
       enabled: true,
       ttlSeconds: 60,
       maxKeys: 100,
+    });
+    initQuotaEventsArchive({
+      enabled: true,
+      retentionDays: 30,
+      batchSize: 50,
+      maxBatchesPerRun: 2,
+    });
+    initArchiveScheduler({
+      enabled: false,
+      scheduleHour: 3,
     });
 
     const now = new Date().toISOString();
@@ -288,7 +331,30 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
       const systemConfigSecond = await requestJson('/api/system/config', {
         headers: { Authorization: \`Bearer \${adminJwt}\` },
       });
+      const storagesResponse = await requestJson('/api/system/storages', {
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const loadBalanceResponse = await requestJson('/api/system/load-balance', {
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const quotaStatsResponse = await requestJson('/api/system/quota-stats', {
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
       const cacheStats = await requestJson('/api/system/cache/stats', {
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const cacheClearResponse = await requestJson('/api/system/cache/clear', {
+        method: 'POST',
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const archiveStatsResponse = await requestJson('/api/system/archive/stats', {
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const archiveRunResponse = await requestJson('/api/system/archive/run', {
+        method: 'POST',
+        headers: { Authorization: \`Bearer \${adminJwt}\` },
+      });
+      const archiveSchedulerResponse = await requestJson('/api/system/archive/scheduler', {
         headers: { Authorization: \`Bearer \${adminJwt}\` },
       });
       const invalidTrend = await requestJson('/api/system/dashboard/upload-trend?days=8', {
@@ -325,7 +391,14 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
       console.log('JSON_RESULT ' + JSON.stringify({
         systemConfigFirst,
         systemConfigSecond,
+        storagesResponse,
+        loadBalanceResponse,
+        quotaStatsResponse,
         cacheStats,
+        cacheClearResponse,
+        archiveStatsResponse,
+        archiveRunResponse,
+        archiveSchedulerResponse,
         invalidTrend,
         uploadOnlyFilesRead,
         filesReadMissingDirectory,
@@ -337,6 +410,7 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
       }));
     } finally {
       await new Promise((resolve) => server.close(resolve));
+      stopArchiveScheduler();
       destroyResponseCache();
     }
   `;
@@ -353,9 +427,25 @@ test('系统缓存、权限校验与 SPA 路由边界会按当前装配顺序工
   assert.equal(payload.systemConfigSecond.status, 200);
   assert.equal(payload.systemConfigFirst.body.data.admin.password, undefined);
   assert.equal(payload.systemConfigFirst.body.data.admin.passwordHash, undefined);
+  assert.equal(payload.storagesResponse.status, 200);
+  assert.equal(payload.storagesResponse.body.data.list[0].config.secretAccessKey, '***');
+  assert.equal(payload.storagesResponse.body.data.list[0].config.token, '***');
+  assert.equal(payload.loadBalanceResponse.status, 200);
+  assert.equal(payload.loadBalanceResponse.body.data.strategy, 'weighted');
+  assert.deepEqual(payload.loadBalanceResponse.body.data.enabledTypes, ['s3']);
+  assert.equal(payload.quotaStatsResponse.status, 200);
+  assert.equal(typeof payload.quotaStatsResponse.body.data.stats, 'object');
   assert.equal(payload.cacheStats.status, 200);
   assert.ok(payload.cacheStats.body.data.hits >= 1);
   assert.ok(payload.cacheStats.body.data.sets >= 1);
+  assert.equal(payload.cacheClearResponse.status, 200);
+  assert.equal(payload.cacheClearResponse.body.message, '缓存已清空');
+  assert.equal(payload.archiveStatsResponse.status, 200);
+  assert.equal(payload.archiveStatsResponse.body.data.enabled, true);
+  assert.equal(payload.archiveRunResponse.status, 200);
+  assert.equal(payload.archiveRunResponse.body.message, '归档任务执行完成');
+  assert.equal(payload.archiveSchedulerResponse.status, 200);
+  assert.equal(payload.archiveSchedulerResponse.body.data.enabled, false);
 
   assert.equal(payload.invalidTrend.status, 400);
   assert.equal(payload.invalidTrend.body.message, 'days 参数必须是 7、30 或 90');

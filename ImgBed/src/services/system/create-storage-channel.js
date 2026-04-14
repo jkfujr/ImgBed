@@ -1,3 +1,31 @@
+const VALID_STORAGE_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
+
+function normalizeStorageChannelConfig(type, storageConfig = {}) {
+  const normalizedConfig = { ...storageConfig };
+
+  if (type === 's3' && Object.prototype.hasOwnProperty.call(normalizedConfig, 'pathStyle')) {
+    normalizedConfig.pathStyle = normalizedConfig.pathStyle === true || normalizedConfig.pathStyle === 'true';
+  }
+
+  return normalizedConfig;
+}
+
+function applyStorageConfigPatch(existingConfig = {}, patchConfig = {}, type, preserveNullKeys = []) {
+  const mergedConfig = {
+    ...(existingConfig || {}),
+  };
+
+  for (const [key, value] of Object.entries(patchConfig || {})) {
+    if (preserveNullKeys.includes(key) && value === null) {
+      continue;
+    }
+
+    mergedConfig[key] = value;
+  }
+
+  return normalizeStorageChannelConfig(type, mergedConfig);
+}
+
 function buildNewStorageChannel(body) {
   const {
     id,
@@ -11,10 +39,7 @@ function buildNewStorageChannel(body) {
     config: storConfig = {},
   } = body;
 
-  const normalizedConfig = { ...storConfig };
-  if (type === 's3' && Object.prototype.hasOwnProperty.call(normalizedConfig, 'pathStyle')) {
-    normalizedConfig.pathStyle = normalizedConfig.pathStyle === true || normalizedConfig.pathStyle === 'true';
-  }
+  const normalizedConfig = normalizeStorageChannelConfig(type, storConfig);
 
   return {
     id,
@@ -38,7 +63,7 @@ function buildNewStorageChannel(body) {
   };
 }
 
-function validateStorageChannelInput(body, validTypes) {
+function validateStorageChannelInput(body, validTypes = VALID_STORAGE_TYPES) {
   const { id, type, name } = body;
 
   if (!id || !/^[a-zA-Z0-9-]+$/.test(id)) {
@@ -57,6 +82,9 @@ function validateStorageChannelInput(body, validTypes) {
 }
 
 export {
+  VALID_STORAGE_TYPES,
+  normalizeStorageChannelConfig,
+  applyStorageConfigPatch,
   buildNewStorageChannel,
   validateStorageChannelInput,
 };
