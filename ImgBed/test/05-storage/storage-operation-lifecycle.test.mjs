@@ -4,14 +4,14 @@ import test from 'node:test';
 import {
   COMMIT_FAILURE_MODE,
   createStorageOperationLifecycle,
-} from '../../../src/services/system/storage-operation-lifecycle.js';
-import { buildQuotaEvent } from '../../../src/services/system/storage-operations.js';
+} from '../../src/services/system/storage-operation-lifecycle.js';
+import { buildQuotaEvent } from '../../src/services/system/storage-operations.js';
 import {
   createStorageManagerDouble,
   createTestDb,
   getQuotaEvents,
   getStorageOperation,
-} from '../../helpers/storage-test-helpers.mjs';
+} from '../helpers/storage-test-helpers.mjs';
 
 test('上传成功时按 pending -> remote_done -> committed -> completed 推进', async (t) => {
   const db = createTestDb();

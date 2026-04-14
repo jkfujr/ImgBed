@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module';
 
+import { createAccessLogsSchema } from '../../src/database/schemas/access-logs.js';
 import { createChunksSchema } from '../../src/database/schemas/chunks.js';
+import { createDirectoriesSchema } from '../../src/database/schemas/directories.js';
 import { createFilesSchema } from '../../src/database/schemas/files.js';
 import { createStorageOperationsSchema } from '../../src/database/schemas/storage-operations.js';
 import { createStorageQuotaEventsSchema } from '../../src/database/schemas/storage-quota-events.js';
@@ -28,6 +30,8 @@ function createTestDb() {
   createStorageQuotaEventsSchema(db);
   createFilesSchema(db);
   createChunksSchema(db);
+  createDirectoriesSchema(db);
+  createAccessLogsSchema(db);
   return db;
 }
 
