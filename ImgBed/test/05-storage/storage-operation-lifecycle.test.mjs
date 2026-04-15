@@ -20,7 +20,7 @@ test('上传成功时按 pending -> remote_done -> committed -> completed 推进
   const storageManagerDouble = createStorageManagerDouble();
   const lifecycle = createStorageOperationLifecycle({
     db,
-    storageManager: storageManagerDouble.manager,
+    applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
     operationType: 'upload',
     fileId: 'file-upload-success',
     targetStorageId: 'storage-target',
@@ -171,7 +171,7 @@ test('迁移链在提交成功后源端清理失败时保留 committed 状态', 
   const storageManagerDouble = createStorageManagerDouble();
   const lifecycle = createStorageOperationLifecycle({
     db,
-    storageManager: storageManagerDouble.manager,
+    applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
     operationType: 'migrate',
     fileId: 'file-migrate-committed',
     sourceStorageId: 'storage-source',

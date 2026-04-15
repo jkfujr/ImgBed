@@ -1,7 +1,7 @@
 import { createLogger } from '../../utils/logger.js';
 import {
   parseStorageMeta,
-  removeStoredArtifacts,
+  removeStoredArtifacts as defaultRemoveStoredArtifacts,
 } from '../../services/files/storage-artifacts.js';
 import {
   buildQuotaEvent,
@@ -23,13 +23,15 @@ class StorageOperationRecovery {
   constructor({
     db,
     logger = log,
-    storageManager,
+    getStorage = () => null,
     applyPendingQuotaEvents,
+    removeStoredArtifacts = defaultRemoveStoredArtifacts,
   } = {}) {
     this.db = db;
     this.log = logger;
-    this.storageManager = storageManager;
+    this.getStorage = getStorage;
     this.applyPendingQuotaEvents = applyPendingQuotaEvents;
+    this.removeStoredArtifacts = removeStoredArtifacts;
     this.isRecoveryRunning = false;
   }
 
@@ -186,8 +188,8 @@ class StorageOperationRecovery {
     if (operation.operation_type === 'migrate' && operation.compensation_payload) {
       const payload = this.parseOperationPayload(operation.compensation_payload);
       const storageId = resolveOperationStorageId(operation, { payloadField: 'compensation_payload' });
-      await removeStoredArtifacts({
-        storageManager: this.storageManager,
+      await this.removeStoredArtifacts({
+        getStorage: this.getStorage,
         storageId,
         storageKey: payload.storageKey,
         deleteToken: payload.deleteToken || null,
@@ -214,8 +216,8 @@ class StorageOperationRecovery {
       throw new Error(`恢复补偿缺少存储渠道标识: ${operation.id}`);
     }
 
-    await removeStoredArtifacts({
-      storageManager: this.storageManager,
+    await this.removeStoredArtifacts({
+      getStorage: this.getStorage,
       storageId,
       storageKey: payload.storageKey,
       deleteToken: payload.deleteToken || null,

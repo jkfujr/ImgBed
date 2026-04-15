@@ -3,8 +3,9 @@ import { sqlite } from '../../database/index.js';
 import { insertFile } from '../../database/files-dao.js';
 import { QuotaExceededError } from '../../errors/AppError.js';
 import { cacheInvalidation } from '../../middleware/cache.js';
-import ChunkManager from '../../storage/chunk-manager.js';
+import { insertMany as insertChunkRecords } from '../../storage/chunks/chunk-record-repository.js';
 import storageManager from '../../storage/manager.js';
+import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../../storage/runtime/default-storage-runtime.js';
 import { createLogger } from '../../utils/logger.js';
 import { removeStoredArtifacts } from '../files/storage-artifacts.js';
 import {
@@ -27,12 +28,13 @@ import {
 } from './upload-record.js';
 
 function insertUploadChunks(records, db) {
-  ChunkManager.insertChunks(records, db);
+  insertChunkRecords(records, db);
 }
 
 function createUploadApplicationService({
   db = sqlite,
   storageManager: storageManagerDep = storageManager,
+  applyPendingQuotaEvents: applyPendingQuotaEventsDep = defaultApplyPendingQuotaEvents,
   getConfig = getLastKnownGoodConfig,
   resolveUploadChannel: resolveUploadChannelDep = resolveUploadChannel,
   validateUploadFile: validateUploadFileDep = validateUploadFile,
@@ -74,7 +76,7 @@ function createUploadApplicationService({
       const fileMeta = await prepareUploadFileFn(file);
       const lifecycle = createStorageOperationLifecycleDep({
         db,
-        storageManager: storageManagerDep,
+        applyPendingQuotaEvents: applyPendingQuotaEventsDep,
         operationType: 'upload',
         fileId: fileMeta.fileId,
         targetStorageId: channelId,
@@ -163,7 +165,7 @@ function createUploadApplicationService({
           failureCompensationPayload: cleanupPayload,
           executeCompensation: async () => {
             await removeStoredArtifactsDep({
-              storageManager: storageManagerDep,
+              getStorage: (storageId) => storageManagerDep.getStorage(storageId),
               storageId: uploadResult.finalChannelId,
               storageKey: cleanupPayload.storageKey,
               deleteToken: cleanupPayload.deleteToken,

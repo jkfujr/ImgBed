@@ -4,7 +4,6 @@ import { sqlite } from '../database/index.js';
 import { getActiveFileById, insertAccessLog } from '../database/files-dao.js';
 import { getLastKnownGoodConfig } from '../config/index.js';
 import storageManager from '../storage/manager.js';
-import ChunkManager from '../storage/chunk-manager.js';
 import { resolveFileStorage, parseRangeHeader } from '../services/view/resolve-file-storage.js';
 import { handleChunkedStream, handleRegularStream } from '../services/view/handle-stream.js';
 import asyncHandler from '../middleware/asyncHandler.js';

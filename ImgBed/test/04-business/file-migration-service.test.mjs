@@ -120,94 +120,146 @@ function createMigrationHarness({
     },
   };
 
-  const chunkManager = {
-    analyze() {
-      return analyzeResult;
-    },
-    async uploadChunked(_storage, buffer, options) {
+  function buildChunkRecords(fileId) {
+    return [
+      {
+        file_id: fileId,
+        chunk_index: 0,
+        storage_type: 'mock',
+        storage_id: 'source-1',
+        storage_key: 'source-chunk-0',
+        storage_meta: null,
+        size: 2,
+      },
+      {
+        file_id: fileId,
+        chunk_index: 1,
+        storage_type: 'mock',
+        storage_id: 'source-1',
+        storage_key: 'source-chunk-1',
+        storage_meta: null,
+        size: 2,
+      },
+    ];
+  }
+
+  function persistChunkRecords(records, targetDb) {
+    for (const record of records) {
+      targetDb.prepare(`
+        INSERT INTO chunks (
+          file_id, chunk_index, storage_type, storage_id, storage_key, storage_meta, size
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.file_id,
+        record.chunk_index,
+        record.storage_type,
+        record.storage_id,
+        record.storage_key,
+        record.storage_meta,
+        record.size,
+      );
+    }
+  }
+
+  function resolveStorageWritePlanFn({ fileSize, storageId, storageType }) {
+    if (!analyzeResult.needsChunking) {
+      return {
+        mode: 'direct',
+        storageId,
+        storageType,
+        fileSize,
+        limits: targetLimits,
+        chunkConfig: null,
+      };
+    }
+
+    return {
+      mode: analyzeResult.config?.mode === 'native' ? 'native' : 'chunked',
+      storageId,
+      storageType,
+      fileSize,
+      limits: targetLimits,
+      chunkConfig: analyzeResult.config,
+    };
+  }
+
+  async function executePlannedBufferWriteFn({
+    plan,
+    buffer,
+    fileId,
+    newFileName,
+    originalName,
+    mimeType,
+    config,
+  }) {
+    if (plan.mode === 'chunked') {
       calls.uploadChunked.push({
         size: buffer.length,
-        options,
+        options: {
+          fileId,
+          fileName: newFileName,
+          originalName,
+          mimeType,
+          storageId: plan.storageId,
+        },
       });
       return {
+        storageResult: {
+          storageKey: fileId,
+          size: buffer.length,
+          deleteToken: null,
+        },
+        isChunked: 1,
         chunkCount: 2,
         chunkRecords: [
           {
-            file_id: options.fileId,
+            file_id: fileId,
             chunk_index: 0,
             storage_type: 'mock',
-            storage_id: options.storageId,
+            storage_id: plan.storageId,
             storage_key: 'chunk-0',
             storage_meta: null,
             size: Math.ceil(buffer.length / 2),
           },
           {
-            file_id: options.fileId,
+            file_id: fileId,
             chunk_index: 1,
             storage_type: 'mock',
-            storage_id: options.storageId,
+            storage_id: plan.storageId,
             storage_key: 'chunk-1',
             storage_meta: null,
             size: Math.floor(buffer.length / 2),
           },
         ],
       };
-    },
-    async uploadS3Multipart(_storage, buffer, options) {
+    }
+
+    if (plan.mode === 'native') {
       calls.uploadS3Multipart.push({
         size: buffer.length,
-        options,
+        options: {
+          fileId,
+          fileName: newFileName,
+          originalName,
+          mimeType,
+          storageId: plan.storageId,
+          config,
+        },
       });
       return {
-        storageKey: 'native-key',
-        size: buffer.length,
-        deleteToken: { uploadId: 'u-1' },
+        storageResult: {
+          storageKey: 'native-key',
+          size: buffer.length,
+          deleteToken: { uploadId: 'u-1' },
+        },
+        isChunked: 0,
+        chunkCount: 0,
+        chunkRecords: [],
       };
-    },
-    async getChunks(fileId) {
-      calls.chunkReads.push(fileId);
-      return [
-        {
-          file_id: fileId,
-          chunk_index: 0,
-          storage_type: 'mock',
-          storage_id: 'source-1',
-          storage_key: 'source-chunk-0',
-          storage_meta: null,
-          size: 2,
-        },
-        {
-          file_id: fileId,
-          chunk_index: 1,
-          storage_type: 'mock',
-          storage_id: 'source-1',
-          storage_key: 'source-chunk-1',
-          storage_meta: null,
-          size: 2,
-        },
-      ];
-    },
-    createChunkedReadStream() {
-      return Readable.from([sourceBuffer]);
-    },
-    insertChunks(records, targetDb) {
-      for (const record of records) {
-        targetDb.prepare(`
-          INSERT INTO chunks (
-            file_id, chunk_index, storage_type, storage_id, storage_key, storage_meta, size
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          record.file_id,
-          record.chunk_index,
-          record.storage_type,
-          record.storage_id,
-          record.storage_key,
-          record.storage_meta,
-          record.size,
-        );
-      }
-    },
-  };
+    }
+
+    throw new Error(`未预期的写入模式: ${plan.mode}`);
+  }
 
   const storageManager = {
     getStorageMeta(storageId) {
@@ -235,7 +287,18 @@ function createMigrationHarness({
   const service = createFileMigrationService({
     db,
     storageManager,
-    ChunkManager: chunkManager,
+    applyPendingQuotaEvents: storageManager.applyPendingQuotaEvents,
+    resolveStorageWritePlanFn,
+    executePlannedBufferWriteFn,
+    listChunkRecordsByFileIdFn: async (fileId) => {
+      calls.chunkReads.push(fileId);
+      return buildChunkRecords(fileId);
+    },
+    createChunkedReadStreamFn: () => Readable.from([sourceBuffer]),
+    insertChunkRecordsFn: persistChunkRecords,
+    deleteChunkRecordsByFileIdFn: (fileId, targetDb) => {
+      targetDb.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileId);
+    },
     ...(removeStoredArtifactsFn ? {
       removeStoredArtifactsFn: async (payload) => {
         calls.removeStoredArtifacts.push(payload);
@@ -557,14 +620,13 @@ test('createFileMigrationService 在 commit 失败时会补偿目标端对象并
   const operation = getStorageOperation(harness.db, operationId);
 
   assert.equal(operation.status, 'compensated');
-  assert.deepEqual(harness.calls.removeStoredArtifacts, [{
-    storageManager: harness.storageManager,
-    storageId: 'target-1',
-    storageKey: 'target-key',
-    deleteToken: { messageId: '9' },
-    isChunked: false,
-    chunkRecords: [],
-  }]);
+  assert.equal(harness.calls.removeStoredArtifacts.length, 1);
+  assert.equal(typeof harness.calls.removeStoredArtifacts[0].getStorage, 'function');
+  assert.equal(harness.calls.removeStoredArtifacts[0].storageId, 'target-1');
+  assert.equal(harness.calls.removeStoredArtifacts[0].storageKey, 'target-key');
+  assert.deepEqual(harness.calls.removeStoredArtifacts[0].deleteToken, { messageId: '9' });
+  assert.equal(harness.calls.removeStoredArtifacts[0].isChunked, false);
+  assert.deepEqual(harness.calls.removeStoredArtifacts[0].chunkRecords, []);
 });
 
 test('createFileMigrationService 在 afterCommit 源端清理失败时保留 committed 状态', async (t) => {

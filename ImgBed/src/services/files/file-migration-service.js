@@ -1,6 +1,11 @@
 import pLimit from 'p-limit';
 
-import ChunkManager from '../../storage/chunk-manager.js';
+import {
+  deleteByFileId as deleteChunkRecordsByFileId,
+  insertMany as insertChunkRecords,
+  listByFileId as listChunkRecordsByFileId,
+} from '../../storage/chunks/chunk-record-repository.js';
+import { createChunkedReadStream } from '../../storage/read/chunked-read-assembler.js';
 import { toBuffer, toNodeReadable } from '../../utils/storage-io.js';
 import { createLogger } from '../../utils/logger.js';
 import {
@@ -20,6 +25,7 @@ import {
   serializeStorageMeta,
 } from './storage-artifacts.js';
 import { updateFileMigrationFields } from '../../database/files-dao.js';
+import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../../storage/runtime/default-storage-runtime.js';
 
 const log = createLogger('migrate-file');
 const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
@@ -54,7 +60,7 @@ function validateMigrationTarget(targetChannel, storageManager) {
 function createFileMigrationService({
   db,
   storageManager,
-  ChunkManager: chunkManager = ChunkManager,
+  applyPendingQuotaEvents = defaultApplyPendingQuotaEvents,
   logger = log,
   toBufferFn = toBuffer,
   toNodeReadableFn = toNodeReadable,
@@ -69,6 +75,10 @@ function createFileMigrationService({
   resolveStorageInstanceIdFn = resolveStorageInstanceId,
   serializeStorageMetaFn = serializeStorageMeta,
   updateFileMigrationFieldsFn = updateFileMigrationFields,
+  listChunkRecordsByFileIdFn = listChunkRecordsByFileId,
+  createChunkedReadStreamFn = createChunkedReadStream,
+  insertChunkRecordsFn = insertChunkRecords,
+  deleteChunkRecordsByFileIdFn = deleteChunkRecordsByFileId,
 } = {}) {
   if (!db) {
     throw new Error('创建文件迁移服务时缺少数据库实例');
@@ -86,8 +96,8 @@ function createFileMigrationService({
     let stream = null;
 
     if (fileRecord.is_chunked) {
-      sourceChunkRecords = await chunkManager.getChunks(fileRecord.id);
-      stream = chunkManager.createChunkedReadStream(
+      sourceChunkRecords = await listChunkRecordsByFileIdFn(fileRecord.id, db);
+      stream = createChunkedReadStreamFn(
         sourceChunkRecords,
         (storageId) => storageManager.getStorage(storageId),
         { totalSize: fileSize },
@@ -122,8 +132,8 @@ function createFileMigrationService({
       storage: targetEntry.instance,
       fileSize,
       storageId: targetChannel,
+      storageType: targetEntry.type,
       storageManager,
-      ChunkManager: chunkManager,
     });
 
     if (writePlan.mode === 'direct') {
@@ -152,7 +162,6 @@ function createFileMigrationService({
       newFileName: fileRecord.file_name,
       originalName: fileRecord.original_name,
       mimeType: fileRecord.mime_type,
-      ChunkManager: chunkManager,
     });
   }
 
@@ -162,8 +171,8 @@ function createFileMigrationService({
     targetEntry,
     targetUploadResult,
   } = {}) {
-    db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
-    chunkManager.insertChunks(targetUploadResult.chunkRecords || [], db);
+    deleteChunkRecordsByFileIdFn(fileRecord.id, db);
+    insertChunkRecordsFn(targetUploadResult.chunkRecords || [], db);
 
     updateFileMigrationFieldsFn(db, fileRecord.id, {
       storageChannel: targetEntry.type,
@@ -220,7 +229,7 @@ function createFileMigrationService({
     const sourceContext = await prepareMigrationSource(fileRecord, sourceEntry);
     const lifecycle = createStorageOperationLifecycleFn({
       db,
-      storageManager,
+      applyPendingQuotaEvents,
       operationType: 'migrate',
       fileId: fileRecord.id,
       sourceStorageId: sourceContext.sourceInstanceId,
@@ -269,7 +278,7 @@ function createFileMigrationService({
         failureCompensationPayload: targetCleanupPayload,
         executeCompensation: async () => {
           await removeStoredArtifactsFn({
-            storageManager,
+            getStorage: (storageId) => storageManager.getStorage(storageId),
             storageId: targetChannel,
             storageKey: targetCleanupPayload.storageKey,
             deleteToken: targetCleanupPayload.deleteToken,
@@ -279,7 +288,7 @@ function createFileMigrationService({
         },
         afterCommit: async () => {
           await removeStoredArtifactsFn({
-            storageManager,
+            getStorage: (storageId) => storageManager.getStorage(storageId),
             storageId: sourceContext.sourceInstanceId,
             storageKey: sourceContext.sourceCleanupPayload.storageKey,
             deleteToken: sourceContext.sourceCleanupPayload.deleteToken,

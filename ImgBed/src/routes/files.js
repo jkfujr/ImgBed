@@ -3,7 +3,6 @@ import { sqlite } from '../database/index.js';
 import { getActiveFileById } from '../database/files-dao.js';
 import { adminAuth, requirePermission } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
-import ChunkManager from '../storage/chunk-manager.js';
 import { deleteFileRecord } from '../services/files/delete-file.js';
 import { executeFilesBatchAction } from '../services/files/batch-action.js';
 import { rebuildMetadataTask } from '../services/files/rebuild-metadata.js';
@@ -186,7 +185,7 @@ filesApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
         throw new NotFoundError('文件不存在或已被删除');
     }
 
-    await deleteFileRecord(fileRecord, { db: sqlite, storageManager, ChunkManager, deleteMode });
+    await deleteFileRecord(fileRecord, { db: sqlite, storageManager, deleteMode });
 
     // 使文件列表缓存失效
     cacheInvalidation.invalidateFiles();
@@ -208,7 +207,6 @@ filesApp.post('/batch', adminAuth, asyncHandler(async (req, res) => {
         deleteMode: body.delete_mode || 'remote_and_index',
         db: sqlite,
         storageManager,
-        ChunkManager,
     });
 
     // 使文件列表缓存失效

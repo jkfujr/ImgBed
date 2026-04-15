@@ -1,5 +1,7 @@
 import { Readable } from 'stream';
-import ChunkManager from '../../storage/chunk-manager.js';
+import { sqlite } from '../../database/index.js';
+import { listByFileId } from '../../storage/chunks/chunk-record-repository.js';
+import { createChunkedReadStream } from '../../storage/read/chunked-read-assembler.js';
 import { buildStreamHeaders } from './resolve-file-storage.js';
 import { createLogger } from '../../utils/logger.js';
 import { toNodeReadable } from '../../utils/storage-io.js';
@@ -51,8 +53,18 @@ function normalizeReadResult(readResult) {
 /**
  * 处理分块文件流
  */
-async function handleChunkedStream(fileRecord, res, { start, end, isPartial, storageManager, etag, lastModified }) {
-  const chunks = await ChunkManager.getChunks(fileRecord.id);
+async function handleChunkedStream(fileRecord, res, {
+  start,
+  end,
+  isPartial,
+  storageManager,
+  etag,
+  lastModified,
+  db = sqlite,
+  listChunksByFileId = listByFileId,
+  createChunkedReadStreamFn = createChunkedReadStream,
+}) {
+  const chunks = await listChunksByFileId(fileRecord.id, db);
   if (!chunks || chunks.length === 0) {
     const error = new Error('分块记录缺失，无法重组文件');
     error.status = 500;
@@ -60,10 +72,10 @@ async function handleChunkedStream(fileRecord, res, { start, end, isPartial, sto
   }
 
   const getStorageFn = (storageId) => storageManager.getStorage(storageId);
-  const mergedStream = ChunkManager.createChunkedReadStream(chunks, getStorageFn, {
+  const mergedStream = createChunkedReadStreamFn(chunks, getStorageFn, {
     start,
     end,
-    totalSize: fileRecord.size
+    totalSize: fileRecord.size,
   });
 
   let streamClosed = false;

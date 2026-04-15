@@ -20,7 +20,7 @@ class UploadSelector {
     getConfig = () => ({}),
     getDefaultStorageId = () => null,
     listStorageEntries = () => [],
-    isUploadAllowed = () => false,
+    canUpload = () => false,
     getUsageStats = () => new Map(),
     random = Math.random,
   } = {}) {
@@ -28,7 +28,7 @@ class UploadSelector {
     this.getConfig = getConfig;
     this.getDefaultStorageId = getDefaultStorageId;
     this.listStorageEntries = listStorageEntries;
-    this.isUploadAllowed = isUploadAllowed;
+    this.canUpload = canUpload;
     this.getUsageStats = getUsageStats;
     this.random = random;
     this.roundRobinIndex = 0;
@@ -38,7 +38,7 @@ class UploadSelector {
     const config = this.getConfig() || {};
     const strategy = config.loadBalanceStrategy || 'default';
     let uploadableChannels = this.listStorageEntries()
-      .filter(([id]) => !excludeIds.includes(id) && this.isUploadAllowed(id))
+      .filter(([id]) => !excludeIds.includes(id) && this.canUpload(id))
       .map(([id, entry]) => ({ id, type: entry.type, weight: entry.weight || 1 }));
 
     const scope = config.loadBalanceScope || 'global';
@@ -68,7 +68,7 @@ class UploadSelector {
       case 'default':
       default: {
         const defaultId = this.getDefaultStorageId();
-        if (defaultId && !excludeIds.includes(defaultId) && this.isUploadAllowed(defaultId)) {
+        if (defaultId && !excludeIds.includes(defaultId) && this.canUpload(defaultId)) {
           return defaultId;
         }
         return uploadableChannels[0]?.id || null;

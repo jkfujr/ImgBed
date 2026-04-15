@@ -39,14 +39,13 @@ async function executeFilesBatchAction({
   deleteMode,
   db,
   storageManager,
-  ChunkManager,
   fileMigrationService = null,
 }) {
   validateBatchIds(ids);
 
   if (action === 'delete') {
     const files = getActiveFilesByIds(db, ids);
-    const results = await deleteFilesBatch(files, { db, storageManager, ChunkManager, deleteMode });
+    const results = await deleteFilesBatch(files, { db, storageManager, deleteMode });
     return {
       code: 0,
       message: `删除完成：成功 ${results.success}，失败 ${results.failed}`,
@@ -66,7 +65,6 @@ async function executeFilesBatchAction({
     const migrationService = fileMigrationService || createFileMigrationService({
       db,
       storageManager,
-      ChunkManager,
     });
     const results = await migrationService.migrateFilesBatch(files, {
       targetChannel,

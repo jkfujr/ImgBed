@@ -237,13 +237,13 @@ class HuggingFaceStorage extends StorageProvider {
 
     /**
      * 批量分块上传：将所有块合并为单次 commit，减少 API 请求次数
-     * 由 ChunkManager.uploadChunked 自动检测并调用
+     * 由通用分块写入器自动检测并调用
      * @returns {Promise<{ chunkCount: number, totalSize: number, chunkRecords: Array }>}
      */
     async uploadChunkedBatch(buffer, options) {
         const config = this.getChunkConfig();
         const totalChunks = Math.ceil(buffer.length / config.chunkSize);
-        const { fileId, fileName, storageId } = options;
+        const { fileId, fileName, storageId, storageType } = options;
 
         const filesData = {};
         const chunkRecords = [];
@@ -256,7 +256,7 @@ class HuggingFaceStorage extends StorageProvider {
             chunkRecords.push({
                 file_id: fileId,
                 chunk_index: i,
-                storage_type: 'huggingface',
+                storage_type: storageType || 'huggingface',
                 storage_id: storageId,
                 storage_key: chunkPath,
                 storage_meta: null,

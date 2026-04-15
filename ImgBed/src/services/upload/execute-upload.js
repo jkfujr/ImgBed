@@ -49,10 +49,12 @@ async function uploadToStorage({
   storageManager,
   config,
 }) {
+  const storageMeta = storageManager.getStorageMeta?.(finalChannelId) || null;
   const plan = resolveStorageWritePlan({
     storage,
     fileSize: buffer.length,
     storageId: finalChannelId,
+    storageType: storageMeta?.type || null,
     storageManager,
   });
 

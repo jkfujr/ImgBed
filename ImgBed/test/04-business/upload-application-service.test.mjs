@@ -45,6 +45,14 @@ function createServiceHarness(overrides = {}) {
         return { type: 'local' };
       },
     },
+    applyPendingQuotaEvents(options) {
+      calls.push('apply-quota-events');
+      captured.applyQuotaEventsOptions = options;
+      return {
+        applied: 1,
+        storageIds: ['local-1'],
+      };
+    },
     getConfig() {
       calls.push('get-config');
       return {
@@ -288,6 +296,44 @@ test('createUploadApplicationService 在 commit 失败时会记录错误并原�
 
   assert.equal(harness.records.error.length, 1);
   assert.equal(harness.records.error[0][0].operationId, 'op-fail');
+});
+
+test('createUploadApplicationService 的失败补偿会以 getStorage 窄依赖调用远端清理', async () => {
+  const harness = createServiceHarness({
+    storageManager: {
+      isUploadAllowed() {
+        return true;
+      },
+      getStorageMeta() {
+        return { type: 'local' };
+      },
+      getStorage(storageId) {
+        return { id: storageId };
+      },
+    },
+    createStorageOperationLifecycle() {
+      return {
+        operationId: 'op-compensation',
+        markRemoteDone() {},
+        async commit(payload) {
+          await payload.executeCompensation();
+        },
+      };
+    },
+  });
+
+  await harness.service.handleUpload({
+    body: { directory: '/gallery' },
+    file: harness.file,
+    auth: { type: 'guest', username: 'guest-user' },
+    clientIp: '203.0.113.13',
+  });
+
+  assert.equal(typeof harness.captured.cleanupRemotePayload.getStorage, 'function');
+  assert.equal(harness.captured.cleanupRemotePayload.storageId, 'backup-1');
+  assert.equal(harness.captured.cleanupRemotePayload.storageKey, 'remote-key');
+  assert.deepEqual(harness.captured.cleanupRemotePayload.deleteToken, { token: 'delete-1' });
+  assert.equal(harness.captured.cleanupRemotePayload.isChunked, true);
 });
 
 test('createUploadApplicationService 在元数据提取失败时只记 warn 并继续上传', async () => {

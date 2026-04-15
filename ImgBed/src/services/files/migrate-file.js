@@ -1,4 +1,3 @@
-import ChunkManager from '../../storage/chunk-manager.js';
 import {
   createFileMigrationService,
   createFilesError,
@@ -10,14 +9,14 @@ async function migrateFileRecord(fileRecord, {
   targetEntry,
   db,
   storageManager,
+  applyPendingQuotaEvents,
   logger,
-  ChunkManager: chunkManager = ChunkManager,
 } = {}) {
   const service = createFileMigrationService({
     db,
     storageManager,
+    applyPendingQuotaEvents,
     logger,
-    ChunkManager: chunkManager,
   });
 
   return service.migrateFileRecord(fileRecord, {
@@ -30,14 +29,14 @@ async function migrateFilesBatch(files, {
   targetChannel,
   db,
   storageManager,
+  applyPendingQuotaEvents,
   logger,
-  ChunkManager: chunkManager = ChunkManager,
 } = {}) {
   const service = createFileMigrationService({
     db,
     storageManager,
+    applyPendingQuotaEvents,
     logger,
-    ChunkManager: chunkManager,
   });
 
   return service.migrateFilesBatch(files, {

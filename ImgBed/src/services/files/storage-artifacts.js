@@ -12,7 +12,7 @@ function isIndexOnlyMode(mode) {
 }
 
 async function removeStoredArtifacts({
-  storageManager,
+  getStorage,
   storageId,
   storageKey,
   deleteToken = null,
@@ -27,7 +27,7 @@ async function removeStoredArtifacts({
 
   if (isChunked) {
     for (const chunk of chunkRecords) {
-      const chunkStorage = storageManager.getStorage(chunk.storage_id);
+      const chunkStorage = getStorage(chunk.storage_id);
       if (!chunkStorage) {
         throw new Error(`分块渠道不可用: ${chunk.storage_id}`);
       }
@@ -44,7 +44,7 @@ async function removeStoredArtifacts({
     return;
   }
 
-  const storage = storageManager.getStorage(storageId);
+  const storage = getStorage(storageId);
   if (!storage) {
     throw new Error(`存储渠道不可用: ${storageId}`);
   }

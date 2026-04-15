@@ -21,8 +21,6 @@ configModule.loadStartupConfig();
 const { resolveFileStorage, parseRangeHeader, buildStreamHeaders } = await import(resolveProjectModuleUrl('src', 'services', 'view', 'resolve-file-storage.js'));
 const handleStreamModule = await import(resolveProjectModuleUrl('src', 'services', 'view', 'handle-stream.js'));
 const { handleChunkedStream, handleRegularStream } = handleStreamModule;
-const chunkManagerModule = await import(resolveProjectModuleUrl('src', 'storage', 'chunk-manager.js'));
-const ChunkManager = chunkManagerModule.default;
 const {
   buildPath,
   renameDirectory,
@@ -186,14 +184,7 @@ test('handleRegularStream 在上游返回完整 200 响应时会降级为完整�
   assert.equal(res.body, 'abcdef');
 });
 
-test('handleChunkedStream 在分块记录缺失时会抛出 500', async (t) => {
-  const originalGetChunks = ChunkManager.getChunks;
-  ChunkManager.getChunks = async () => [];
-
-  t.after(() => {
-    ChunkManager.getChunks = originalGetChunks;
-  });
-
+test('handleChunkedStream 在分块记录缺失时会抛出 500', async () => {
   await assert.rejects(() => handleChunkedStream({
     id: 'file-chunked',
     size: 10,
@@ -208,6 +199,7 @@ test('handleChunkedStream 在分块记录缺失时会抛出 500', async (t) => {
     },
     etag: '"etag"',
     lastModified: '2024-01-01T00:00:00.000Z',
+    listChunksByFileId: async () => [],
   }), (error) => {
     assert.equal(error.status, 500);
     assert.match(error.message, /分块记录缺失/);

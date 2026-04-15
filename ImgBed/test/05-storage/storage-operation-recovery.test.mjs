@@ -46,7 +46,7 @@ test('恢复器可继续处理上传链留下的 compensation_pending 记录', a
 
   const recovery = new StorageOperationRecovery({
     db,
-    storageManager: storageManagerDouble.manager,
+    getStorage: (storageId) => storageManagerDouble.manager.getStorage(storageId),
     applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
   });
 
@@ -95,7 +95,7 @@ test('恢复器可继续处理删除链 remote_done 状态并补做本地提交'
 
   const recovery = new StorageOperationRecovery({
     db,
-    storageManager: storageManagerDouble.manager,
+    getStorage: (storageId) => storageManagerDouble.manager.getStorage(storageId),
     applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
   });
 
@@ -131,7 +131,7 @@ test('恢复器可继续处理迁移链 committed 状态并延后清理源端对
 
   const lifecycle = createStorageOperationLifecycle({
     db,
-    storageManager: storageManagerDouble.manager,
+    applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
     operationType: 'migrate',
     fileId: 'file-recovery-migrate',
     sourceStorageId: 'storage-source',
@@ -175,7 +175,7 @@ test('恢复器可继续处理迁移链 committed 状态并延后清理源端对
 
   const recovery = new StorageOperationRecovery({
     db,
-    storageManager: storageManagerDouble.manager,
+    getStorage: (storageId) => storageManagerDouble.manager.getStorage(storageId),
     applyPendingQuotaEvents: storageManagerDouble.manager.applyPendingQuotaEvents,
   });
 

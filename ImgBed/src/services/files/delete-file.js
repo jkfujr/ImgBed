@@ -1,6 +1,10 @@
 import pLimit from 'p-limit';
 import { createLogger } from '../../utils/logger.js';
 import {
+  deleteByFileId as deleteChunkRecordsByFileId,
+  listByFileId as listChunkRecordsByFileId,
+} from '../../storage/chunks/chunk-record-repository.js';
+import {
   buildQuotaEvent,
 } from '../system/storage-operations.js';
 import { buildStorageArtifactPayload } from '../system/storage-operation-payload.js';
@@ -8,6 +12,7 @@ import {
   COMMIT_FAILURE_MODE,
   createStorageOperationLifecycle,
 } from '../system/storage-operation-lifecycle.js';
+import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../../storage/runtime/default-storage-runtime.js';
 import {
   isIndexOnlyMode,
   parseStorageMeta,
@@ -24,15 +29,21 @@ const log = createLogger('delete-file');
  * @param {Object} deps - 依赖注入
  * @param {Object} deps.db
  * @param {Object} deps.storageManager
- * @param {Object} deps.ChunkManager
+ * @param {Function} [deps.applyPendingQuotaEvents]
  * @param {string} [deps.deleteMode] - 'remote_and_index' | 'index_only'
  * @param {Object} [logger]
  */
-async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, deleteMode = 'remote_and_index', logger = log }) {
+async function deleteFileRecord(fileRecord, {
+  db,
+  storageManager,
+  applyPendingQuotaEvents = defaultApplyPendingQuotaEvents,
+  deleteMode = 'remote_and_index',
+  logger = log,
+}) {
   const storageMeta = parseStorageMeta(fileRecord.storage_meta);
   const instanceId = resolveStorageInstanceId(fileRecord);
   const fileSize = Number(fileRecord.size) || 0;
-  const chunkRecords = fileRecord.is_chunked ? await ChunkManager.getChunks(fileRecord.id) : [];
+  const chunkRecords = fileRecord.is_chunked ? await listChunkRecordsByFileId(fileRecord.id, db) : [];
 
   const compensationPayload = buildStorageArtifactPayload({
     storageKey: fileRecord.storage_key,
@@ -44,7 +55,7 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
 
   const lifecycle = createStorageOperationLifecycle({
     db,
-    storageManager,
+    applyPendingQuotaEvents,
     operationType: 'delete',
     fileId: fileRecord.id,
     sourceStorageId: instanceId,
@@ -54,7 +65,7 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
 
   try {
     await removeStoredArtifacts({
-      storageManager,
+      getStorage: (storageId) => storageManager.getStorage(storageId),
       storageId: instanceId,
       storageKey: fileRecord.storage_key,
       deleteToken: storageMeta.deleteToken || null,
@@ -80,7 +91,7 @@ async function deleteFileRecord(fileRecord, { db, storageManager, ChunkManager, 
   }
 
   const persistDelete = () => {
-    db.prepare('DELETE FROM chunks WHERE file_id = ?').run(fileRecord.id);
+    deleteChunkRecordsByFileId(fileRecord.id, db);
     deleteFileById(db, fileRecord.id);
   };
 

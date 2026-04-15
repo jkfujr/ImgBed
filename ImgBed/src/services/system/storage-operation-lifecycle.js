@@ -40,7 +40,7 @@ async function runImmediateCompensation({
 
 function createStorageOperationLifecycle({
   db,
-  storageManager = null,
+  applyPendingQuotaEvents = null,
   operationType,
   fileId = null,
   sourceStorageId = null,
@@ -63,11 +63,11 @@ function createStorageOperationLifecycle({
   });
 
   async function applyQuotaEvents() {
-    if (!storageManager?.applyPendingQuotaEvents) {
+    if (typeof applyPendingQuotaEvents !== 'function') {
       return { applied: 0, storageIds: [] };
     }
 
-    return storageManager.applyPendingQuotaEvents({
+    return applyPendingQuotaEvents({
       operationId,
       adjustUsageStats: true,
     });
