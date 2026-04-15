@@ -2,10 +2,13 @@ import { getLastKnownGoodConfig } from '../../config/index.js';
 import { sqlite } from '../../database/index.js';
 import { insertFile } from '../../database/files-dao.js';
 import { QuotaExceededError } from '../../errors/AppError.js';
-import { cacheInvalidation } from '../../middleware/cache.js';
 import { insertMany as insertChunkRecords } from '../../storage/chunks/chunk-record-repository.js';
 import storageManager from '../../storage/manager.js';
 import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../../storage/runtime/default-storage-runtime.js';
+import {
+  invalidateFilesCache as defaultInvalidateFilesCache,
+  invalidateStorageCaches as defaultInvalidateStorageCaches,
+} from '../../services/cache/cache-invalidation-service.js';
 import { createLogger } from '../../utils/logger.js';
 import { removeStoredArtifacts } from '../files/storage-artifacts.js';
 import {
@@ -51,7 +54,8 @@ function createUploadApplicationService({
   buildQuotaEvent: buildQuotaEventDep = buildQuotaEvent,
   buildStorageArtifactPayload: buildStorageArtifactPayloadDep = buildStorageArtifactPayload,
   removeStoredArtifacts: removeStoredArtifactsDep = removeStoredArtifacts,
-  cacheInvalidation: cacheInvalidationDep = cacheInvalidation,
+  invalidateFilesCache: invalidateFilesCacheDep = defaultInvalidateFilesCache,
+  invalidateStorageCaches: invalidateStorageCachesDep = defaultInvalidateStorageCaches,
   logger = createLogger('upload'),
 } = {}) {
   const prepareUploadFileFn = prepareUploadFileDep || ((file) => prepareUploadFile(file, { logger }));
@@ -180,8 +184,8 @@ function createUploadApplicationService({
       }
 
       logger.info({ fileId: fileMeta.fileId, channel: uploadResult.finalChannelId }, '文件上传成功');
-      cacheInvalidationDep.invalidateFiles();
-      cacheInvalidationDep.invalidateStorages();
+      invalidateFilesCacheDep();
+      invalidateStorageCachesDep();
 
       return buildUploadResponseDep({
         fileId: fileMeta.fileId,

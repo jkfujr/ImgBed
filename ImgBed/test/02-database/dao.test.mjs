@@ -13,6 +13,7 @@ import {
 } from '../../src/database/directories-dao.js';
 import {
   countFilesByDirectoryPrefix,
+  countActiveFiles,
   freezeFilesByMissingStorageInstances,
   freezeFilesByStorageInstance,
   getActiveFileById,
@@ -24,8 +25,10 @@ import {
   getUploadTrend,
   insertAccessLog,
   insertFile,
+  listActiveFiles,
   moveFilesToDirectory,
   renameFileDirectory,
+  updateActiveFileFields,
   updateFileImageMetadata,
   updateFileMigrationFields,
 } from '../../src/database/files-dao.js';
@@ -114,6 +117,12 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
   assert.equal(getActiveFileById(db, 'file-a').file_name, 'demo.png');
   assert.equal(getFileById(db, 'file-b').directory, '/albums/travel');
   assert.equal(getActiveFilesByIds(db, ['file-a', 'file-b']).length, 2);
+  assert.equal(countActiveFiles(db, { directory: '/albums' }), 1);
+  assert.equal(listActiveFiles(db, {
+    search: 'demo',
+    limit: 10,
+    offset: 0,
+  }).length, 2);
   assert.deepEqual(getActiveFilesStats(db), { count: 2, sum: 420 });
   assert.equal(getTodayUploadCount(db), 2);
   assert.equal(getUploadTrend(db, 7).length, 1);
@@ -126,6 +135,10 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
     width: 640,
     height: 480,
     exif: '{"camera":"demo"}',
+  });
+  updateActiveFileFields(db, 'file-b', {
+    directory: '/albums',
+    is_public: 0,
   });
   updateFileMigrationFields(db, 'file-a', {
     storageChannel: 's3',
@@ -140,6 +153,8 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
   assert.equal(migratedFile.storage_channel, 's3');
   assert.equal(migratedFile.storage_instance_id, 'storage-9');
   assert.equal(getFileById(db, 'file-b').width, 640);
+  assert.equal(getFileById(db, 'file-b').directory, '/albums');
+  assert.equal(getFileById(db, 'file-b').is_public, 0);
 });
 
 test('files-dao 可以完成目录迁移、冻结和访问日志写入', (t) => {

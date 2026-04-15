@@ -167,13 +167,11 @@ function createServiceHarness(overrides = {}) {
       calls.push('cleanup-remote');
       captured.cleanupRemotePayload = payload;
     },
-    cacheInvalidation: {
-      invalidateFiles() {
-        calls.push('invalidate-files');
-      },
-      invalidateStorages() {
-        calls.push('invalidate-storages');
-      },
+    invalidateFilesCache() {
+      calls.push('invalidate-files');
+    },
+    invalidateStorageCaches() {
+      calls.push('invalidate-storages');
     },
     ...overrides,
   });
@@ -277,13 +275,11 @@ test('createUploadApplicationService 在 commit 失败时会记录错误并原�
         },
       };
     },
-    cacheInvalidation: {
-      invalidateFiles() {
-        throw new Error('不应执行到缓存失效');
-      },
-      invalidateStorages() {
-        throw new Error('不应执行到缓存失效');
-      },
+    invalidateFilesCache() {
+      throw new Error('不应执行到缓存失效');
+    },
+    invalidateStorageCaches() {
+      throw new Error('不应执行到缓存失效');
     },
   });
 
@@ -401,10 +397,8 @@ test('createUploadApplicationService 在元数据提取失败时只记 warn 并�
     buildQuotaEvent() {
       return { id: 'quota-meta' };
     },
-    cacheInvalidation: {
-      invalidateFiles() {},
-      invalidateStorages() {},
-    },
+    invalidateFilesCache() {},
+    invalidateStorageCaches() {},
   });
 
   const result = await service.handleUpload({

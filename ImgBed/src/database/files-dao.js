@@ -4,10 +4,27 @@
  * 所有函数以 db 作为第一参数（显式注入），
  * 不绑定 sqlite 单例，便于事务复用。
  *
- * 不封装的操作：
- * - 动态 WHERE 列表分页查询（routes/files.js，只出现一次）
- * - 动态 SET 字段更新（PUT /api/files/:id，字段运行时确定）
  */
+
+function buildActiveFilesWhere({ directory, search } = {}) {
+  const conditions = ['status = ?'];
+  const params = ['active'];
+
+  if (directory !== undefined) {
+    conditions.push('directory = ?');
+    params.push(directory);
+  }
+
+  if (search) {
+    conditions.push('file_name LIKE ?');
+    params.push(`%${search}%`);
+  }
+
+  return {
+    whereClause: `WHERE ${conditions.join(' AND ')}`,
+    params,
+  };
+}
 
 // ─── 读操作 ───────────────────────────────────────────────
 
@@ -47,6 +64,39 @@ function getActiveFilesByIds(db, ids) {
   return db.prepare(
     `SELECT * FROM files WHERE id IN (${placeholders}) AND status = 'active'`
   ).all(...ids);
+}
+
+/**
+ * 按条件分页查询 active 文件列表。
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ directory?: string, search?: string, limit: number, offset: number }} options
+ * @returns {Object[]}
+ */
+function listActiveFiles(db, { directory, search = '', limit, offset } = {}) {
+  const { whereClause, params } = buildActiveFilesWhere({ directory, search });
+  return db.prepare(`
+    SELECT id, file_name, original_name, mime_type, size,
+           storage_channel, storage_key, storage_meta, storage_instance_id,
+           upload_ip, upload_address, created_at, updated_at,
+           directory, tags, is_public,
+           width, height, uploader_type, uploader_id
+    FROM files
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+}
+
+/**
+ * 按条件统计 active 文件总数。
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ directory?: string, search?: string }} options
+ * @returns {number}
+ */
+function countActiveFiles(db, { directory, search = '' } = {}) {
+  const { whereClause, params } = buildActiveFilesWhere({ directory, search });
+  const row = db.prepare(`SELECT COUNT(id) AS total FROM files ${whereClause}`).get(...params);
+  return Number(row?.total || 0);
 }
 
 /**
@@ -167,6 +217,25 @@ function updateFileMigrationFields(db, id, fields) {
 }
 
 /**
+ * 按字段更新 active 文件。
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} id
+ * @param {Object} fields
+ */
+function updateActiveFileFields(db, id, fields) {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) {
+    return { changes: 0 };
+  }
+
+  const setClauses = keys.map((key) => `${key} = ?`).join(', ');
+  const values = keys.map((key) => fields[key]);
+  return db.prepare(
+    `UPDATE files SET ${setClauses} WHERE id = ? AND status = 'active'`
+  ).run(...values, id);
+}
+
+/**
  * 更新文件的图片元数据（rebuild-metadata 流程）。
  * @param {import('better-sqlite3').Database} db
  * @param {string} id
@@ -265,9 +334,11 @@ function countFilesByDirectoryPrefix(db, pathPrefix) {
 }
 
 export {
+  countActiveFiles,
   getActiveFileById,
   getFileById,
   getActiveFilesByIds,
+  listActiveFiles,
   getActiveFilesStats,
   getTodayUploadCount,
   getUploadTrend,
@@ -275,6 +346,7 @@ export {
   insertFile,
   deleteFileById,
   updateFileMigrationFields,
+  updateActiveFileFields,
   updateFileImageMetadata,
   freezeFilesByStorageInstance,
   freezeFilesByMissingStorageInstances,

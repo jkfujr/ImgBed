@@ -13,6 +13,7 @@ import {
   sanitizeStorageChannel,
   sanitizeSystemConfig,
 } from '../../src/services/system/sanitize-system-config.js';
+import { createSystemConfigService } from '../../src/services/system/system-config-service.js';
 import { createStorageConfigService } from '../../src/services/system/storage-config-service.js';
 import { applyStorageFieldUpdates } from '../../src/services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../../src/services/system/update-load-balance.js';
@@ -57,18 +58,6 @@ function createStorageConfigFixture(overrides = {}) {
   const appliedConfigs = [];
   const writtenConfigs = [];
 
-  const cacheInvalidation = {
-    invalidateStorages() {
-      calls.push('invalidateStorages');
-    },
-    invalidateFiles() {
-      calls.push('invalidateFiles');
-    },
-    invalidateDashboard() {
-      calls.push('invalidateDashboard');
-    },
-  };
-
   const storageManager = {
     async reload() {
       calls.push('storageManager.reload');
@@ -87,7 +76,15 @@ function createStorageConfigFixture(overrides = {}) {
       writtenConfigs.push(structuredClone(cfg));
     },
     storageManager,
-    cacheInvalidation,
+    invalidateStorageCaches: () => {
+      calls.push('invalidateStorages');
+    },
+    invalidateFilesCache: () => {
+      calls.push('invalidateFiles');
+    },
+    invalidateDashboardCaches: () => {
+      calls.push('invalidateDashboard');
+    },
     freezeStorageFiles: (storageId) => {
       calls.push(`freeze:${storageId}`);
     },
@@ -146,6 +143,52 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
   assert.equal(maskedConfig.jwt.secret, '******');
   assert.equal(maskedConfig.admin.password, undefined);
   assert.equal(maskedConfig.admin.passwordHash, undefined);
+});
+
+test('createSystemConfigService 会写回配置并触发系统配置缓存失效', () => {
+  const calls = [];
+  let runtimeConfig = {
+    server: {
+      port: 3000,
+    },
+  };
+
+  const service = createSystemConfigService({
+    readRuntimeConfig: () => runtimeConfig,
+    writeRuntimeConfig: (config) => {
+      calls.push('writeRuntimeConfig');
+      runtimeConfig = structuredClone(config);
+    },
+    invalidateSystemConfigCache: () => {
+      calls.push('invalidateSystemConfigCache');
+    },
+    applySystemConfigUpdates: (config, body) => {
+      calls.push({ body });
+      config.server = {
+        ...(config.server || {}),
+        ...(body.server || {}),
+      };
+    },
+  });
+
+  service.updateConfig({
+    server: {
+      port: 15000,
+    },
+  });
+
+  assert.equal(runtimeConfig.server.port, 15000);
+  assert.deepEqual(calls, [
+    {
+      body: {
+        server: {
+          port: 15000,
+        },
+      },
+    },
+    'writeRuntimeConfig',
+    'invalidateSystemConfigCache',
+  ]);
 });
 
 test('createStorage 会走统一编排链并归一化新渠道配置', async () => {

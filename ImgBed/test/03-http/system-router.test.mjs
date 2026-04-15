@@ -146,9 +146,7 @@ test('createSystemRouter 会使用注入依赖完成装配，而不是直接依�
         return { hits: 2 };
       },
     }),
-    cacheInvalidation: {
-      invalidateAll() {},
-    },
+    invalidateAllCaches() {},
     getQuotaEventsArchive: () => ({
       getStats() {
         return { archivedEvents: 3 };
@@ -353,10 +351,8 @@ test('createSystemRuntimeRouter 会返回注入的缓存与归档运行态信息
         return { hits: 9 };
       },
     }),
-    cacheInvalidation: {
-      invalidateAll() {
-        calls.push('invalidateAll');
-      },
+    invalidateAllCaches() {
+      calls.push('invalidateAll');
     },
     getQuotaEventsArchive: () => ({
       getStats() {

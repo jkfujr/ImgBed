@@ -1,7 +1,7 @@
 function createSystemConfigService({
   readRuntimeConfig,
   writeRuntimeConfig,
-  cacheInvalidation,
+  invalidateSystemConfigCache,
   applySystemConfigUpdates,
 } = {}) {
   return {
@@ -9,7 +9,7 @@ function createSystemConfigService({
       const config = readRuntimeConfig();
       applySystemConfigUpdates(config, body);
       writeRuntimeConfig(config);
-      cacheInvalidation.invalidateSystemConfig();
+      invalidateSystemConfigCache();
     },
   };
 }

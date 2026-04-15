@@ -25,16 +25,12 @@ import {
 } from '../services/system/create-storage-channel.js';
 import { createLogger } from '../utils/logger.js';
 import {
-  systemConfigCache,
-  storagesListCache,
-  storagesStatsCache,
-  quotaStatsCache,
-  loadBalanceCache,
-  dashboardOverviewCache,
-  dashboardUploadTrendCache,
-  dashboardAccessStatsCache,
-  cacheInvalidation,
-} from '../middleware/cache.js';
+  invalidateAllCaches,
+  invalidateDashboardCaches,
+  invalidateFilesCache,
+  invalidateStorageCaches,
+  invalidateSystemConfigCache,
+} from '../services/cache/cache-invalidation-service.js';
 import { getResponseCache } from '../services/cache/response-cache.js';
 import { getQuotaEventsArchive } from '../services/archive/quota-events-archive.js';
 import { getArchiveScheduler } from '../services/archive/archive-scheduler.js';
@@ -44,6 +40,16 @@ import {
   sanitizeSystemConfig,
 } from '../services/system/sanitize-system-config.js';
 import { summarizeStorages } from '../services/system/storage-summary.js';
+import {
+  dashboardAccessStatsCache,
+  dashboardOverviewCache,
+  dashboardUploadTrendCache,
+  loadBalanceCache,
+  quotaStatsCache,
+  storagesListCache,
+  storagesStatsCache,
+  systemConfigCache,
+} from './system/cache-factories.js';
 import { createSystemConfigRouter } from './system/config-router.js';
 import { createSystemStoragesRouter } from './system/storages-router.js';
 import { createSystemMaintenanceRouter } from './system/maintenance-router.js';
@@ -83,7 +89,11 @@ function buildSystemDependencies(overrides = {}) {
     dashboardOverviewCache: overrides.dashboardOverviewCache || dashboardOverviewCache,
     dashboardUploadTrendCache: overrides.dashboardUploadTrendCache || dashboardUploadTrendCache,
     dashboardAccessStatsCache: overrides.dashboardAccessStatsCache || dashboardAccessStatsCache,
-    cacheInvalidation: overrides.cacheInvalidation || cacheInvalidation,
+    invalidateAllCaches: overrides.invalidateAllCaches || invalidateAllCaches,
+    invalidateDashboardCaches: overrides.invalidateDashboardCaches || invalidateDashboardCaches,
+    invalidateFilesCache: overrides.invalidateFilesCache || invalidateFilesCache,
+    invalidateStorageCaches: overrides.invalidateStorageCaches || invalidateStorageCaches,
+    invalidateSystemConfigCache: overrides.invalidateSystemConfigCache || invalidateSystemConfigCache,
     sanitizeSystemConfig: overrides.sanitizeSystemConfig || sanitizeSystemConfig,
     sanitizeStorageChannel: overrides.sanitizeStorageChannel || sanitizeStorageChannel,
     summarizeStorages: overrides.summarizeStorages || summarizeStorages,
@@ -106,7 +116,7 @@ function buildSystemDependencies(overrides = {}) {
   deps.systemConfigService = overrides.systemConfigService || createSystemConfigService({
     readRuntimeConfig: deps.readRuntimeConfig,
     writeRuntimeConfig: deps.writeRuntimeConfig,
-    cacheInvalidation: deps.cacheInvalidation,
+    invalidateSystemConfigCache: deps.invalidateSystemConfigCache,
     applySystemConfigUpdates: deps.applySystemConfigUpdates,
   });
 
@@ -114,7 +124,9 @@ function buildSystemDependencies(overrides = {}) {
     readRuntimeConfig: deps.readRuntimeConfig,
     writeRuntimeConfig: deps.writeRuntimeConfig,
     storageManager: deps.storageManager,
-    cacheInvalidation: deps.cacheInvalidation,
+    invalidateStorageCaches: deps.invalidateStorageCaches,
+    invalidateFilesCache: deps.invalidateFilesCache,
+    invalidateDashboardCaches: deps.invalidateDashboardCaches,
     freezeStorageFiles: deps.freezeStorageFiles,
     updateLoadBalanceConfig: deps.updateLoadBalanceConfig,
     applyStorageConfigChange: deps.applyStorageConfigChange,
@@ -173,7 +185,7 @@ function createSystemRouter(overrides = {}) {
     getResponseCache: deps.getResponseCache,
     getQuotaEventsArchive: deps.getQuotaEventsArchive,
     getArchiveScheduler: deps.getArchiveScheduler,
-    cacheInvalidation: deps.cacheInvalidation,
+    invalidateAllCaches: deps.invalidateAllCaches,
   }));
   router.use(createSystemDashboardRouter({
     dashboardOverviewCache: deps.dashboardOverviewCache,

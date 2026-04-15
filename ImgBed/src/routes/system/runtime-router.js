@@ -7,7 +7,7 @@ function createSystemRuntimeRouter({
   getResponseCache,
   getQuotaEventsArchive,
   getArchiveScheduler,
-  cacheInvalidation,
+  invalidateAllCaches,
 } = {}) {
   const router = express.Router();
 
@@ -16,7 +16,7 @@ function createSystemRuntimeRouter({
   }));
 
   router.post('/cache/clear', asyncHandler(async (_req, res) => {
-    cacheInvalidation.invalidateAll();
+    invalidateAllCaches();
     return res.json(success(null, '缓存已清空'));
   }));
 

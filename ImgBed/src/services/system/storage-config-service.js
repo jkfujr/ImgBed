@@ -4,7 +4,9 @@ function createStorageConfigService({
   readRuntimeConfig,
   writeRuntimeConfig,
   storageManager,
-  cacheInvalidation,
+  invalidateStorageCaches,
+  invalidateFilesCache,
+  invalidateDashboardCaches,
   freezeStorageFiles,
   updateLoadBalanceConfig,
   applyStorageConfigChange,
@@ -46,7 +48,7 @@ function createStorageConfigService({
       throwValidationError(updateLoadBalanceConfig(cfg, body));
       writeRuntimeConfig(cfg);
       await storageManager.reload();
-      cacheInvalidation.invalidateStorages();
+      invalidateStorageCaches();
     },
 
     async createStorage(body = {}) {
@@ -63,7 +65,7 @@ function createStorageConfigService({
       cfg.storage.storages = [...storages, storage];
 
       await applyStorageConfigChange({ cfg, storageManager });
-      cacheInvalidation.invalidateStorages();
+      invalidateStorageCaches();
 
       return storage;
     },
@@ -90,7 +92,7 @@ function createStorageConfigService({
       }
 
       await applyStorageConfigChange({ cfg, storageManager });
-      cacheInvalidation.invalidateStorages();
+      invalidateStorageCaches();
 
       return storage;
     },
@@ -111,9 +113,9 @@ function createStorageConfigService({
 
       freezeStorageFiles(id);
       await applyStorageConfigChange({ cfg, storageManager });
-      cacheInvalidation.invalidateStorages();
-      cacheInvalidation.invalidateFiles();
-      cacheInvalidation.invalidateDashboard();
+      invalidateStorageCaches();
+      invalidateFilesCache();
+      invalidateDashboardCaches();
     },
 
     async setDefaultStorage(id) {
@@ -126,7 +128,7 @@ function createStorageConfigService({
 
       cfg.storage.default = id;
       await applyStorageConfigChange({ cfg, storageManager });
-      cacheInvalidation.invalidateStorages();
+      invalidateStorageCaches();
     },
 
     async toggleStorage(id) {
@@ -140,7 +142,7 @@ function createStorageConfigService({
 
       storage.enabled = !storage.enabled;
       await applyStorageConfigChange({ cfg, storageManager });
-      cacheInvalidation.invalidateStorages();
+      invalidateStorageCaches();
 
       return storage.enabled;
     },
