@@ -142,17 +142,56 @@ function getUploadTrend(db, days) {
   `).all();
 }
 
+function buildMetadataRebuildWhere(force, afterId) {
+  const conditions = ["mime_type LIKE 'image/%'"];
+  const params = [];
+
+  if (!force) {
+    conditions.push('width IS NULL');
+  }
+
+  if (afterId) {
+    conditions.push('id > ?');
+    params.push(afterId);
+  }
+
+  return {
+    whereClause: `WHERE ${conditions.join(' AND ')}`,
+    params,
+  };
+}
+
 /**
- * 查询需要重建图片元数据的文件。
+ * 统计需要重建图片元数据的文件数量。
  * @param {import('better-sqlite3').Database} db
- * @param {boolean} force - true 查全部图片，false 仅查 width IS NULL 的
+ * @param {boolean} force
+ * @returns {number}
+ */
+function countImageFilesForMetadataRebuild(db, force) {
+  const { whereClause, params } = buildMetadataRebuildWhere(force, null);
+  const row = db.prepare(`SELECT COUNT(id) AS total FROM files ${whereClause}`).get(...params);
+  return Number(row?.total || 0);
+}
+
+/**
+ * 使用按 ID 的 keyset 分页读取待重建元数据的图片文件。
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ force?: boolean, afterId?: string|null, limit?: number }} options
  * @returns {Object[]}
  */
-function getImageFilesForMetadataRebuild(db, force) {
-  const sql = force
-    ? "SELECT * FROM files WHERE mime_type LIKE 'image/%'"
-    : "SELECT * FROM files WHERE mime_type LIKE 'image/%' AND width IS NULL";
-  return db.prepare(sql).all();
+function listImageFilesForMetadataRebuildAfter(db, {
+  force = false,
+  afterId = null,
+  limit = 100,
+} = {}) {
+  const { whereClause, params } = buildMetadataRebuildWhere(force, afterId);
+  return db.prepare(`
+    SELECT *
+    FROM files
+    ${whereClause}
+    ORDER BY id ASC
+    LIMIT ?
+  `).all(...params, limit);
 }
 
 // ─── 写操作 ───────────────────────────────────────────────
@@ -335,6 +374,7 @@ function countFilesByDirectoryPrefix(db, pathPrefix) {
 
 export {
   countActiveFiles,
+  countImageFilesForMetadataRebuild,
   getActiveFileById,
   getFileById,
   getActiveFilesByIds,
@@ -342,7 +382,7 @@ export {
   getActiveFilesStats,
   getTodayUploadCount,
   getUploadTrend,
-  getImageFilesForMetadataRebuild,
+  listImageFilesForMetadataRebuildAfter,
   insertFile,
   deleteFileById,
   updateFileMigrationFields,

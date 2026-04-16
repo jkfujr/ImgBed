@@ -178,21 +178,40 @@ test('createFilesMaintenanceService 会返回 processing 并在后台任务中�
     db: 'mock-db',
     storageManager: 'mock-storage-manager',
     logger,
-    rebuildMetadataTaskFn: async (args) => {
-      taskCalls.push(args);
+    taskExecutor: {
+      registerTask(taskDefinition) {
+        taskCalls.push({
+          type: 'register',
+          taskName: taskDefinition.name,
+        });
+      },
+      start(taskName, input) {
+        taskCalls.push({
+          type: 'start',
+          taskName,
+          input,
+        });
+      },
+    },
+    rebuildMetadataTaskDefinition: {
+      name: 'rebuild-metadata',
+      async run() {},
     },
   });
 
   const result = service.startMetadataRebuild({
     force: 'true',
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(result, { status: 'processing' });
   assert.deepEqual(taskCalls, [{
-    force: true,
-    db: 'mock-db',
-    storageManager: 'mock-storage-manager',
-    logger,
+    type: 'register',
+    taskName: 'rebuild-metadata',
+  }, {
+    type: 'start',
+    taskName: 'rebuild-metadata',
+    input: {
+      force: true,
+    },
   }]);
 });

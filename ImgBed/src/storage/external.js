@@ -1,4 +1,5 @@
 import { createLogger } from '../utils/logger.js';
+import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
 import StorageProvider from './base.js';
 import { createStorageReadResultFromResponse } from './contract.js';
 
@@ -32,7 +33,15 @@ class ExternalStorage extends StorageProvider {
       headers.Range = `bytes=${options.start}-${options.end}`;
     }
 
-    const response = await fetch(url, { headers });
+    let response;
+    try {
+      response = await fetch(url, { headers });
+    } catch (error) {
+      throw normalizeRemoteIoProcessError(error, {
+        source: 'storage:external:read',
+      });
+    }
+
     if (!response.ok) {
       throw new Error(`[ExternalStorage] 请求外部文件失败: ${response.status} ${response.statusText}`);
     }

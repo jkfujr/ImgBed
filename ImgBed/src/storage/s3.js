@@ -1,5 +1,6 @@
 import StorageProvider from './base.js';
 import { createStoragePutResult, createStorageReadResult, parseContentRange } from './contract.js';
+import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
 import { toBuffer, toNodeReadable } from '../utils/storage-io.js';
 import { runRemoteRetry } from './remote-retry.js';
 import { createLogger } from '../utils/logger.js';
@@ -79,6 +80,16 @@ class S3Storage extends StorageProvider {
         return this.pathPrefix ? `${this.pathPrefix}${fileName}` : fileName;
     }
 
+    async sendS3Command(command, action) {
+        try {
+            return await this.s3.send(command);
+        } catch (error) {
+            throw normalizeRemoteIoProcessError(error, {
+                source: `storage:s3:${action}`,
+            });
+        }
+    }
+
     async resolveUploadBody(file) {
         if (Buffer.isBuffer(file) || file instanceof Uint8Array || file instanceof ArrayBuffer) {
             const buffer = await toBuffer(file);
@@ -108,7 +119,7 @@ class S3Storage extends StorageProvider {
                     ? { ...params, ChecksumMode: 'ENABLED' }
                     : params;
                 const command = new GetObjectCommand(nextParams);
-                return this.s3.send(command);
+                return this.sendS3Command(command, 'getObject');
             },
             shouldRetry: ({ error }, { attempt }) => {
                 if (!error?.message || !error.message.includes('Checksum mismatch')) {
@@ -157,7 +168,7 @@ class S3Storage extends StorageProvider {
         }
 
         const command = new PutObjectCommand(commandParams);
-        await this.s3.send(command);
+        await this.sendS3Command(command, 'putObject');
         return createStoragePutResult({
             storageKey: fileKey,
             size: resolvedContentLength ?? null,
@@ -198,7 +209,7 @@ class S3Storage extends StorageProvider {
                 Bucket: this.bucket,
                 Key: this._getFullPath(fileId)
             });
-            await this.s3.send(command);
+            await this.sendS3Command(command, 'deleteObject');
             return true;
         } catch (err) {
             // S3 删除失败时捕获异常并返回 false
@@ -213,7 +224,7 @@ class S3Storage extends StorageProvider {
                 Bucket: this.bucket,
                 Key: this._getFullPath(fileId)
             });
-            await this.s3.send(command);
+            await this.sendS3Command(command, 'headObject');
             return true;
         } catch (error) {
             if (error.name === 'NotFound') {
@@ -231,7 +242,7 @@ class S3Storage extends StorageProvider {
         await this._ensureInitialized();
         try {
             const command = new HeadBucketCommand({ Bucket: this.bucket });
-            await this.s3.send(command);
+            await this.sendS3Command(command, 'headBucket');
             return { ok: true, message: `存储桶 "${this.bucket}" 连接成功` };
         } catch (err) {
             return { ok: false, message: `连接失败: ${err.message}` };
@@ -258,7 +269,7 @@ class S3Storage extends StorageProvider {
             Key: key,
             ContentType: mimeType || 'application/octet-stream'
         });
-        const res = await this.s3.send(cmd);
+        const res = await this.sendS3Command(cmd, 'initMultipartUpload');
         return { uploadId: res.UploadId, key };
     }
 
@@ -271,7 +282,7 @@ class S3Storage extends StorageProvider {
             PartNumber: partNumber,
             Body: chunkBuffer
         });
-        const res = await this.s3.send(cmd);
+        const res = await this.sendS3Command(cmd, 'uploadPart');
         return { partNumber, etag: res.ETag };
     }
 
@@ -285,7 +296,7 @@ class S3Storage extends StorageProvider {
                 Parts: parts.map(p => ({ PartNumber: p.partNumber, ETag: p.etag }))
             }
         });
-        await this.s3.send(cmd);
+        await this.sendS3Command(cmd, 'completeMultipartUpload');
         return createStoragePutResult({
             storageKey: key,
         });
@@ -298,7 +309,7 @@ class S3Storage extends StorageProvider {
             Key: key,
             UploadId: uploadId
         });
-        await this.s3.send(cmd);
+        await this.sendS3Command(cmd, 'abortMultipartUpload');
     }
 }
 

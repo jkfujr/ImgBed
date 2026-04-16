@@ -4,20 +4,43 @@ import path from 'path';
 import { resolveAppPath } from './config/app-root.js';
 import { getLastKnownGoodConfig } from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
+import { sqlite } from './database/index.js';
 import { createLogger } from './utils/logger.js';
 import authRouter from './routes/auth.js';
 import apiTokensRouter from './routes/api-tokens.js';
 import uploadRouter from './routes/upload.js';
-import filesRouter from './routes/files.js';
+import { createFilesRouter } from './routes/files.js';
 import dirsRouter from './routes/directories.js';
-import systemRouter from './routes/system.js';
+import { createSystemRouter } from './routes/system.js';
 import viewRouter from './routes/view.js';
 import publicRouter from './routes/public.js';
+import storageManager from './storage/manager.js';
+import { createFilesMaintenanceService } from './services/files/files-maintenance-service.js';
+import { defaultMaintenanceTaskExecutor } from './services/maintenance/default-maintenance-task-executor.js';
+import { createMaintenanceService } from './services/system/maintenance-service.js';
 
 const logger = createLogger('app');
 const app = express();
 const staticPath = resolveAppPath('static');
 const indexPath = path.join(staticPath, 'index.html');
+const filesMaintenanceService = createFilesMaintenanceService({
+  db: sqlite,
+  storageManager,
+  logger: createLogger('files'),
+  taskExecutor: defaultMaintenanceTaskExecutor,
+});
+const systemMaintenanceService = createMaintenanceService({
+  db: sqlite,
+  storageManager,
+  logger: createLogger('system'),
+  taskExecutor: defaultMaintenanceTaskExecutor,
+});
+const filesRouter = createFilesRouter({
+  filesMaintenanceService,
+});
+const systemRouter = createSystemRouter({
+  maintenanceService: systemMaintenanceService,
+});
 
 function isSpaNavigationRequest(req) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {

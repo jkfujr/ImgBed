@@ -6,7 +6,9 @@ import express from 'express';
 import asyncHandler from '../../src/middleware/asyncHandler.js';
 import { cacheMiddleware } from '../../src/middleware/cache.js';
 import { notFoundHandler, registerErrorHandlers } from '../../src/middleware/errorHandler.js';
+import { classifyEntryError } from '../../src/bootstrap/entry-error-policy.js';
 import { createProxyFetcher, normalizeProxyUrl } from '../../src/network/proxy-core.js';
+import ExternalStorage from '../../src/storage/external.js';
 import {
   destroyResponseCache,
   getResponseCache,
@@ -103,6 +105,56 @@ test('createProxyFetcher 只在提供代理时注入 dispatcher，并复用同�
   assert.equal(fetchCalls[1].options.dispatcher.url, 'http://127.0.0.1:7890/');
   assert.equal(fetchCalls[2].options.dispatcher, fetchCalls[1].options.dispatcher);
   assert.deepEqual(agentCreations, ['http://127.0.0.1:7890/']);
+});
+
+test('createProxyFetcher 会把代理请求边界的远端 I/O 异常标记为可恢复', async () => {
+  const fetchWithProxy = createProxyFetcher({
+    fetchImpl: async () => {
+      const error = new Error('fetch failed');
+      error.cause = { code: 'ETIMEDOUT' };
+      throw error;
+    },
+    ProxyAgentImpl: class ProxyAgentDouble {},
+  });
+
+  await assert.rejects(
+    () => fetchWithProxy('https://example.com/timeout', {}, 'http://127.0.0.1:7890'),
+    (error) => {
+      const classification = classifyEntryError(error, 'uncaughtException');
+      assert.equal(classification.type, 'recoverable');
+      assert.equal(classification.category, 'remote_io');
+      assert.equal(classification.source, 'network:proxy');
+      return true;
+    },
+  );
+});
+
+test('ExternalStorage 会在直连读取失败时标记远端 I/O 异常', async () => {
+  const storage = new ExternalStorage({
+    baseUrl: 'https://example.com/assets',
+  });
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => {
+    const error = new Error('fetch failed');
+    error.cause = { code: 'ECONNRESET' };
+    throw error;
+  };
+
+  try {
+    await assert.rejects(
+      () => storage.getStreamResponse('demo.png'),
+      (error) => {
+        const classification = classifyEntryError(error, 'uncaughtException');
+        assert.equal(classification.type, 'recoverable');
+        assert.equal(classification.category, 'remote_io');
+        assert.equal(classification.source, 'storage:external:read');
+        return true;
+      },
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('getResponseCache 在未初始化时会抛出明确错误', { concurrency: false }, (t) => {

@@ -1,3 +1,5 @@
+import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
+
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'socks:', 'socks4:', 'socks4a:', 'socks5:', 'socks5h:']);
 
 function normalizeProxyUrl(proxyUrl) {
@@ -58,7 +60,13 @@ function createProxyFetcher({ fetchImpl = globalThis.fetch, ProxyAgentImpl } = {
       requestOptions.dispatcher = agent;
     }
 
-    return fetchImpl(url, requestOptions);
+    try {
+      return await fetchImpl(url, requestOptions);
+    } catch (error) {
+      throw normalizeRemoteIoProcessError(error, {
+        source: 'network:proxy',
+      });
+    }
   };
 }
 

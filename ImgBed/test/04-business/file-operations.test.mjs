@@ -25,7 +25,10 @@ configModule.loadStartupConfig();
 const { deleteFileRecord, deleteFilesBatch } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'delete-file.js'));
 const { executeFilesBatchAction } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'batch-action.js'));
 const { migrateFileRecord, validateMigrationTarget } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'migrate-file.js'));
-const { rebuildMetadataTask } = await import(resolveProjectModuleUrl('src', 'services', 'files', 'rebuild-metadata.js'));
+const {
+  createRebuildMetadataTaskDefinition,
+  processMetadataFile,
+} = await import(resolveProjectModuleUrl('src', 'services', 'files', 'rebuild-metadata.js'));
 
 function buildFileRecord(overrides = {}) {
   return {
@@ -453,32 +456,92 @@ test('executeFilesBatchAction 的 migrate 分支会通过注入 fileMigrationSer
   });
 });
 
-test('rebuildMetadataTask 会统计 updated、skipped、failed 三类结果', async (t) => {
+function createTaskRuntime() {
+  return {
+    async processItems(items, processor, { onResult } = {}) {
+      for (const [index, item] of items.entries()) {
+        const result = await processor(item, { index });
+        if (onResult) {
+          await onResult(result, item, { index });
+        }
+      }
+    },
+  };
+}
+
+test('processMetadataFile 只负责提取元数据，不直接写库', async (t) => {
   const db = createTestDb();
   t.after(() => db.close());
 
   insertFile(db, buildFileRecord({
-    id: 'file-meta-ok',
+    id: 'file-meta-unit',
+    storage_key: 'unit-key',
+    storage_instance_id: 'storage-unit',
+  }));
+
+  const result = await processMetadataFile(getFileById(db, 'file-meta-unit'), {
+    storageManager: {
+      getStorage(storageId) {
+        assert.equal(storageId, 'storage-unit');
+        return {
+          async getStreamResponse() {
+            return { stream: Readable.from([Buffer.from('unit')]) };
+          },
+        };
+      },
+    },
+    logger: {
+      warn() {},
+    },
+    extractMetadata: async () => ({
+      width: 1024,
+      height: 768,
+      exif: '{"camera":"unit"}',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    status: 'updated',
+    metadata: {
+      width: 1024,
+      height: 768,
+      exif: '{"camera":"unit"}',
+    },
+  });
+  assert.equal(getFileById(db, 'file-meta-unit').width, null);
+});
+
+test('createRebuildMetadataTaskDefinition 会使用 keyset 分页并统计 updated、skipped、failed', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+
+  insertFile(db, buildFileRecord({
+    id: 'file-meta-001',
     storage_key: 'ok-key',
     storage_instance_id: 'storage-ok',
   }));
   insertFile(db, buildFileRecord({
-    id: 'file-meta-missing',
+    id: 'file-meta-002',
     storage_key: 'missing-key',
     storage_instance_id: 'storage-missing',
   }));
   insertFile(db, buildFileRecord({
-    id: 'file-meta-fail',
+    id: 'file-meta-003',
     storage_key: 'fail-key',
     storage_instance_id: 'storage-fail',
   }));
+  insertFile(db, buildFileRecord({
+    id: 'file-meta-004',
+    storage_key: 'ok-key-2',
+    storage_instance_id: 'storage-ok',
+  }));
 
   const logger = {
-    logs: [],
+    infos: [],
     warns: [],
     errors: [],
-    log(...args) {
-      this.logs.push(args);
+    info(...args) {
+      this.infos.push(args);
     },
     warn(...args) {
       this.warns.push(args);
@@ -508,13 +571,10 @@ test('rebuildMetadataTask 会统计 updated、skipped、failed 三类结果', as
     },
   };
 
-  const stats = await rebuildMetadataTask({
-    force: false,
+  const definition = createRebuildMetadataTaskDefinition({
     db,
     storageManager,
     logger,
-    wait: async () => {},
-    sleepMs: 0,
     extractMetadata: async (buffer) => {
       if (buffer.toString('utf8') === 'fail') {
         throw new Error('metadata failed');
@@ -525,14 +585,21 @@ test('rebuildMetadataTask 会统计 updated、skipped、failed 三类结果', as
         exif: '{"camera":"demo"}',
       };
     },
+    batchSize: 1,
   });
+  const stats = await definition.run({
+    force: false,
+  }, createTaskRuntime());
 
   assert.deepEqual(stats, {
-    total: 3,
-    updated: 1,
+    total: 4,
+    updated: 2,
     skipped: 1,
     failed: 1,
   });
-  assert.equal(getFileById(db, 'file-meta-ok').width, 640);
-  assert.equal(getFileById(db, 'file-meta-missing').width, null);
+  assert.equal(getFileById(db, 'file-meta-001').width, 640);
+  assert.equal(getFileById(db, 'file-meta-004').width, 640);
+  assert.equal(getFileById(db, 'file-meta-002').width, null);
+  assert.equal(getFileById(db, 'file-meta-003').width, null);
+  assert.equal(logger.errors.length, 1);
 });

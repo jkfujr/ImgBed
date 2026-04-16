@@ -1,19 +1,27 @@
+import { createLogger } from '../../utils/logger.js';
+import { defaultMaintenanceTaskExecutor } from '../maintenance/default-maintenance-task-executor.js';
+import {
+  createRebuildQuotaStatsTaskDefinition,
+  REBUILD_QUOTA_STATS_TASK_NAME,
+} from './rebuild-quota-stats-task.js';
+
 function createMaintenanceService({
   db,
   storageManager,
-  logger,
+  logger = createLogger('system'),
+  taskExecutor = defaultMaintenanceTaskExecutor,
+  rebuildQuotaStatsTaskDefinition = null,
 } = {}) {
+  const taskDefinition = rebuildQuotaStatsTaskDefinition || createRebuildQuotaStatsTaskDefinition({
+    storageManager,
+  });
+
+  taskExecutor.registerTask(taskDefinition);
+
   return {
     triggerQuotaStatsRebuild() {
-      void (async () => {
-        try {
-          logger.info('手动触发容量校正任务');
-          await storageManager.rebuildQuotaStats();
-          logger.info('容量校正任务完成');
-        } catch (error) {
-          logger.error({ err: error }, '容量校正任务失败');
-        }
-      })();
+      logger.info?.('手动触发容量校正任务');
+      taskExecutor.start(REBUILD_QUOTA_STATS_TASK_NAME);
 
       return { status: 'processing' };
     },

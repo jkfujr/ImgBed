@@ -1,3 +1,5 @@
+import { classifyEntryError } from './entry-error-policy.js';
+
 export function createApplicationRuntime({
   config: initialConfig = null,
   loadStartupConfig = null,
@@ -37,15 +39,16 @@ export function createApplicationRuntime({
   const handleServerError = (error) => {
     const runtimeConfig = getRuntimeConfig();
     const port = runtimeConfig.server?.port || 13000;
+    const classification = classifyEntryError(error, 'listen');
 
-    if (error && error.code === 'EADDRINUSE') {
-      log.fatal({ port, err: error }, `端口 ${port} 已被占用`);
-      processExit(1);
+    if (classification.type === 'startup_address_in_use') {
+      log.fatal({ port, err: classification.error }, `端口 ${port} 已被占用`);
+      processExit(classification.exitCode || 1);
       return;
     }
 
-    log.fatal({ err: error }, '应用启动失败');
-    processExit(1);
+    log.fatal({ err: classification.error }, classification.message);
+    processExit(classification.exitCode || 1);
   };
 
   async function start() {

@@ -14,6 +14,7 @@ import {
   sanitizeSystemConfig,
 } from '../../src/services/system/sanitize-system-config.js';
 import { createSystemConfigService } from '../../src/services/system/system-config-service.js';
+import { createMaintenanceService } from '../../src/services/system/maintenance-service.js';
 import { createStorageConfigService } from '../../src/services/system/storage-config-service.js';
 import { applyStorageFieldUpdates } from '../../src/services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../../src/services/system/update-load-balance.js';
@@ -315,5 +316,47 @@ test('updateLoadBalance 会拒绝非法策略，并在合法输入时写回重�
     'writeRuntimeConfig',
     'storageManager.reload',
     'invalidateStorages',
+  ]);
+});
+
+test('createMaintenanceService 会通过统一执行器启动容量校正任务', () => {
+  const calls = [];
+  const service = createMaintenanceService({
+    db: {
+      prepare() {
+        return {
+          all() {
+            return [];
+          },
+        };
+      },
+    },
+    storageManager: {},
+    logger: {
+      info(message) {
+        calls.push({ type: 'info', message });
+      },
+    },
+    taskExecutor: {
+      registerTask(taskDefinition) {
+        calls.push({ type: 'register', taskName: taskDefinition.name });
+      },
+      start(taskName) {
+        calls.push({ type: 'start', taskName });
+      },
+    },
+    rebuildQuotaStatsTaskDefinition: {
+      name: 'rebuild-quota-stats',
+      async run() {},
+    },
+  });
+
+  const result = service.triggerQuotaStatsRebuild();
+
+  assert.deepEqual(result, { status: 'processing' });
+  assert.deepEqual(calls, [
+    { type: 'register', taskName: 'rebuild-quota-stats' },
+    { type: 'info', message: '手动触发容量校正任务' },
+    { type: 'start', taskName: 'rebuild-quota-stats' },
   ]);
 });

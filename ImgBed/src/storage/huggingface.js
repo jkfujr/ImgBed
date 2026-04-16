@@ -1,5 +1,6 @@
 import StorageProvider from './base.js';
 import { createLogger } from '../utils/logger.js';
+import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
 import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
 import { toBuffer } from '../utils/storage-io.js';
 
@@ -19,6 +20,16 @@ class HuggingFaceStorage extends StorageProvider {
             'Authorization': `Bearer ${this.token}`,
             'Content-Type': 'application/json'
         };
+    }
+
+    async requestHuggingFace(url, options = {}, source = 'request') {
+        try {
+            return await fetch(url, options);
+        } catch (error) {
+            throw normalizeRemoteIoProcessError(error, {
+                source: `storage:huggingface:${source}`,
+            });
+        }
     }
 
     /**
@@ -63,11 +74,11 @@ class HuggingFaceStorage extends StorageProvider {
                 commit_message: commitMessage
             };
 
-            const response = await fetch(`${this.baseURL}/commit/main`, {
+            const response = await this.requestHuggingFace(`${this.baseURL}/commit/main`, {
                 method: 'POST',
                 headers: this.defaultHeaders,
                 body: JSON.stringify(commitData)
-            });
+            }, 'commit');
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -96,11 +107,11 @@ class HuggingFaceStorage extends StorageProvider {
                 commit_message: commitMessage
             };
 
-            const response = await fetch(`${this.baseURL}/commit/main`, {
+            const response = await this.requestHuggingFace(`${this.baseURL}/commit/main`, {
                 method: 'POST',
                 headers: this.defaultHeaders,
                 body: JSON.stringify(commitData)
-            });
+            }, 'delete');
 
             if (!response.ok) {
                 // 处理文件不存在的情况，认为删除成功
@@ -130,9 +141,9 @@ class HuggingFaceStorage extends StorageProvider {
             if (options.start !== undefined && options.end !== undefined) {
                 headers.Range = `bytes=${options.start}-${options.end}`;
             }
-            const response = await fetch(url, {
+            const response = await this.requestHuggingFace(url, {
                 headers
-            });
+            }, 'read');
 
             if (!response.ok) {
                 throw new Error(`[HuggingFaceStorage] 获取文件失败: ${response.status} ${response.statusText}`);
@@ -176,10 +187,10 @@ class HuggingFaceStorage extends StorageProvider {
     async exists(fileId) {
         try {
             const url = `https://huggingface.co/datasets/${this.repo}/resolve/main/${fileId}`;
-            const response = await fetch(url, {
+            const response = await this.requestHuggingFace(url, {
                 method: 'HEAD',
                 headers: { 'Authorization': `Bearer ${this.token}` }
-            });
+            }, 'exists');
             return response.ok;
         } catch (e) {
             return false;
@@ -192,10 +203,10 @@ class HuggingFaceStorage extends StorageProvider {
      */
     async testConnection() {
         try {
-            const response = await fetch(this.baseURL, {
+            const response = await this.requestHuggingFace(this.baseURL, {
                 headers: { 'Authorization': `Bearer ${this.token}` },
                 signal: AbortSignal.timeout(10000)
-            });
+            }, 'testConnection');
             if (response.ok) {
                 return { ok: true, message: `数据集 "${this.repo}" 连接成功` };
             }

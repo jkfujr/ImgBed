@@ -14,17 +14,18 @@ import {
 import {
   countFilesByDirectoryPrefix,
   countActiveFiles,
+  countImageFilesForMetadataRebuild,
   freezeFilesByMissingStorageInstances,
   freezeFilesByStorageInstance,
   getActiveFileById,
   getActiveFilesByIds,
   getActiveFilesStats,
   getFileById,
-  getImageFilesForMetadataRebuild,
   getTodayUploadCount,
   getUploadTrend,
   insertAccessLog,
   insertFile,
+  listImageFilesForMetadataRebuildAfter,
   listActiveFiles,
   moveFilesToDirectory,
   renameFileDirectory,
@@ -126,10 +127,11 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
   assert.deepEqual(getActiveFilesStats(db), { count: 2, sum: 420 });
   assert.equal(getTodayUploadCount(db), 2);
   assert.equal(getUploadTrend(db, 7).length, 1);
-  assert.deepEqual(
-    getImageFilesForMetadataRebuild(db, false).map((item) => item.id),
-    ['file-b'],
-  );
+  assert.equal(countImageFilesForMetadataRebuild(db, false), 1);
+  assert.deepEqual(listImageFilesForMetadataRebuildAfter(db, {
+    force: false,
+    limit: 10,
+  }).map((item) => item.id), ['file-b']);
 
   updateFileImageMetadata(db, 'file-b', {
     width: 640,
@@ -155,6 +157,7 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
   assert.equal(getFileById(db, 'file-b').width, 640);
   assert.equal(getFileById(db, 'file-b').directory, '/albums');
   assert.equal(getFileById(db, 'file-b').is_public, 0);
+  assert.equal(countImageFilesForMetadataRebuild(db, false), 0);
 });
 
 test('files-dao 可以完成目录迁移、冻结和访问日志写入', (t) => {
