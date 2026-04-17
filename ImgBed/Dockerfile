@@ -13,7 +13,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY main.js ./
 COPY src ./src
@@ -25,7 +25,6 @@ FROM node:24-bookworm-slim AS runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
-    libvips \
     libsqlite3-0 && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
@@ -33,7 +32,6 @@ RUN apt-get update && \
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/main.js ./
 COPY --from=builder /app/src ./src

@@ -69,7 +69,7 @@ jobs:
       - name: Build WebUI
         working-directory: ./ImgBed-web
         run: |
-          npm install
+          npm ci
           npm run build
           mkdir -p ../ImgBed/static
           cp -r dist/* ../ImgBed/static/
