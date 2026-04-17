@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import TelegramStorage from '../../src/storage/telegram.js';
 import DiscordStorage from '../../src/storage/discord.js';
 import S3Storage from '../../src/storage/s3.js';
 import {
@@ -318,8 +319,13 @@ test('Telegram 降级判断只在已定义的 400 场景下触发', () => {
 
 test('Telegram 发送策略按文件类型选择本地方法', () => {
   assert.deepEqual(selectTelegramSendMethod('image/webp', 'demo.webp'), {
-    method: 'sendAnimation',
-    paramName: 'animation',
+    method: 'sendDocument',
+    paramName: 'document',
+  });
+
+  assert.deepEqual(selectTelegramSendMethod('image/gif', 'demo.gif'), {
+    method: 'sendDocument',
+    paramName: 'document',
   });
 
   assert.deepEqual(selectTelegramSendMethod('image/svg+xml', 'demo.svg'), {
@@ -330,5 +336,29 @@ test('Telegram 发送策略按文件类型选择本地方法', () => {
   assert.deepEqual(selectTelegramSendMethod('image/png', 'demo.png'), {
     method: 'sendPhoto',
     paramName: 'photo',
+  });
+});
+
+test('Telegram 会兼容解析 animation 响应中的文件标识', () => {
+  const storage = new TelegramStorage({
+    botToken: 'token',
+    chatId: 'chat-1',
+  });
+
+  const info = storage.getFileInfo({
+    ok: true,
+    result: {
+      animation: {
+        file_id: 'anim-file-id',
+        file_name: 'demo.gif',
+        file_size: 1234,
+      },
+    },
+  });
+
+  assert.deepEqual(info, {
+    fileId: 'anim-file-id',
+    fileName: 'demo.gif',
+    fileSize: 1234,
   });
 });

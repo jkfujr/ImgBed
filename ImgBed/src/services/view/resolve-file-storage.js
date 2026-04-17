@@ -43,9 +43,10 @@ function buildStreamHeaders({
   contentLength,
   includeContentLength = true,
   acceptRanges = true,
+  contentType = null,
 }) {
   const headers = new Headers();
-  headers.set('Content-Type', fileRecord.mime_type || 'application/octet-stream');
+  headers.set('Content-Type', contentType || fileRecord.mime_type || 'application/octet-stream');
   headers.set('Cache-Control', 'public, max-age=31536000');
   headers.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileRecord.original_name)}`);
 

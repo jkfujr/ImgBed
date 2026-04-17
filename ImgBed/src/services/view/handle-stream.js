@@ -47,6 +47,7 @@ function normalizeReadResult(readResult) {
     totalSize: toFiniteNumber(readResult.totalSize),
     statusCode: toFiniteNumber(readResult.statusCode),
     acceptRanges: readResult.acceptRanges !== false,
+    contentType: typeof readResult.contentType === 'string' ? readResult.contentType : null,
   };
 }
 
@@ -192,6 +193,7 @@ async function handleRegularStream(fileRecord, res, storage, storageKey, { start
       contentLength: resolvedContentLength,
       includeContentLength: effectivePartial || normalized.contentLength !== null,
       acceptRanges: normalized.acceptRanges,
+      contentType: normalized.contentType,
     });
 
     applyHeaders(res, headers);

@@ -14,6 +14,15 @@ function normalizeStatusCode(statusCode) {
   return null;
 }
 
+function normalizeContentType(contentType) {
+  if (typeof contentType !== 'string') {
+    return null;
+  }
+
+  const normalized = contentType.trim();
+  return normalized ? normalized : null;
+}
+
 function parseContentRange(contentRange) {
   if (!contentRange) {
     return null;
@@ -37,6 +46,7 @@ function createStorageReadResult({
   totalSize = null,
   statusCode = null,
   acceptRanges = false,
+  contentType = null,
 } = {}) {
   return {
     stream,
@@ -44,6 +54,7 @@ function createStorageReadResult({
     totalSize: toFiniteNumber(totalSize),
     statusCode: normalizeStatusCode(statusCode),
     acceptRanges: Boolean(acceptRanges),
+    contentType: normalizeContentType(contentType),
   };
 }
 
@@ -58,6 +69,7 @@ function createStorageReadResultFromResponse(response) {
     totalSize: contentRange?.totalSize ?? (response.status === 200 ? contentLength : null),
     statusCode: response.status,
     acceptRanges,
+    contentType: response.headers.get('content-type'),
   });
 }
 
@@ -100,6 +112,7 @@ export {
   createStoragePutResult,
   createStorageReadResult,
   createStorageReadResultFromResponse,
+  normalizeContentType,
   parseContentRange,
   toFiniteNumber,
 };

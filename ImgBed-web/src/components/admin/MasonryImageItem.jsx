@@ -4,8 +4,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { BORDER_RADIUS } from '../../utils/constants';
 import { fmtDate } from '../../utils/formatters';
 import imageCacheManager from '../../utils/imageCache';
-
-const getImageSrc = (item) => `/${item.id}`;
+import AdminMediaPreview from './AdminMediaPreview';
 
 /**
  * 瀑布流图片展示核心 - 仅在 id 改变时重渲染
@@ -17,11 +16,11 @@ const MasonryImage = memo(({ item, onOpenDetail, hasSelection }) => {
   }, [item.id]);
 
   return (
-    <Box
-      component="img"
-      src={getImageSrc(item)}
+    <AdminMediaPreview
+      item={item}
+      alt={item.original_name || item.file_name}
       onClick={() => !hasSelection && onOpenDetail?.(null, item)}
-      loading="lazy"
+      imgProps={{ loading: 'lazy' }}
       sx={{
         display: 'block',
         width: '100%',
@@ -76,6 +75,10 @@ const MasonryImageItem = memo(({
         lineHeight: 0,
         transition: 'box-shadow 0.2s',
         '&:hover img': {
+          transform: 'scale(1.02)',
+          opacity: 0.95
+        },
+        '&:hover video': {
           transform: 'scale(1.02)',
           opacity: 0.95
         }

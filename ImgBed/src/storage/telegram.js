@@ -24,7 +24,7 @@ function selectTelegramSendMethod(mimeType, fileName) {
     const lowerMime = (mimeType || '').toLowerCase();
 
     if (lowerMime === 'image/gif' || lowerMime === 'image/webp' || lowerName.endsWith('.gif') || lowerName.endsWith('.webp')) {
-        return { method: 'sendAnimation', paramName: 'animation' };
+        return { method: 'sendDocument', paramName: 'document' };
     }
     if (lowerMime === 'image/svg+xml' || lowerMime === 'image/x-icon' || lowerName.endsWith('.svg') || lowerName.endsWith('.ico')) {
         return { method: 'sendDocument', paramName: 'document' };
@@ -85,8 +85,7 @@ class TelegramStorage extends StorageProvider {
     /**
      * 根据文件 MIME 类型选择 Telegram 发送接口
      * 规则：
-     *   GIF/WEBP  → sendAnimation
-     *   SVG/ICO   → sendDocument
+     *   GIF/WEBP/SVG/ICO → sendDocument
      *   其他图片  → sendPhoto
      */
     selectSendMethod(mimeType, fileName) {
@@ -144,6 +143,10 @@ class TelegramStorage extends StorageProvider {
                     (prev.file_size > current.file_size) ? prev : current
                 );
                 return getFileDetails(largestPhoto);
+            }
+
+            if (responseData.result.animation) {
+                return getFileDetails(responseData.result.animation);
             }
 
             if (responseData.result.video) {

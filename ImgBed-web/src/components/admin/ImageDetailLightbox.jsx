@@ -1,12 +1,15 @@
+import { useEffect, useState } from 'react';
 import { Box, IconButton, Dialog, useTheme, useMediaQuery } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import useImageTransform from '../../hooks/useImageTransform';
 import ImageDetailPanel from './ImageDetailPanel';
 import { BORDER_RADIUS } from '../../utils/constants';
+import { buildAdminMediaSrc, shouldUseVideoFallback } from '../../admin/mediaPreviewShared';
 
 export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
   const theme = useTheme();
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
+  const [previewMode, setPreviewMode] = useState('image');
 
   const {
     containerRef,
@@ -19,6 +22,14 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
     handleImageLoad,
     handleMouseDown,
   } = useImageTransform({ open, item });
+
+  const allowVideoFallback = shouldUseVideoFallback(item);
+  const mediaSrc = buildAdminMediaSrc(item);
+  const showVideo = previewMode === 'video';
+
+  useEffect(() => {
+    setPreviewMode('image');
+  }, [item?.id, open]);
 
   if (!item) return null;
 
@@ -70,53 +81,79 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            cursor: isDragging ? 'grabbing' : 'grab',
+            cursor: showVideo ? 'default' : (isDragging ? 'grabbing' : 'grab'),
             userSelect: 'none'
           }}
-          onMouseDown={handleMouseDown}
+          onMouseDown={showVideo ? undefined : handleMouseDown}
         >
-          <Box
-            component="img"
-            src={`/${item.id}`}
-            alt={item.original_name || item.file_name}
-            draggable={false}
-            onLoad={handleImageLoad}
-            sx={{
-              width: item.width ? `${item.width}px` : 'auto',
-              height: item.height ? `${item.height}px` : 'auto',
-              maxWidth: 'none',
-              maxHeight: 'none',
-              opacity: isReady && isImageLoaded ? 1 : 0,
-              transform: `translate(${imgTransform.x}px, ${imgTransform.y}px) scale(${imgTransform.scale})`,
-              transformOrigin: 'center center',
-              transition: (!shouldAnimate || isDragging) ? 'opacity 0.3s' : 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s',
-              pointerEvents: 'none',
-              filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))'
-            }}
-          />
+          {showVideo ? (
+            <Box
+              component="video"
+              src={mediaSrc}
+              autoPlay
+              muted
+              loop
+              playsInline
+              controls
+              sx={{
+                width: 'min(90vw, 960px)',
+                maxWidth: '100%',
+                maxHeight: '90vh',
+                borderRadius: BORDER_RADIUS.md,
+                boxShadow: '0 0 20px rgba(0,0,0,0.5)',
+              }}
+            />
+          ) : (
+            <Box
+              component="img"
+              src={mediaSrc}
+              alt={item.original_name || item.file_name}
+              draggable={false}
+              onLoad={handleImageLoad}
+              onError={() => {
+                if (allowVideoFallback) {
+                  setPreviewMode('video');
+                }
+              }}
+              sx={{
+                width: item.width ? `${item.width}px` : 'auto',
+                height: item.height ? `${item.height}px` : 'auto',
+                maxWidth: 'none',
+                maxHeight: 'none',
+                opacity: isReady && isImageLoaded ? 1 : 0,
+                transform: `translate(${imgTransform.x}px, ${imgTransform.y}px) scale(${imgTransform.scale})`,
+                transformOrigin: 'center center',
+                transition: (!shouldAnimate || isDragging) ? 'opacity 0.3s' : 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s',
+                pointerEvents: 'none',
+                filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))'
+              }}
+            />
+          )}
 
           {/* 缩放倍率提示 */}
-          <Box
-            sx={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              bgcolor: 'rgba(0, 0, 0, 0.75)',
-              color: 'white',
-              px: 3,
-              py: 1.5,
-              borderRadius: BORDER_RADIUS.md,
-              fontSize: '1.5rem',
-              fontWeight: 'bold',
-              pointerEvents: 'none',
-              opacity: showZoomIndicator ? 1 : 0,
-              transition: 'opacity 0.2s ease-in-out',
-              zIndex: 50
-            }}
-          >
-            {Math.round(imgTransform.scale * 100)}%
-          </Box>
+          {!showVideo && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                bgcolor: 'rgba(0, 0, 0, 0.75)',
+                color: 'white',
+                px: 3,
+                py: 1.5,
+                borderRadius: BORDER_RADIUS.md,
+                fontSize: '1.5rem',
+                fontWeight: 'bold',
+                pointerEvents: 'none',
+                opacity: showZoomIndicator ? 1 : 0,
+                transition: 'opacity 0.2s ease-in-out',
+                zIndex: 50
+              }}
+            >
+              {Math.round(imgTransform.scale * 100)}%
+            </Box>
+          )}
         </Box>
 
         {isLg && (

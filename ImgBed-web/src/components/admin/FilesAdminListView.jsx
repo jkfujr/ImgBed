@@ -7,6 +7,7 @@ import { BORDER_RADIUS } from '../../utils/constants';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from '../../utils/formatters';
 import imageCacheManager from '../../utils/imageCache';
 import GenericDataGrid from '../common/GenericDataGrid';
+import AdminMediaPreview from './AdminMediaPreview';
 
 export default function FilesAdminListView({
   directories,
@@ -110,11 +111,11 @@ export default function FilesAdminListView({
           );
         }
         return (
-          <Box
-            component="img"
-            src={`/${params.row.id}`}
+          <AdminMediaPreview
+            item={params.row}
             alt={params.row.original_name || params.row.file_name}
-            loading="lazy"
+            imgProps={{ loading: 'lazy' }}
+            videoProps={{ title: params.row.original_name || params.row.file_name }}
             sx={{
               width: 48,
               height: 48,
