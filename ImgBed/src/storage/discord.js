@@ -4,6 +4,7 @@ import { fetchWithProxy } from '../network/proxy.js';
 import { toBlob } from '../utils/storage-io.js';
 import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
 import { runRemoteRetry, waitForDelay } from './remote-retry.js';
+import { wrapTestConnection } from './storage-error-helper.js';
 
 const log = createLogger('discord');
 const DEFAULT_MESSAGE_RETRY_BUDGET_MS = 8000;
@@ -258,7 +259,7 @@ class DiscordStorage extends StorageProvider {
      * @returns {Promise<{ok: boolean, message: string}>}
      */
     async testConnection() {
-        try {
+        return wrapTestConnection(async () => {
             const response = await this.requestDiscord(`${this.baseURL}/users/@me`, {
                 headers: this.defaultHeaders,
                 signal: AbortSignal.timeout(10000)
@@ -268,10 +269,10 @@ class DiscordStorage extends StorageProvider {
                 return { ok: true, message: `机器人 "${data.username}" 连接成功` };
             }
             const errData = await response.json().catch(() => ({}));
-            return { ok: false, message: `连接失败: ${response.status} - ${errData.message || response.statusText}` };
-        } catch (err) {
-            return { ok: false, message: `连接失败: ${err.name === 'TimeoutError' ? '请求超时' : err.message}` };
-        }
+            const error = new Error(errData.message || response.statusText);
+            error.status = response.status;
+            throw error;
+        }, { source: 'discord' });
     }
 
     // ========== 分块上传扩展 ==========

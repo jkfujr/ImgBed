@@ -3,6 +3,7 @@ import { fetchWithProxy } from '../network/proxy.js';
 import { createLogger } from '../utils/logger.js';
 import { toBlob } from '../utils/storage-io.js';
 import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
+import { wrapTestConnection } from './storage-error-helper.js';
 
 const log = createLogger('telegram');
 
@@ -340,7 +341,7 @@ class TelegramStorage extends StorageProvider {
      * @returns {Promise<{ok: boolean, message: string}>}
      */
     async testConnection() {
-        try {
+        return wrapTestConnection(async () => {
             const response = await this.requestTelegram(`${this.baseURL}/getMe`, {
                 headers: this.defaultHeaders,
                 signal: AbortSignal.timeout(10000)
@@ -349,22 +350,8 @@ class TelegramStorage extends StorageProvider {
             if (data.ok && data.result) {
                 return { ok: true, message: `机器人 "${data.result.first_name}" (@${data.result.username}) 连接成功` };
             }
-            return { ok: false, message: `连接失败: ${data.description || '未知错误'}` };
-        } catch (err) {
-            if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-                return { ok: false, message: '连接失败: 请求超时，请检查代理是否可访问 Telegram' };
-            }
-            if (err?.code === 'ETIMEDOUT') {
-                return { ok: false, message: '连接失败: 连接 Telegram 超时，请检查代理链路' };
-            }
-            if (err?.code === 'ECONNREFUSED') {
-                return { ok: false, message: '连接失败: 代理连接被拒绝，请检查代理地址和端口' };
-            }
-            if (err?.code === 'ENOTFOUND') {
-                return { ok: false, message: '连接失败: 域名解析失败，请检查代理或网络配置' };
-            }
-            return { ok: false, message: `连接失败: ${err.message}` };
-        }
+            throw new Error(data.description || '未知错误');
+        }, { source: 'telegram' });
     }
 
     // ========== 分块上传扩展 ==========
