@@ -5,24 +5,30 @@ import { useRefresh } from '../contexts/RefreshContext';
 import logger from '../utils/logger';
 import { createRequestGuard } from '../utils/request-guard';
 import { createOverlayFocusManager } from '../utils/overlay-focus';
+import { useUserPreference } from './useUserPreference';
 import {
   EMPTY_DELETE,
   EMPTY_LIST,
   areAllTelegramFilesOlderThan24h,
+  buildDirectoryChildren,
   buildFilesAdminPath,
-  fetchDirectories,
   fetchListPage,
-  getCacheKey,
   getDirectoryPathFromSearch,
   loadFilesAdminPageData,
   normalizeDirectoryPath,
-  updateCachedDirectories,
 } from '../admin/filesAdminShared';
+import {
+  buildFilesPageCacheKey,
+  createFilesListState,
+  flattenFilesPages,
+  normalizeFilesPageSize,
+} from '../admin/filesAdminPagination';
 
-export function useFilesAdmin() {
+export function useFilesAdmin(viewMode = 'masonry') {
   const { refreshTrigger } = useRefresh();
   const location = useLocation();
   const navigate = useNavigate();
+  const [prefPageSize] = useUserPreference('pref_page_size', '20');
 
   const [listData, setListData] = useState(EMPTY_LIST);
   const [loading, setLoading] = useState(true);
@@ -37,10 +43,11 @@ export function useFilesAdmin() {
   const moveDialogFocusManagerRef = useRef(null);
   const detailDialogFocusManagerRef = useRef(null);
 
-  const pageRef = useRef(0);
-  const cacheRef = useRef(new Map());
+  const pageCacheRef = useRef(new Map());
+  const allDirsRef = useRef(null);
   const requestGuardRef = useRef(createRequestGuard());
   const currentDir = useMemo(() => getDirectoryPathFromSearch(location.search), [location.search]);
+  const pageSize = useMemo(() => normalizeFilesPageSize(prefPageSize), [prefPageSize]);
 
   if (!deleteDialogFocusManagerRef.current) {
     deleteDialogFocusManagerRef.current = createOverlayFocusManager();
@@ -71,14 +78,60 @@ export function useFilesAdmin() {
   }, [detailDialogFocusManager]);
   const clearSelection = useCallback(() => setSelected(new Set()), []);
 
+  const buildPageCacheKey = useCallback((page) => {
+    return buildFilesPageCacheKey(currentDir, pageSize, page);
+  }, [currentDir, pageSize]);
+
+  const getCachedPage = useCallback((page) => {
+    return pageCacheRef.current.get(buildPageCacheKey(page)) || null;
+  }, [buildPageCacheKey]);
+
+  const cachePage = useCallback((pageResult) => {
+    pageCacheRef.current.set(buildPageCacheKey(pageResult.page), pageResult);
+  }, [buildPageCacheKey]);
+
+  const clearDirectoryPageCache = useCallback((directory = currentDir) => {
+    const prefix = `${directory}::`;
+    for (const key of pageCacheRef.current.keys()) {
+      if (key.startsWith(prefix)) {
+        pageCacheRef.current.delete(key);
+      }
+    }
+  }, [currentDir]);
+
+  const resolveDirectories = useCallback(() => {
+    if (!Array.isArray(allDirsRef.current)) {
+      return [];
+    }
+    return buildDirectoryChildren(allDirsRef.current, currentDir);
+  }, [currentDir]);
+
+  const buildListState = useCallback(({
+    pageResult,
+    directories,
+    currentPage = 1,
+    loadedPageCount = 0,
+  }) => {
+    return createFilesListState({
+      pageData: pageResult?.data || [],
+      masonryData: flattenFilesPages(pageCacheRef.current, currentDir, pageSize, loadedPageCount),
+      directories,
+      total: pageResult?.total || 0,
+      currentPage,
+      loadedPageCount,
+      pageSize,
+    });
+  }, [currentDir, pageSize]);
+
   const selectAll = useCallback(() => {
-    setSelected(new Set(listData.data.map((item) => item.id)));
-  }, [listData.data]);
+    const currentItems = viewMode === 'masonry' ? listData.masonryData : listData.pageData;
+    setSelected(new Set(currentItems.map((item) => item.id)));
+  }, [listData.masonryData, listData.pageData, viewMode]);
 
   const loadDirectoryData = useCallback(async ({
     showLoading = false,
     forceReload = false,
-    keepDirectories = false,
+    reuseDirectories = true,
   } = {}) => {
     const requestId = requestGuardRef.current.begin();
 
@@ -87,40 +140,57 @@ export function useFilesAdmin() {
     }
     clearSelection();
     setError(null);
-    pageRef.current = 0;
-
-    const cacheKey = getCacheKey(currentDir);
-    const cached = cacheRef.current.get(cacheKey);
 
     try {
-      if (!forceReload && cached) {
-        if (requestGuardRef.current.isCurrent(requestId)) {
-          setListData(cached);
-          pageRef.current = cached.data.length > 0 ? 1 : 0;
-        }
-        return;
+      if (forceReload) {
+        clearDirectoryPageCache(currentDir);
       }
 
-      const { nextList, allDirs } = await loadFilesAdminPageData({
-        currentDir,
-        cached,
-        keepDirectories,
-        fetchDirectoriesImpl: fetchDirectories,
-        fetchListPageImpl: fetchListPage,
-        loggerImpl: logger,
-      });
+      const cachedPage = !forceReload ? getCachedPage(1) : null;
+      let directories = [];
+      let pageResult = cachedPage;
+
+      if (cachedPage && reuseDirectories && Array.isArray(allDirsRef.current)) {
+        directories = resolveDirectories();
+      } else {
+        const { nextPage, directories: nextDirectories, allDirs } = await loadFilesAdminPageData({
+          currentDir,
+          page: 1,
+          pageSize,
+          keepDirectories: reuseDirectories && Array.isArray(allDirsRef.current),
+          cachedDirectories: allDirsRef.current,
+          fetchListPageImpl: async (dir, options) => cachedPage || fetchListPage(dir, options),
+          loggerImpl: logger,
+        });
+
+        pageResult = nextPage;
+        directories = nextDirectories;
+        if (Array.isArray(allDirs)) {
+          allDirsRef.current = allDirs;
+        }
+      }
 
       if (!requestGuardRef.current.isCurrent(requestId)) {
         return;
       }
 
-      setListData(nextList);
-      cacheRef.current.set(cacheKey, nextList);
-      pageRef.current = nextList.data.length > 0 ? 1 : 0;
-
-      if (allDirs) {
-        updateCachedDirectories(cacheRef.current, allDirs);
+      if (!pageResult) {
+        pageResult = await fetchListPage(currentDir, { page: 1, pageSize });
       }
+
+      cachePage(pageResult);
+
+      if (!directories.length && Array.isArray(allDirsRef.current)) {
+        directories = resolveDirectories();
+      }
+
+      const loadedPageCount = pageResult.data.length > 0 ? 1 : 0;
+      setListData(buildListState({
+        pageResult,
+        directories,
+        currentPage: 1,
+        loadedPageCount,
+      }));
     } catch (err) {
       if (!requestGuardRef.current.isCurrent(requestId)) {
         return;
@@ -134,7 +204,141 @@ export function useFilesAdmin() {
         setLoading(false);
       }
     }
-  }, [clearSelection, currentDir]);
+  }, [
+    buildListState,
+    cachePage,
+    clearDirectoryPageCache,
+    clearSelection,
+    currentDir,
+    getCachedPage,
+    pageSize,
+    resolveDirectories,
+  ]);
+
+  const goToPage = useCallback(async (page) => {
+    const nextPageNumber = Number(page);
+    if (!Number.isInteger(nextPageNumber) || nextPageNumber < 1 || nextPageNumber === listData.currentPage) {
+      return;
+    }
+
+    const requestId = requestGuardRef.current.begin();
+    setLoading(true);
+    clearSelection();
+    setError(null);
+
+    try {
+      let pageResult = getCachedPage(nextPageNumber);
+      if (!pageResult) {
+        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize });
+        cachePage(pageResult);
+      }
+
+      let directories = resolveDirectories();
+      if (!directories.length && listData.directories.length > 0) {
+        directories = listData.directories;
+      }
+
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      setListData(buildListState({
+        pageResult,
+        directories,
+        currentPage: nextPageNumber,
+        loadedPageCount: listData.loadedPageCount,
+      }));
+    } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      logger.error('切换文件分页失败', err);
+      setError('加载失败');
+    } finally {
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
+    }
+  }, [
+    buildListState,
+    cachePage,
+    clearSelection,
+    currentDir,
+    getCachedPage,
+    listData.currentPage,
+    listData.directories,
+    listData.loadedPageCount,
+    pageSize,
+    resolveDirectories,
+  ]);
+
+  const loadNextPage = useCallback(async () => {
+    if (loading || !listData.hasMore) {
+      return;
+    }
+
+    const nextPageNumber = listData.loadedPageCount + 1;
+    if (nextPageNumber < 1) {
+      return;
+    }
+
+    const requestId = requestGuardRef.current.begin();
+    setLoading(true);
+    setError(null);
+
+    try {
+      let pageResult = getCachedPage(nextPageNumber);
+      if (!pageResult) {
+        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize });
+        cachePage(pageResult);
+      }
+
+      const directories = listData.directories.length > 0 ? listData.directories : resolveDirectories();
+
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      const currentPageResult = getCachedPage(listData.currentPage) || {
+        data: listData.pageData,
+        total: pageResult.total,
+        page: listData.currentPage,
+        pageSize,
+      };
+
+      setListData(buildListState({
+        pageResult: currentPageResult,
+        directories,
+        currentPage: listData.currentPage,
+        loadedPageCount: nextPageNumber,
+      }));
+    } catch (err) {
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      logger.error('加载更多文件失败', err);
+      setError('加载失败');
+    } finally {
+      if (requestGuardRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
+    }
+  }, [
+    buildListState,
+    cachePage,
+    currentDir,
+    getCachedPage,
+    listData.currentPage,
+    listData.directories,
+    listData.hasMore,
+    listData.loadedPageCount,
+    listData.pageData,
+    loading,
+    pageSize,
+    resolveDirectories,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -151,21 +355,21 @@ export function useFilesAdmin() {
   }, [location.search, navigate]);
 
   useEffect(() => {
-    loadDirectoryData({ showLoading: true });
+    loadDirectoryData({ showLoading: true, reuseDirectories: true });
   }, [loadDirectoryData]);
 
   useEffect(() => {
     if (refreshTrigger > 0) {
-      loadDirectoryData({ forceReload: true });
+      loadDirectoryData({ showLoading: true, forceReload: true, reuseDirectories: false });
     }
   }, [refreshTrigger, loadDirectoryData]);
 
   const handleRefresh = useCallback(() => {
-    loadDirectoryData({ showLoading: true, forceReload: true });
+    loadDirectoryData({ showLoading: true, forceReload: true, reuseDirectories: false });
   }, [loadDirectoryData]);
 
   const refreshAfterMutation = useCallback(() => {
-    loadDirectoryData({ showLoading: true, forceReload: true, keepDirectories: true });
+    loadDirectoryData({ showLoading: true, forceReload: true, reuseDirectories: true });
   }, [loadDirectoryData]);
 
   const toggleSelect = (id) => {
@@ -245,10 +449,15 @@ export function useFilesAdmin() {
   }, [handleCloseDetail, triggerDelete]);
 
   return {
-    data: listData.data,
+    masonryData: listData.masonryData,
+    pageData: listData.pageData,
     total: listData.total,
+    totalPages: listData.totalPages,
+    currentPage: listData.currentPage,
+    loadedPageCount: listData.loadedPageCount,
     hasMore: listData.hasMore,
     directories: listData.directories,
+    pageSize,
     loading,
     currentDir,
     selected,
@@ -259,7 +468,6 @@ export function useFilesAdmin() {
     moveDialog,
     detailOpen: detailItem !== null,
     selectedItem: detailItem,
-    pageRef,
     handleOpenDetail,
     handleCloseDetail,
     triggerDeleteFromDetail,
@@ -276,5 +484,7 @@ export function useFilesAdmin() {
     closeMigrate,
     openMove,
     closeMove,
+    loadNextPage,
+    goToPage,
   };
 }

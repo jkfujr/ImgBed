@@ -33,7 +33,7 @@ export default function FilesAdmin() {
   const cols = parseInt(prefCols, 10) > 0 ? parseInt(prefCols, 10) : autoCols;
 
   const {
-    data, total, loading, hasMore, directories, currentDir, selected, error,
+    masonryData, pageData, total, totalPages, currentPage, loading, hasMore, directories, currentDir, selected, error,
     deleteDialog, deleting, migrateDialog, moveDialog, detailOpen, selectedItem,
     handleOpenDetail, handleCloseDetail, triggerDeleteFromDetail,
     clearSelection, selectAll,
@@ -43,17 +43,21 @@ export default function FilesAdmin() {
     navigateToDir,
     openMigrate, closeMigrate,
     openMove, closeMove,
-  } = useFilesAdmin();
+    loadNextPage, goToPage,
+  } = useFilesAdmin(viewMode);
+
+  const currentFiles = viewMode === 'masonry' ? masonryData : pageData;
 
   const handleViewModeChange = (_, val) => {
     if (!val) return;
+    clearSelection();
     setViewMode(val);
   };
 
   // 批量删除时，收集选中项的完整对象供 TG 24h 判断
   const handleDeleteSelected = (trigger) => {
     if (deleteDialog.open || selected.size === 0) return;
-    const selectedItems = data.filter((item) => selected.has(item.id));
+    const selectedItems = currentFiles.filter((item) => selected.has(item.id));
     triggerDelete(trigger, [...selected], `${selected.size} 个文件`, selectedItems);
   };
 
@@ -80,10 +84,13 @@ export default function FilesAdmin() {
 
       <FilesAdminContent
         loading={loading}
-        data={data}
+        masonryData={masonryData}
+        pageData={pageData}
         directories={directories}
         hasMore={hasMore}
         total={total}
+        totalPages={totalPages}
+        currentPage={currentPage}
         cols={cols}
         viewMode={viewMode}
         selected={selected}
@@ -93,6 +100,8 @@ export default function FilesAdmin() {
         onNavigateToDir={navigateToDir}
         onOpenDetail={handleOpenDetail}
         onTriggerDelete={triggerDelete}
+        onLoadNextPage={loadNextPage}
+        onPageChange={goToPage}
       />
 
       <ConfirmDialog

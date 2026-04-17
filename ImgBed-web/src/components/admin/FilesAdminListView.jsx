@@ -1,4 +1,4 @@
-import { Box, Checkbox, Chip, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Checkbox, Chip, IconButton, Pagination, Tooltip, Typography } from '@mui/material';
 import { useEffect, useMemo, useCallback } from 'react';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InfoIcon from '@mui/icons-material/Info';
@@ -11,6 +11,10 @@ import GenericDataGrid from '../common/GenericDataGrid';
 export default function FilesAdminListView({
   directories,
   data,
+  total,
+  totalPages,
+  currentPage,
+  loading,
   selected,
   onToggleSelect,
   onSelectAll,
@@ -18,6 +22,7 @@ export default function FilesAdminListView({
   onNavigateToDir,
   onOpenDetail,
   onTriggerDelete,
+  onPageChange,
 }) {
   // 批量标记图片已加载
   useEffect(() => {
@@ -58,8 +63,9 @@ export default function FilesAdminListView({
   }, []);
 
   // 全选状态
-  const allSelected = data.length > 0 && selected.size === data.length;
-  const indeterminate = selected.size > 0 && selected.size < data.length;
+  const currentPageSelectedCount = data.filter((item) => selected.has(item.id)).length;
+  const allSelected = data.length > 0 && currentPageSelectedCount === data.length;
+  const indeterminate = currentPageSelectedCount > 0 && currentPageSelectedCount < data.length;
 
   // 列定义
   const columns = [
@@ -259,10 +265,11 @@ export default function FilesAdminListView({
   ];
 
   return (
-    <Box sx={{ height: '100%' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <GenericDataGrid
         rows={rows}
         columns={columns}
+        loading={loading}
         pagination={{ enabled: false }}
         onRowClick={handleRowClick}
         getRowClassName={getRowClassName}
@@ -275,6 +282,33 @@ export default function FilesAdminListView({
           noRowsLabel: '暂无文件',
         }}
       />
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          flexWrap: 'wrap',
+          px: 2,
+          py: 1.5,
+          borderTop: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          共 {total} 张图片，第 {Math.max(1, currentPage)} / {Math.max(1, totalPages)} 页
+        </Typography>
+        <Pagination
+          count={Math.max(1, totalPages)}
+          page={Math.max(1, currentPage)}
+          onChange={(_event, page) => onPageChange?.(page)}
+          size="small"
+          color="primary"
+          showFirstButton
+          showLastButton
+          disabled={loading || totalPages <= 1}
+        />
+      </Box>
     </Box>
   );
 }

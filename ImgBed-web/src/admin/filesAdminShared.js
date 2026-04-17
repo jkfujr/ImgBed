@@ -1,9 +1,10 @@
 import { FileDocs, DirectoryDocs } from '../api.js';
 import { DEFAULT_PAGE_SIZE } from '../utils/constants.js';
+import { createFilesListState } from './filesAdminPagination.js';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 export const ROOT_DIR = '/';
-export const EMPTY_LIST = { data: [], total: 0, hasMore: false, directories: [] };
+export const EMPTY_LIST = createFilesListState();
 export const EMPTY_DELETE = { open: false, ids: [], label: '', saving: false, deleteMode: 'remote_and_index', errorMessage: '' };
 
 /**
@@ -77,10 +78,18 @@ export function buildDirectoryChildren(allDirs, dir) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function parseListResponse(pageRes) {
+export function parseListResponse(pageRes, { page = 1, pageSize = PAGE_SIZE } = {}) {
   const list = pageRes.code === 0 && pageRes.data ? (pageRes.data.list || []) : [];
   const total = pageRes.code === 0 && pageRes.data ? (pageRes.data.pagination?.total || 0) : 0;
-  return { data: list, total, hasMore: list.length < total };
+  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+  return {
+    data: list,
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
 }
 
 export function updateCachedDirectories(cache, allDirs) {
@@ -104,43 +113,44 @@ export async function fetchDirectories(currentDir) {
   };
 }
 
-export async function fetchListPage(dir) {
+export async function fetchListPage(dir, { page = 1, pageSize = PAGE_SIZE } = {}) {
   const normalizedDir = normalizeDirectoryPath(dir);
-  const params = { page: 1, pageSize: PAGE_SIZE, directory: normalizedDir };
+  const params = { page, pageSize, directory: normalizedDir };
   const pageRes = await FileDocs.list(params);
-  return parseListResponse(pageRes);
+  return parseListResponse(pageRes, { page, pageSize });
 }
 
 export async function loadFilesAdminPageData({
   currentDir,
-  cached = null,
+  page = 1,
+  pageSize = PAGE_SIZE,
   keepDirectories = false,
+  cachedDirectories = null,
   fetchDirectoriesImpl = fetchDirectories,
   fetchListPageImpl = fetchListPage,
   loggerImpl = console,
 }) {
-  const directoryPromise = keepDirectories && cached
-    ? Promise.resolve({ allDirs: null, directories: cached.directories || [] })
+  const directoryPromise = keepDirectories && Array.isArray(cachedDirectories)
+    ? Promise.resolve({
+      allDirs: cachedDirectories,
+      directories: buildDirectoryChildren(cachedDirectories, currentDir),
+    })
     : Promise.resolve(fetchDirectoriesImpl(currentDir)).catch((error) => {
       loggerImpl?.warn?.('目录加载失败，继续加载文件列表', error);
       return {
         allDirs: null,
-        directories: cached?.directories || [],
+        directories: [],
       };
     });
 
-  const [directoryResult, listResult] = await Promise.all([
+  const [directoryResult, pageResult] = await Promise.all([
     directoryPromise,
-    fetchListPageImpl(currentDir),
+    fetchListPageImpl(currentDir, { page, pageSize }),
   ]);
 
   return {
-    nextList: {
-      data: listResult.data,
-      total: listResult.total,
-      hasMore: listResult.hasMore,
-      directories: directoryResult.directories,
-    },
+    nextPage: pageResult,
+    directories: directoryResult.directories,
     allDirs: directoryResult.allDirs,
   };
 }

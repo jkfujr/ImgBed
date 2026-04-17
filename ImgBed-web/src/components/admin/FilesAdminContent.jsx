@@ -1,25 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import FilesAdminMasonryView from './FilesAdminMasonryView';
 import FilesAdminListView from './FilesAdminListView';
 import LoadingSpinner from '../common/LoadingSpinner';
 
-const INITIAL_RENDER_COUNT = {
-  masonry: 24,
-  list: 40,
-};
-
-const RENDER_STEP = {
-  masonry: 24,
-  list: 40,
-};
-
 export default function FilesAdminContent({
   loading,
-  data,
+  masonryData,
+  pageData,
   directories,
   hasMore,
   total,
+  totalPages,
+  currentPage,
   cols,
   viewMode,
   selected,
@@ -29,52 +22,49 @@ export default function FilesAdminContent({
   onNavigateToDir,
   onOpenDetail,
   onTriggerDelete,
+  onLoadNextPage,
+  onPageChange,
 }) {
-  const hasItems = data.length > 0 || directories.length > 0;
+  const hasItems = masonryData.length > 0 || pageData.length > 0 || directories.length > 0;
+  const scrollContainerRef = useRef(null);
+  const sentinelRef = useRef(null);
 
   // 包装 triggerDelete，注入当前页的完整 item 供 TG 24h 判断
   const handleTriggerDelete = (trigger, ids, label) => {
-    const items = data.filter((item) => ids.includes(item.id));
+    const sourceData = viewMode === 'masonry' ? masonryData : pageData;
+    const items = sourceData.filter((item) => ids.includes(item.id));
     onTriggerDelete(trigger, ids, label, items);
   };
 
-  const initialRenderCount = INITIAL_RENDER_COUNT[viewMode] || INITIAL_RENDER_COUNT.masonry;
-  const renderStep = RENDER_STEP[viewMode] || RENDER_STEP.masonry;
-  const sentinelRef = useRef(null);
-
-  // 使用 useMemo 计算初始可见数量，当 data 或 directories 变化时重置
-  const initialVisible = useMemo(() => initialRenderCount, [initialRenderCount, data, directories]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [visibleCount, setVisibleCount] = useState(initialVisible);
-
-  const visibleData = useMemo(
-    () => data.slice(0, visibleCount),
-    [data, visibleCount]
-  );
-  const hasMoreVisible = visibleCount < data.length;
-
   useEffect(() => {
+    if (viewMode !== 'masonry') return undefined;
+
     const node = sentinelRef.current;
-    if (!node || !hasMoreVisible) return undefined;
+    const root = scrollContainerRef.current;
+    if (!node || !root || !hasMore || loading) return undefined;
 
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
-        setVisibleCount((prev) => Math.min(prev + renderStep, data.length));
+        onLoadNextPage?.();
       }
     }, {
-      root: null,
+      root,
       rootMargin: '200px 0px',
       threshold: 0,
     });
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [data.length, hasMoreVisible, renderStep]);
+  }, [hasMore, loading, onLoadNextPage, viewMode]);
 
   return (
-    <Box sx={{ flexGrow: 1, minHeight: 0, height: '100%', overflow: viewMode === 'list' ? 'hidden' : 'auto' }}>
-      {loading && data.length === 0 && <LoadingSpinner />}
+    <Box
+      ref={scrollContainerRef}
+      sx={{ flexGrow: 1, minHeight: 0, height: '100%', overflow: viewMode === 'list' ? 'hidden' : 'auto' }}
+    >
+      {loading && masonryData.length === 0 && pageData.length === 0 && <LoadingSpinner />}
 
-      {!loading && data.length === 0 && directories.length === 0 && (
+      {!loading && masonryData.length === 0 && pageData.length === 0 && directories.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
           <Typography>暂无文件</Typography>
         </Box>
@@ -83,7 +73,7 @@ export default function FilesAdminContent({
       {hasItems && viewMode === 'masonry' && (
         <FilesAdminMasonryView
           directories={directories}
-          data={visibleData}
+          data={masonryData}
           cols={cols}
           selected={selected}
           onNavigateToDir={onNavigateToDir}
@@ -96,7 +86,11 @@ export default function FilesAdminContent({
       {hasItems && viewMode === 'list' && (
         <FilesAdminListView
           directories={directories}
-          data={data}
+          data={pageData}
+          total={total}
+          totalPages={totalPages}
+          currentPage={currentPage}
+          loading={loading}
           selected={selected}
           onToggleSelect={onToggleSelect}
           onSelectAll={onSelectAll}
@@ -104,20 +98,23 @@ export default function FilesAdminContent({
           onNavigateToDir={onNavigateToDir}
           onOpenDetail={onOpenDetail}
           onTriggerDelete={handleTriggerDelete}
+          onPageChange={onPageChange}
         />
       )}
 
-      <Box ref={sentinelRef} sx={{ py: 1, display: 'flex', justifyContent: 'center' }}>
-        {loading && data.length > 0 && <CircularProgress size={24} />}
-        {!loading && hasMoreVisible && (
-          <Typography variant="caption" color="text.secondary">
-            已渲染 {visibleData.length} / {data.length} 个文件，继续滚动以加载更多
-          </Typography>
-        )}
-        {!hasMoreVisible && !hasMore && data.length > 0 && (
-          <Typography variant="caption" color="text.secondary">共 {total} 个文件，已全部加载</Typography>
-        )}
-      </Box>
+      {viewMode === 'masonry' && (
+        <Box ref={sentinelRef} sx={{ py: 1, display: 'flex', justifyContent: 'center' }}>
+          {loading && masonryData.length > 0 && <CircularProgress size={24} />}
+          {!loading && hasMore && (
+            <Typography variant="caption" color="text.secondary">
+              已加载 {masonryData.length} / {total} 张图片，继续下拉以加载更多
+            </Typography>
+          )}
+          {!loading && !hasMore && masonryData.length > 0 && (
+            <Typography variant="caption" color="text.secondary">共 {total} 张图片，已全部加载</Typography>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }
