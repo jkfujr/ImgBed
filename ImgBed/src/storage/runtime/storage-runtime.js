@@ -91,6 +91,14 @@ class StorageRuntime {
     return this._registry.testConnection(type, instanceConfig);
   }
 
+  async hasExistingObjects(type, instanceConfig) {
+    return this._registry.hasExistingObjects(type, instanceConfig);
+  }
+
+  async clearStorageContents(type, instanceConfig) {
+    return this._registry.clearStorageContents(type, instanceConfig);
+  }
+
   async getQuotaHistory(storageId, limit = 100) {
     return this._quotaProjectionService.getQuotaHistory(storageId, limit);
   }

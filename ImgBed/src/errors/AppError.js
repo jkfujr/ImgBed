@@ -2,10 +2,13 @@
  * 应用错误基类
  */
 class AppError extends Error {
-  constructor(status, message) {
+  constructor(status, message, options = {}) {
     super(message);
     this.status = status;
     this.name = this.constructor.name;
+    if (options.reason) {
+      this.reason = options.reason;
+    }
   }
 }
 
@@ -30,6 +33,12 @@ class ForbiddenError extends AppError {
 class NotFoundError extends AppError {
   constructor(message = '资源不存在') {
     super(404, message);
+  }
+}
+
+class ConflictError extends AppError {
+  constructor(message = '资源冲突', reason = null) {
+    super(409, message, { reason });
   }
 }
 
@@ -69,6 +78,7 @@ export {
   AuthError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
   StorageError,
   QuotaExceededError,
   ConfigFileError,

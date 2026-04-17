@@ -54,6 +54,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
   const [formError, setFormError] = useState(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [s3ConfirmOpen, setS3ConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -62,6 +63,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
       setShowSensitive({});
       setFormError(null);
       setTestResult(null);
+      setS3ConfirmOpen(false);
     }
   }, [open, editTarget]);
 
@@ -71,54 +73,77 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
   const handleClose = () => {
     setFormError(null);
     setTestResult(null);
+    setS3ConfirmOpen(false);
     onClose();
   };
 
-  const handleSubmit = async () => {
+  const buildPayload = () => {
+    const configPayload = {};
+    const schema = CHANNEL_SCHEMAS[form.type] || [];
+    for (const field of schema) {
+      const val = form.config[field.key];
+      if (field.sensitive && (val === '' || val === undefined)) {
+        configPayload[field.key] = null;
+      } else if (val !== undefined && val !== '') {
+        configPayload[field.key] = val;
+      }
+    }
+
+    return {
+      name: form.name, enabled: form.enabled, allowUpload: form.allowUpload,
+      weight: form.weight ?? 1,
+      enableQuota: form.enableQuota, quotaLimitGB: form.quotaLimitGB,
+      disableThresholdPercent: form.disableThresholdPercent,
+      enableSizeLimit: form.enableSizeLimit, sizeLimitMB: form.sizeLimitMB,
+      enableChunking: form.enableChunking, chunkSizeMB: form.chunkSizeMB,
+      maxChunks: form.maxChunks,
+      enableMaxLimit: form.enableMaxLimit, maxLimitMB: form.maxLimitMB,
+      config: configPayload,
+    };
+  };
+
+  const submitStorage = async (s3NonEmptyAction = null) => {
     setFormError(null);
     setSaving(true);
     try {
-      const configPayload = {};
-      const schema = CHANNEL_SCHEMAS[form.type] || [];
-      for (const field of schema) {
-        const val = form.config[field.key];
-        if (field.sensitive && (val === '' || val === undefined)) {
-          configPayload[field.key] = null;
-        } else if (val !== undefined && val !== '') {
-          configPayload[field.key] = val;
-        }
-      }
-
-      const payload = {
-        name: form.name, enabled: form.enabled, allowUpload: form.allowUpload,
-        weight: form.weight ?? 1,
-        enableQuota: form.enableQuota, quotaLimitGB: form.quotaLimitGB,
-        disableThresholdPercent: form.disableThresholdPercent,
-        enableSizeLimit: form.enableSizeLimit, sizeLimitMB: form.sizeLimitMB,
-        enableChunking: form.enableChunking, chunkSizeMB: form.chunkSizeMB,
-        maxChunks: form.maxChunks,
-        enableMaxLimit: form.enableMaxLimit, maxLimitMB: form.maxLimitMB,
-        config: configPayload,
-      };
+      const payload = buildPayload();
 
       let res;
       if (editTarget) {
         res = await StorageDocs.update(form.id, payload);
       } else {
-        res = await StorageDocs.create({ ...payload, id: form.id, type: form.type });
+        const createPayload = { ...payload, id: form.id, type: form.type };
+        if (s3NonEmptyAction) {
+          createPayload.s3NonEmptyAction = s3NonEmptyAction;
+        }
+        res = await StorageDocs.create(createPayload);
       }
 
       if (res.code === 0) {
         handleClose();
         onSuccess?.();
       } else {
+        setS3ConfirmOpen(false);
         setFormError(res.message || '保存失败');
       }
-    } catch {
-      setFormError('网络错误');
+    } catch (error) {
+      const errorPayload = error.response?.data || {};
+
+      if (!editTarget && form.type === 's3' && !s3NonEmptyAction
+        && errorPayload.code === 409 && errorPayload.reason === 'S3_BUCKET_NOT_EMPTY') {
+        setS3ConfirmOpen(true);
+        return;
+      }
+
+      setS3ConfirmOpen(false);
+      setFormError(errorPayload.message || error.message || '网络错误');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    await submitStorage();
   };
 
   const handleTestConnection = async () => {
@@ -192,6 +217,31 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
           </Button>
         )}
       </DialogActions>
+
+      <Dialog
+        open={s3ConfirmOpen}
+        onClose={saving ? () => {} : () => setS3ConfirmOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>S3 存储中已存在文件</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2">
+            当前 Bucket 中已检测到已有对象。是否需要先清空整个 Bucket 再创建该存储？
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setS3ConfirmOpen(false)} disabled={saving}>
+            取消
+          </Button>
+          <Button onClick={() => submitStorage('keep')} disabled={saving}>
+            继续创建
+          </Button>
+          <Button variant="contained" color="error" onClick={() => submitStorage('clear_bucket')} disabled={saving}>
+            清空并创建
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }

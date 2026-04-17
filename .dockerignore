@@ -4,6 +4,7 @@
 
 # Node modules
 ImgBed/node_modules
+ImgBed/test
 ImgBed-web/node_modules
 ImgBed-web/dist
 

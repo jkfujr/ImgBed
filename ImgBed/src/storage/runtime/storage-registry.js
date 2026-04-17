@@ -130,6 +130,22 @@ class StorageRegistry {
       return { ok: false, message: err.message };
     }
   }
+
+  async hasExistingObjects(type, instanceConfig) {
+    const instance = await this.createStorageInstance(type, instanceConfig || {});
+    if (typeof instance?.hasExistingObjects !== 'function') {
+      throw new Error(`[StorageRegistry] 存储类型 "${type}" 不支持内容检查`);
+    }
+    return instance.hasExistingObjects();
+  }
+
+  async clearStorageContents(type, instanceConfig) {
+    const instance = await this.createStorageInstance(type, instanceConfig || {});
+    if (typeof instance?.clearBucketContents !== 'function') {
+      throw new Error(`[StorageRegistry] 存储类型 "${type}" 不支持内容清空`);
+    }
+    return instance.clearBucketContents();
+  }
 }
 
 export { StorageRegistry, resolveStorageDriver };

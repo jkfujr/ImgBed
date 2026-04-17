@@ -6,6 +6,7 @@ import { runRemoteRetry } from './remote-retry.js';
 import { createLogger } from '../utils/logger.js';
 
 let S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand;
+let ListObjectsV2Command, DeleteObjectsCommand;
 let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
 let s3ModuleLoaded = false;
 const log = createLogger('s3');
@@ -23,6 +24,8 @@ async function loadS3Module() {
         DeleteObjectCommand = s3.DeleteObjectCommand;
         HeadObjectCommand = s3.HeadObjectCommand;
         HeadBucketCommand = s3.HeadBucketCommand;
+        ListObjectsV2Command = s3.ListObjectsV2Command;
+        DeleteObjectsCommand = s3.DeleteObjectsCommand;
         CreateMultipartUploadCommand = s3.CreateMultipartUploadCommand;
         UploadPartCommand = s3.UploadPartCommand;
         CompleteMultipartUploadCommand = s3.CompleteMultipartUploadCommand;
@@ -249,6 +252,47 @@ class S3Storage extends StorageProvider {
         }
     }
 
+    async hasExistingObjects() {
+        await this._ensureInitialized();
+        const command = new ListObjectsV2Command({
+            Bucket: this.bucket,
+            MaxKeys: 1,
+        });
+        const response = await this.sendS3Command(command, 'listObjectsV2');
+        return Number(response?.KeyCount || 0) > 0 || (response?.Contents || []).length > 0;
+    }
+
+    async clearBucketContents() {
+        await this._ensureInitialized();
+        let deletedCount = 0;
+
+        while (true) {
+            const listCommand = new ListObjectsV2Command({
+                Bucket: this.bucket,
+                MaxKeys: 1000,
+            });
+            const response = await this.sendS3Command(listCommand, 'listObjectsV2');
+            const objects = (response?.Contents || [])
+                .map((item) => item?.Key)
+                .filter(Boolean)
+                .map((key) => ({ Key: key }));
+
+            if (objects.length === 0) {
+                return { deletedCount };
+            }
+
+            const deleteCommand = new DeleteObjectsCommand({
+                Bucket: this.bucket,
+                Delete: {
+                    Objects: objects,
+                    Quiet: true,
+                },
+            });
+            await this.sendS3Command(deleteCommand, 'deleteObjects');
+            deletedCount += objects.length;
+        }
+    }
+
     // ========== 分块上传扩展 ==========
 
     getChunkConfig() {
@@ -323,6 +367,8 @@ S3Storage.__setCommandsForTest = (commands) => {
     if (commands.GetObjectCommand !== undefined) GetObjectCommand = commands.GetObjectCommand;
     if (commands.DeleteObjectCommand !== undefined) DeleteObjectCommand = commands.DeleteObjectCommand;
     if (commands.HeadObjectCommand !== undefined) HeadObjectCommand = commands.HeadObjectCommand;
+    if (commands.ListObjectsV2Command !== undefined) ListObjectsV2Command = commands.ListObjectsV2Command;
+    if (commands.DeleteObjectsCommand !== undefined) DeleteObjectsCommand = commands.DeleteObjectsCommand;
 };
 
 export default S3Storage;

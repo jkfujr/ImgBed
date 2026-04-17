@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ValidationError } from '../../src/errors/AppError.js';
+import { ConflictError, ValidationError } from '../../src/errors/AppError.js';
 import {
   VALID_STORAGE_TYPES,
   applyStorageConfigPatch,
@@ -66,6 +66,20 @@ function createStorageConfigFixture(overrides = {}) {
     async testConnection(type, config) {
       calls.push(`testConnection:${type}`);
       return overrides.testConnectionResult || { ok: true, config };
+    },
+    async hasExistingObjects(type, config) {
+      calls.push(`hasExistingObjects:${type}`);
+      if (typeof overrides.hasExistingObjects === 'function') {
+        return overrides.hasExistingObjects(type, config);
+      }
+      return overrides.hasExistingObjectsResult || false;
+    },
+    async clearStorageContents(type, config) {
+      calls.push(`clearStorageContents:${type}`);
+      if (typeof overrides.clearStorageContents === 'function') {
+        return overrides.clearStorageContents(type, config);
+      }
+      return overrides.clearStorageContentsResult || { deletedCount: 0 };
     },
   };
 
@@ -210,6 +224,86 @@ test('createStorage 会走统一编排链并归一化新渠道配置', async () 
   assert.equal(created.config.pathStyle, true);
   assert.equal(fixture.appliedConfigs[0].storage.storages.length, 3);
   assert.deepEqual(fixture.calls, [
+    'hasExistingObjects:s3',
+    'applyStorageConfigChange',
+    'invalidateStorages',
+  ]);
+});
+
+test('createStorage 在 S3 bucket 非空且未指定动作时会返回带 reason 的冲突错误', async () => {
+  const fixture = createStorageConfigFixture({
+    hasExistingObjectsResult: true,
+  });
+
+  await assert.rejects(
+    fixture.service.createStorage({
+      id: 's3-2',
+      type: 's3',
+      name: '备份渠道',
+      allowUpload: true,
+      config: {
+        bucket: 'bucket-1',
+      },
+    }),
+    (error) => {
+      assert.equal(error instanceof ConflictError, true);
+      assert.equal(error.message, 'S3 存储桶中已存在文件，请确认是否需要清空');
+      assert.equal(error.reason, 'S3_BUCKET_NOT_EMPTY');
+      return true;
+    },
+  );
+
+  assert.deepEqual(fixture.calls, [
+    'hasExistingObjects:s3',
+  ]);
+});
+
+test('createStorage 在选择 keep 时会保留已有对象并继续创建', async () => {
+  const fixture = createStorageConfigFixture({
+    hasExistingObjectsResult: true,
+  });
+
+  const created = await fixture.service.createStorage({
+    id: 's3-2',
+    type: 's3',
+    name: '备份渠道',
+    allowUpload: true,
+    s3NonEmptyAction: 'keep',
+    config: {
+      bucket: 'bucket-1',
+      secretAccessKey: 'secret-2',
+    },
+  });
+
+  assert.equal(created.id, 's3-2');
+  assert.deepEqual(fixture.calls, [
+    'hasExistingObjects:s3',
+    'applyStorageConfigChange',
+    'invalidateStorages',
+  ]);
+});
+
+test('createStorage 在选择 clear_bucket 时会先清空整个 bucket 再创建', async () => {
+  const fixture = createStorageConfigFixture({
+    hasExistingObjectsResult: true,
+  });
+
+  const created = await fixture.service.createStorage({
+    id: 's3-2',
+    type: 's3',
+    name: '备份渠道',
+    allowUpload: true,
+    s3NonEmptyAction: 'clear_bucket',
+    config: {
+      bucket: 'bucket-1',
+      secretAccessKey: 'secret-2',
+    },
+  });
+
+  assert.equal(created.id, 's3-2');
+  assert.deepEqual(fixture.calls, [
+    'hasExistingObjects:s3',
+    'clearStorageContents:s3',
     'applyStorageConfigChange',
     'invalidateStorages',
   ]);

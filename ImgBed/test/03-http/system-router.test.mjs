@@ -14,7 +14,7 @@ process.env.IMGBED_APP_ROOT = appRoot;
 const configModule = await import(resolveProjectModuleUrl('src', 'config', 'index.js'));
 configModule.loadStartupConfig();
 
-const { ValidationError } = await import(resolveProjectModuleUrl('src', 'errors', 'AppError.js'));
+const { ConflictError, ValidationError } = await import(resolveProjectModuleUrl('src', 'errors', 'AppError.js'));
 const { notFoundHandler, registerErrorHandlers } = await import(resolveProjectModuleUrl('src', 'middleware', 'errorHandler.js'));
 const { createSystemRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system.js'));
 const { createSystemConfigRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'config-router.js'));
@@ -271,7 +271,8 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       async updateLoadBalance(body) {
         serviceCalls.push({ updateLoadBalance: body });
       },
-      async createStorage() {
+      async createStorage(body) {
+        serviceCalls.push({ createStorage: body });
         return { id: 'local-1', type: 'local', config: {} };
       },
       async updateStorage() {
@@ -302,18 +303,106 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       strategy: 'weighted',
     },
   });
+  const createStorageResponse = await requestJson(appHandle, '/storages', {
+    method: 'POST',
+    json: {
+      id: 's3-2',
+      type: 's3',
+      name: '备份渠道',
+      s3NonEmptyAction: 'keep',
+      config: {
+        bucket: 'bucket-1',
+      },
+    },
+  });
 
   assert.equal(storagesResponse.status, 200);
   assert.equal(storagesResponse.body.data.list[0].config.secretAccessKey, '***');
   assert.equal(storagesResponse.body.data.list[0].usedBytes, 64);
   assert.equal(testResponse.status, 200);
+  assert.equal(createStorageResponse.status, 200);
+  assert.equal(createStorageResponse.body.message, '存储渠道已新增');
   assert.equal(loadBalanceResponse.body.data.strategy, 'weighted');
   assert.deepEqual(quotaStatsResponse.body.data.stats, { 's3-1': 64 });
   assert.equal(updateLoadBalanceResponse.status, 200);
   assert.deepEqual(serviceCalls, [
     { type: 's3', config: { region: 'ap-southeast-1' } },
     { updateLoadBalance: { strategy: 'weighted' } },
+    {
+      createStorage: {
+        id: 's3-2',
+        type: 's3',
+        name: '备份渠道',
+        s3NonEmptyAction: 'keep',
+        config: {
+          bucket: 'bucket-1',
+        },
+      },
+    },
   ]);
+});
+
+test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason', async (t) => {
+  const passthroughCache = createPassthroughCache();
+  const appHandle = await startRouterApp(createSystemStoragesRouter({
+    storagesListCache: passthroughCache,
+    storagesStatsCache: passthroughCache,
+    loadBalanceCache: passthroughCache,
+    quotaStatsCache: passthroughCache,
+    readRuntimeConfig: () => ({
+      storage: {
+        default: 's3-1',
+        storages: [],
+      },
+    }),
+    sanitizeStorageChannel: (storage) => storage,
+    summarizeStorages: () => ({ total: 0, enabled: 0, allowUpload: 0, byType: {} }),
+    storageManager: {
+      getAllQuotaStats() {
+        return {};
+      },
+      getUsageStats() {
+        return {};
+      },
+    },
+    storageConfigService: {
+      async testStorageConnection() {
+        return { ok: true };
+      },
+      async updateLoadBalance() {},
+      async createStorage() {
+        throw new ConflictError('S3 存储桶中已存在文件，请确认是否需要清空', 'S3_BUCKET_NOT_EMPTY');
+      },
+      async updateStorage() {
+        return { id: 's3-1', type: 's3', config: {} };
+      },
+      async deleteStorage() {},
+      async setDefaultStorage() {},
+      async toggleStorage() {
+        return true;
+      },
+    },
+  }));
+  t.after(() => appHandle.stop());
+
+  const createStorageResponse = await requestJson(appHandle, '/storages', {
+    method: 'POST',
+    json: {
+      id: 's3-2',
+      type: 's3',
+      name: '备份渠道',
+      config: {
+        bucket: 'bucket-1',
+      },
+    },
+  });
+
+  assert.equal(createStorageResponse.status, 409);
+  assert.deepEqual(createStorageResponse.body, {
+    code: 409,
+    message: 'S3 存储桶中已存在文件，请确认是否需要清空',
+    reason: 'S3_BUCKET_NOT_EMPTY',
+  });
 });
 
 test('createSystemMaintenanceRouter 会返回 processing 与容量历史数据', async (t) => {

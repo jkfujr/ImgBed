@@ -7,15 +7,20 @@ const registerErrorHandlers = (app) => {
   app.use((err, _req, res, _next) => {
     const status = err instanceof AppError ? err.status : (err.status || 500);
     const isConfigFileError = err instanceof ConfigFileError;
+    const payload = {
+      code: status,
+      message: isConfigFileError ? '配置文件不可用，请修复后重试' : (err.message || '内部服务器错误'),
+    };
+
+    if (err?.reason) {
+      payload.reason = err.reason;
+    }
 
     if (status >= 500) {
       log.error({ err }, '应用错误');
     }
 
-    res.status(status).json({
-      code: status,
-      message: isConfigFileError ? '配置文件不可用，请修复后重试' : (err.message || '内部服务器错误'),
-    });
+    res.status(status).json(payload);
   });
 };
 

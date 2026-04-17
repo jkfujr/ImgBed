@@ -1,4 +1,6 @@
-import { NotFoundError, ValidationError } from '../../errors/AppError.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../errors/AppError.js';
+
+const VALID_S3_NON_EMPTY_ACTIONS = new Set(['keep', 'clear_bucket']);
 
 function createStorageConfigService({
   readRuntimeConfig,
@@ -27,6 +29,19 @@ function createStorageConfigService({
     if (validationError) {
       throw new ValidationError(validationError.message);
     }
+  }
+
+  function normalizeS3NonEmptyAction(action) {
+    if (action === undefined || action === null || action === '') {
+      return null;
+    }
+
+    const normalizedAction = String(action).trim().toLowerCase();
+    if (!VALID_S3_NON_EMPTY_ACTIONS.has(normalizedAction)) {
+      throw new ValidationError('s3NonEmptyAction 参数不合法');
+    }
+
+    return normalizedAction;
   }
 
   return {
@@ -59,6 +74,21 @@ function createStorageConfigService({
 
       if (storages.some((storage) => storage.id === body.id)) {
         throw new ValidationError(`渠道 ID "${body.id}" 已存在`);
+      }
+
+      if (body.type === 's3') {
+        const s3NonEmptyAction = normalizeS3NonEmptyAction(body.s3NonEmptyAction);
+        const hasExistingObjects = await storageManager.hasExistingObjects('s3', body.config || {});
+
+        if (hasExistingObjects) {
+          if (!s3NonEmptyAction) {
+            throw new ConflictError('S3 存储桶中已存在文件，请确认是否需要清空', 'S3_BUCKET_NOT_EMPTY');
+          }
+
+          if (s3NonEmptyAction === 'clear_bucket') {
+            await storageManager.clearStorageContents('s3', body.config || {});
+          }
+        }
       }
 
       const storage = buildNewStorageChannel(body);
