@@ -248,7 +248,27 @@ class S3Storage extends StorageProvider {
             await this.sendS3Command(command, 'headBucket');
             return { ok: true, message: `存储桶 "${this.bucket}" 连接成功` };
         } catch (err) {
-            return { ok: false, message: `连接失败: ${err.message}` };
+            let message = err.message;
+
+            if (message.includes('Region not accepted')) {
+                message = 'Region 配置错误：请勿在 Region 字段填写完整 URL。\n\n' +
+                          '正确配置示例：\n' +
+                          '【AWS S3】Region: us-east-1 | Endpoint: 留空\n' +
+                          '【Cloudflare R2】Region: auto | Endpoint: https://账户ID.r2.cloudflarestorage.com\n' +
+                          '【MinIO】Region: auto | Endpoint: http://localhost:9000';
+            } else if (message.includes('getaddrinfo ENOTFOUND')) {
+                message = 'Endpoint 配置错误：无法解析域名，请检查 Endpoint 格式是否正确';
+            } else if (err.name === 'NoSuchBucket') {
+                message = `存储桶 "${this.bucket}" 不存在或无权访问，请检查 Bucket 名称和访问密钥`;
+            } else if (err.name === 'InvalidAccessKeyId') {
+                message = 'Access Key ID 无效，请检查访问密钥配置';
+            } else if (err.name === 'SignatureDoesNotMatch') {
+                message = 'Secret Access Key 错误，请检查访问密钥配置';
+            } else {
+                message = `连接失败: ${message}`;
+            }
+
+            return { ok: false, message };
         }
     }
 

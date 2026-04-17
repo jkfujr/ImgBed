@@ -37,6 +37,7 @@ export default function ChannelFormConfig({ form, setConfigField, showSensitive,
             value={form.config[field.key] ?? ''}
             onChange={(e) => setConfigField(field.key, e.target.value)}
             placeholder={field.sensitive && editTarget ? '不修改请留空' : ''}
+            helperText={field.helperText || ''}
             InputProps={field.sensitive ? {
               endAdornment: (
                 <InputAdornment position="end">
