@@ -342,7 +342,7 @@ export function createConfigRepository({
       }
 
       try {
-        const stats = getFileStats();
+        let stats = getFileStats();
         const currentTime = dateNow();
         if (
           cacheEntry &&

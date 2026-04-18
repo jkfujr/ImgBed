@@ -285,31 +285,49 @@ class S3Storage extends StorageProvider {
     async clearBucketContents() {
         await this._ensureInitialized();
         let deletedCount = 0;
+        const startTime = Date.now();
+        const timeoutMs = 300000; // 5 分钟超时
 
         while (true) {
+            // 检查超时
+            if (Date.now() - startTime > timeoutMs) {
+                throw new Error(`清空操作超时（已删除 ${deletedCount} 个对象）`);
+            }
+
+            // 不使用 Delimiter，列出所有对象（包括目录对象）
             const listCommand = new ListObjectsV2Command({
                 Bucket: this.bucket,
-                MaxKeys: 1000,
+                MaxKeys: 500, // 减小批次，提高兼容性
             });
             const response = await this.sendS3Command(listCommand, 'listObjectsV2');
+
+            // 收集所有对象（包括文件和目录对象）
+            // 目录对象通常以 '/' 结尾，如 'pixiv/', 'QQ/'
             const objects = (response?.Contents || [])
                 .map((item) => item?.Key)
                 .filter(Boolean)
                 .map((key) => ({ Key: key }));
 
             if (objects.length === 0) {
+                log.info({ deletedCount }, 'S3 清空完成');
                 return { deletedCount };
             }
 
-            const deleteCommand = new DeleteObjectsCommand({
-                Bucket: this.bucket,
-                Delete: {
-                    Objects: objects,
-                    Quiet: true,
-                },
-            });
-            await this.sendS3Command(deleteCommand, 'deleteObjects');
-            deletedCount += objects.length;
+            // 分批删除，避免单次请求过大
+            const batchSize = 500;
+            for (let i = 0; i < objects.length; i += batchSize) {
+                const batch = objects.slice(i, i + batchSize);
+                const deleteCommand = new DeleteObjectsCommand({
+                    Bucket: this.bucket,
+                    Delete: {
+                        Objects: batch,
+                        Quiet: true,
+                    },
+                });
+                await this.sendS3Command(deleteCommand, 'deleteObjects');
+                deletedCount += batch.length;
+                log.info({ deletedCount, batchSize: batch.length }, 'S3 清空进度');
+            }
         }
     }
 
