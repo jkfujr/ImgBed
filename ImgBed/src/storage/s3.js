@@ -287,6 +287,7 @@ class S3Storage extends StorageProvider {
         let deletedCount = 0;
         const startTime = Date.now();
         const timeoutMs = 300000; // 5 分钟超时
+        let continuationToken = null;
 
         while (true) {
             // 检查超时
@@ -297,7 +298,8 @@ class S3Storage extends StorageProvider {
             // 不使用 Delimiter，列出所有对象（包括目录对象）
             const listCommand = new ListObjectsV2Command({
                 Bucket: this.bucket,
-                MaxKeys: 500, // 减小批次，提高兼容性
+                MaxKeys: 1000, // 增加批次大小
+                ContinuationToken: continuationToken, // 使用续传令牌
             });
             const response = await this.sendS3Command(listCommand, 'listObjectsV2');
 
@@ -314,7 +316,7 @@ class S3Storage extends StorageProvider {
             }
 
             // 分批删除，避免单次请求过大
-            const batchSize = 500;
+            const batchSize = 1000; // S3 DeleteObjects 最大支持 1000
             for (let i = 0; i < objects.length; i += batchSize) {
                 const batch = objects.slice(i, i + batchSize);
                 const deleteCommand = new DeleteObjectsCommand({
@@ -327,6 +329,24 @@ class S3Storage extends StorageProvider {
                 await this.sendS3Command(deleteCommand, 'deleteObjects');
                 deletedCount += batch.length;
                 log.info({ deletedCount, batchSize: batch.length }, 'S3 清空进度');
+            }
+
+            // 检查是否还有更多对象
+            if (response?.IsTruncated) {
+                continuationToken = response.NextContinuationToken;
+            } else {
+                // 没有更多对象了，重新从头开始检查（确保删除干净）
+                continuationToken = null;
+                // 再次列出，如果为空则完成
+                const checkCommand = new ListObjectsV2Command({
+                    Bucket: this.bucket,
+                    MaxKeys: 1,
+                });
+                const checkResponse = await this.sendS3Command(checkCommand, 'listObjectsV2');
+                if ((checkResponse?.Contents || []).length === 0) {
+                    log.info({ deletedCount }, 'S3 清空完成');
+                    return { deletedCount };
+                }
             }
         }
     }
