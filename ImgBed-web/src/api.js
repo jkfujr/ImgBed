@@ -143,29 +143,47 @@ export const UploadDocs = {
 };
 
 export const StorageDocs = {
-  list: () => api.get('/api/system/storages'),
-  stats: () => api.get('/api/system/storages/stats'),
+  list: (force = false) => api.get('/api/system/storages', {
+    params: force ? { force: 'true' } : {}
+  }),
+  stats: (force = false) => api.get('/api/system/storages/stats', {
+    params: force ? { force: 'true' } : {}
+  }),
   create: (data) => api.post('/api/system/storages', data),
   update: (id, data) => api.put(`/api/system/storages/${id}`, data),
   remove: (id) => api.delete(`/api/system/storages/${id}`),
   setDefault: (id) => api.put(`/api/system/storages/${id}/default`),
   toggle: (id) => api.put(`/api/system/storages/${id}/toggle`),
   test: (data) => api.post('/api/system/storages/test', data),
-  getLoadBalance: () => api.get('/api/system/load-balance'),
+  getLoadBalance: (force = false) => api.get('/api/system/load-balance', {
+    params: force ? { force: 'true' } : {}
+  }),
   updateLoadBalance: (data) => api.put('/api/system/load-balance', data),
 };
 
 export const SystemConfigDocs = {
-  get: () => api.get('/api/system/config'),
+  get: (force = false) => api.get('/api/system/config', {
+    params: force ? { force: 'true' } : {}
+  }),
   update: (data) => api.put('/api/system/config', data),
-  quotaStats: () => api.get('/api/system/quota-stats'),
-  cacheStats: () => api.get('/api/system/cache/stats'),
+  quotaStats: (force = false) => api.get('/api/system/quota-stats', {
+    params: force ? { force: 'true' } : {}
+  }),
+  cacheStats: (force = false) => api.get('/api/system/cache/stats', {
+    params: force ? { force: 'true' } : {}
+  }),
 };
 
 export const DashboardAPI = {
-  getOverview: () => api.get('/api/system/dashboard/overview'),
-  getUploadTrend: (days = 7) => api.get('/api/system/dashboard/upload-trend', { params: { days } }),
-  getAccessStats: () => api.get('/api/system/dashboard/access-stats'),
+  getOverview: (force = false) => api.get('/api/system/dashboard/overview', {
+    params: force ? { force: 'true' } : {}
+  }),
+  getUploadTrend: (days = 7, force = false) => api.get('/api/system/dashboard/upload-trend', {
+    params: { days, ...(force ? { force: 'true' } : {}) }
+  }),
+  getAccessStats: (force = false) => api.get('/api/system/dashboard/access-stats', {
+    params: force ? { force: 'true' } : {}
+  }),
 };
 
 export const PublicAPI = {

@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import pinoHttp from 'pino-http';
 import path from 'path';
 import { resolveAppPath } from './config/app-root.js';
@@ -57,6 +58,19 @@ function isSpaNavigationRequest(req) {
 }
 
 app.disable('x-powered-by');
+
+// HTTP 响应压缩
+app.use(compression({
+  filter: (req, res) => {
+    // 不压缩图片等二进制内容
+    if (req.path.startsWith('/i/') || req.path.startsWith('/view/')) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+  threshold: 1024, // 只压缩 >1KB 的响应
+  level: 6, // 压缩级别 1-9
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

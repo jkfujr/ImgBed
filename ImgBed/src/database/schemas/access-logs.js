@@ -21,5 +21,6 @@ export function createAccessLogsSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_access_logs_created_at ON access_logs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_access_logs_ip ON access_logs(ip);
     CREATE INDEX IF NOT EXISTS idx_access_logs_is_admin ON access_logs(is_admin);
+    CREATE INDEX IF NOT EXISTS idx_access_logs_is_admin_created_at ON access_logs(is_admin, created_at DESC);
   `);
 }

@@ -59,6 +59,11 @@ export function cacheMiddleware(options = {}) {
       return next();
     }
 
+    // 检查是否强制刷新
+    if (req.query.force === 'true' || req.headers['x-force-refresh'] === 'true') {
+      return next(); // 绕过缓存
+    }
+
     const cache = getResponseCache();
 
     // 如果缓存未启用，直接跳过

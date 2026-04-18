@@ -20,19 +20,28 @@ export function useDashboard() {
     };
   }, []);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (force = false) => {
     const requestId = requestGuardRef.current.begin();
     setLoading(true);
     setError(null);
 
     try {
-      const [overviewRes, trendRes, accessRes, storagesRes, quotaRes, cacheRes] = await Promise.all([
-        DashboardAPI.getOverview(),
-        DashboardAPI.getUploadTrend(trendDays),
-        DashboardAPI.getAccessStats(),
-        StorageDocs.list(),
-        SystemConfigDocs.quotaStats(),
-        SystemConfigDocs.cacheStats(),
+      // 第一优先级：核心概览数据（最快，用户最关心）
+      const overviewPromise = DashboardAPI.getOverview(force);
+      const accessStatsPromise = DashboardAPI.getAccessStats(force);
+
+      // 第二优先级：趋势图数据
+      const trendPromise = DashboardAPI.getUploadTrend(trendDays, force);
+
+      // 第三优先级：配置数据
+      const storagesPromise = StorageDocs.list(force);
+      const quotaPromise = SystemConfigDocs.quotaStats(force);
+      const cachePromise = SystemConfigDocs.cacheStats(force);
+
+      // 先加载核心数据，立即显示
+      const [overviewRes, accessRes] = await Promise.all([
+        overviewPromise,
+        accessStatsPromise,
       ]);
 
       if (!requestGuardRef.current.isCurrent(requestId)) {
@@ -40,8 +49,22 @@ export function useDashboard() {
       }
 
       setOverview(overviewRes.data || overviewRes);
-      setUploadTrend(trendRes.data?.trend || trendRes.trend || []);
       setAccessStats(accessRes.data || accessRes);
+      setLoading(false); // 核心数据加载完成，停止 loading
+
+      // 后台继续加载次要数据
+      const [trendRes, storagesRes, quotaRes, cacheRes] = await Promise.all([
+        trendPromise,
+        storagesPromise,
+        quotaPromise,
+        cachePromise,
+      ]);
+
+      if (!requestGuardRef.current.isCurrent(requestId)) {
+        return;
+      }
+
+      setUploadTrend(trendRes.data?.trend || trendRes.trend || []);
       setStorages(storagesRes.data?.list || storagesRes.list || []);
       setQuotaStats(quotaRes.data?.stats || quotaRes.stats || {});
       setCacheStats(cacheRes.data || cacheRes);
@@ -52,16 +75,18 @@ export function useDashboard() {
 
       console.error('加载仪表盘数据失败:', err);
       setError(err.message || '加载数据失败');
-    } finally {
-      if (requestGuardRef.current.isCurrent(requestId)) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [trendDays]);
 
+  // 手动刷新函数（绕过缓存）
+  const refresh = useCallback(() => {
+    fetchData(true); // force = true
+  }, [fetchData]);
+
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
+    fetchData(false); // 初始加载使用缓存
+    const interval = setInterval(() => fetchData(false), 30000); // 自动轮询使用缓存
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -76,6 +101,6 @@ export function useDashboard() {
     error,
     trendDays,
     setTrendDays,
-    refresh: fetchData,
+    refresh,
   };
 }

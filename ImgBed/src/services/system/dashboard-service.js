@@ -17,7 +17,8 @@ function createDashboardService({
 
       const todayAccessResult = db.prepare(`
         SELECT COUNT(*) as count FROM access_logs
-        WHERE DATE(created_at) = DATE('now')
+        WHERE created_at >= date('now', 'start of day')
+          AND created_at < date('now', 'start of day', '+1 day')
       `).get();
 
       return {
@@ -43,14 +44,15 @@ function createDashboardService({
     },
 
     getAccessStats() {
-      const todayAccessResult = db.prepare(`
-        SELECT COUNT(*) as count FROM access_logs
-        WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
-      `).get();
-
-      const todayVisitorsResult = db.prepare(`
-        SELECT COUNT(DISTINCT ip) as count FROM access_logs
-        WHERE DATE(created_at) = DATE('now') AND (is_admin = 0 OR is_admin IS NULL)
+      // 合并查询：今日访问数和独立访客数
+      const todayStats = db.prepare(`
+        SELECT
+          COUNT(*) as todayAccess,
+          COUNT(DISTINCT ip) as todayVisitors
+        FROM access_logs
+        WHERE created_at >= date('now', 'start of day')
+          AND created_at < date('now', 'start of day', '+1 day')
+          AND (is_admin = 0 OR is_admin IS NULL)
       `).get();
 
       const topFiles = db.prepare(`
@@ -61,7 +63,7 @@ function createDashboardService({
           COUNT(access_logs.id) as accessCount
         FROM access_logs
         INNER JOIN files ON access_logs.file_id = files.id
-        WHERE DATE(access_logs.created_at) >= DATE('now', '-7 days')
+        WHERE access_logs.created_at >= datetime('now', '-7 days')
           AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
           AND files.status = 'active'
         GROUP BY access_logs.file_id
@@ -81,8 +83,8 @@ function createDashboardService({
       `).all();
 
       return {
-        todayAccess: todayAccessResult?.count || 0,
-        todayVisitors: todayVisitorsResult?.count || 0,
+        todayAccess: todayStats?.todayAccess || 0,
+        todayVisitors: todayStats?.todayVisitors || 0,
         topFiles,
         accessTrend,
       };
