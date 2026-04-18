@@ -118,7 +118,9 @@ function getActiveFilesStats(db) {
  */
 function getTodayUploadCount(db) {
   const row = db.prepare(
-    "SELECT COUNT(*) AS count FROM files WHERE DATE(created_at) = DATE('now') AND status = 'active'"
+    `SELECT COUNT(*) AS count FROM files
+     WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+     AND status = 'active'`
   ).get();
   return Number(row?.count || 0);
 }
@@ -132,12 +134,13 @@ function getTodayUploadCount(db) {
 function getUploadTrend(db, days) {
   return db.prepare(`
     SELECT
-      DATE(created_at) AS date,
+      DATE(created_at, 'localtime') AS date,
       COUNT(*) AS fileCount,
       COALESCE(SUM(size), 0) AS totalSize
     FROM files
-    WHERE created_at >= datetime('now', '-${days} days') AND status = 'active'
-    GROUP BY DATE(created_at)
+    WHERE created_at >= datetime('now', 'localtime', '-${days} days')
+      AND status = 'active'
+    GROUP BY DATE(created_at, 'localtime')
     ORDER BY date ASC
   `).all();
 }
