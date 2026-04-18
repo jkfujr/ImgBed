@@ -3,7 +3,8 @@ import { sqlite } from '../database/index.js';
 
 const API_TOKEN_PERMISSIONS = {
   UPLOAD_IMAGE: 'upload:image',
-  FILES_READ: 'files:read'
+  FILES_READ: 'files:read',
+  DIRECTORIES_READ: 'directories:read'
 };
 
 const ALLOWED_API_TOKEN_PERMISSIONS = new Set(Object.values(API_TOKEN_PERMISSIONS));

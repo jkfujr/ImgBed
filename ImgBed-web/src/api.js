@@ -94,6 +94,7 @@ export const AuthDocs = {
 export const ApiTokenDocs = {
   list: () => api.get('/api/api-tokens'),
   create: (payload) => api.post('/api/api-tokens', payload),
+  update: (id, payload) => api.put(`/api/api-tokens/${id}`, payload),
   remove: (id) => api.delete(`/api/api-tokens/${id}`),
 };
 

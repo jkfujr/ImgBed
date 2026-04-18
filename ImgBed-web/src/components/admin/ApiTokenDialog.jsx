@@ -1,17 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Checkbox,
   TextField, Typography, CircularProgress
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { PERMISSION_OPTIONS } from '../../constants/permissions.js';
 
-const PERMISSION_OPTIONS = [
-  { key: 'upload:image', label: '上传图片', description: '允许调用上传接口', defaultChecked: true },
-  { key: 'files:read', label: '查看文件列表', description: '允许读取文件列表与文件详情' }
-];
-
-export default function ApiTokenDialog({ open, onClose, onSubmit, submitting }) {
+export default function ApiTokenDialog({ open, onClose, onSubmit, submitting, mode = 'create', initialData = null }) {
   const [form, setForm] = useState({
     name: '',
     permissions: ['upload:image'],
@@ -41,6 +37,24 @@ export default function ApiTokenDialog({ open, onClose, onSubmit, submitting }) 
     setCopySuccess('');
   };
 
+  useEffect(() => {
+    if (open && mode === 'edit' && initialData) {
+      setForm({
+        name: initialData.name || '',
+        permissions: initialData.permissions || [],
+        expiresMode: initialData.expires_at ? 'custom' : 'never',
+        expiresAt: initialData.expires_at
+          ? new Date(initialData.expires_at).toISOString().slice(0, 16)
+          : ''
+      });
+      setCreateResult(null);
+      setError('');
+      setCopySuccess('');
+    } else if (open && mode === 'create') {
+      resetForm();
+    }
+  }, [open, mode, initialData]);
+
   const handleClose = () => {
     if (submitting) return;
     onClose();
@@ -66,7 +80,7 @@ export default function ApiTokenDialog({ open, onClose, onSubmit, submitting }) 
     }
   };
 
-  const handleCreate = async () => {
+  const handleSubmit = async () => {
     setError('');
     setCopySuccess('');
 
@@ -93,20 +107,26 @@ export default function ApiTokenDialog({ open, onClose, onSubmit, submitting }) 
     });
 
     if (result.success) {
-      setCreateResult(result.data);
+      if (mode === 'create') {
+        setCreateResult(result.data);
+      } else {
+        onClose();
+      }
     } else {
-      setError(result.error || '创建失败');
+      setError(result.error || `${mode === 'create' ? '创建' : '更新'}失败`);
     }
   };
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{createResult ? 'Token 已创建' : '创建 API Token'}</DialogTitle>
+      <DialogTitle>
+        {createResult ? 'Token 已创建' : (mode === 'edit' ? '编辑 API Token' : '创建 API Token')}
+      </DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {copySuccess && <Alert severity="success" sx={{ mb: 2 }}>{copySuccess}</Alert>}
 
-        {createResult ? (
+        {mode === 'create' && createResult ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Alert severity="success">Token 创建成功。该明文仅显示一次。</Alert>
             <TextField label="Token" value={createResult.plainToken || ''} fullWidth size="small" InputProps={{ readOnly: true }} />
@@ -180,8 +200,8 @@ export default function ApiTokenDialog({ open, onClose, onSubmit, submitting }) 
         ) : (
           <>
             <Button onClick={handleClose} disabled={submitting}>取消</Button>
-            <Button variant="contained" onClick={handleCreate} disabled={submitting}>
-              {submitting ? <CircularProgress size={18} color="inherit" /> : '创建'}
+            <Button variant="contained" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? <CircularProgress size={18} color="inherit" /> : (mode === 'edit' ? '保存' : '创建')}
             </Button>
           </>
         )}

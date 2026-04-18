@@ -8,6 +8,7 @@ import { API_TOKEN_PERMISSIONS,
 import { adminAuth } from '../middleware/auth.js';
 import { sqlite } from '../database/index.js';
 import { validateTokenInput, createTokenRecord } from '../services/api-tokens/create-token.js';
+import { validateTokenUpdateInput } from '../services/api-tokens/update-token.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { NotFoundError } from '../errors/AppError.js';
 import { success } from '../utils/response.js';
@@ -80,6 +81,42 @@ apiTokensApp.post('/', asyncHandler(async (req, res) => {
     ...toSafeToken(created),
     plainToken
   }, 'API Token 创建成功'));
+}));
+
+apiTokensApp.put('/:id', asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  const body = req.body || {};
+
+  // 查询现有 token
+  const existingToken = sqlite.prepare(
+    'SELECT * FROM api_tokens WHERE id = ? LIMIT 1'
+  ).get(id);
+
+  if (!existingToken) {
+    throw new NotFoundError('API Token 不存在');
+  }
+
+  // 验证输入
+  const validated = validateTokenUpdateInput(body, existingToken);
+
+  // 更新数据库
+  sqlite.prepare(
+    `UPDATE api_tokens
+     SET name = ?, permissions = ?, expires_at = ?
+     WHERE id = ?`
+  ).run(
+    validated.name,
+    JSON.stringify(validated.permissions),
+    validated.expiresAt,
+    id
+  );
+
+  // 返回更新后的记录
+  const updated = sqlite.prepare(
+    'SELECT * FROM api_tokens WHERE id = ? LIMIT 1'
+  ).get(id);
+
+  return res.json(success(toSafeToken(updated), 'API Token 更新成功'));
 }));
 
 apiTokensApp.delete('/:id', asyncHandler(async (req, res) => {

@@ -57,6 +57,7 @@ function validateTokenInput(body) {
  * 创建 token 数据库记录
  */
 function createTokenRecord(validated, plainToken, tokenPrefix, tokenHash, generateTokenId) {
+  const now = new Date().toISOString();
   return {
     id: generateTokenId(),
     name: validated.name,
@@ -65,7 +66,11 @@ function createTokenRecord(validated, plainToken, tokenPrefix, tokenHash, genera
     permissions: JSON.stringify(validated.permissions),
     status: 'active',
     expires_at: validated.expiresAt,
+    last_used_at: null,
+    last_used_ip: null,
     created_by: 'admin',
+    created_at: now,
+    updated_at: now,
   };
 }
 

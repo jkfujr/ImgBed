@@ -12,6 +12,8 @@ export default function ApiTokenPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState('create');
+  const [editTarget, setEditTarget] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -66,6 +68,46 @@ export default function ApiTokenPanel() {
     }
   };
 
+  const handleEdit = (trigger, token) => {
+    createDialogFocusManager.open(trigger, () => {
+      setEditTarget(token);
+      setDialogMode('edit');
+      setDialogOpen(true);
+    });
+  };
+
+  const handleUpdate = async (formData) => {
+    setSubmitting(true);
+    try {
+      const res = await ApiTokenDocs.update(editTarget.id, formData);
+      if (res.code === 0) {
+        await loadTokens();
+        return { success: true, data: res.data };
+      }
+      return { success: false, error: res.message || '更新失败' };
+    } catch (err) {
+      return { success: false, error: err.response?.data?.message || '更新失败' };
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDialogSubmit = async (formData) => {
+    if (dialogMode === 'edit') {
+      return await handleUpdate(formData);
+    } else {
+      return await handleCreate(formData);
+    }
+  };
+
+  const handleDialogClose = () => {
+    createDialogFocusManager.close(() => {
+      setDialogOpen(false);
+      setDialogMode('create');
+      setEditTarget(null);
+    });
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -109,13 +151,16 @@ export default function ApiTokenPanel() {
       <ApiTokenList
         tokens={tokens}
         loading={loading}
+        onEdit={handleEdit}
         onDelete={(trigger, target) => deleteDialogFocusManager.open(trigger, () => setDeleteTarget(target))}
       />
 
       <ApiTokenDialog
         open={dialogOpen}
-        onClose={() => createDialogFocusManager.close(() => setDialogOpen(false))}
-        onSubmit={handleCreate}
+        mode={dialogMode}
+        initialData={editTarget}
+        onClose={handleDialogClose}
+        onSubmit={handleDialogSubmit}
         submitting={submitting}
       />
 

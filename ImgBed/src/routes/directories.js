@@ -1,6 +1,6 @@
 import express from 'express';
 import { sqlite } from '../database/index.js';
-import { adminAuth } from '../middleware/auth.js';
+import { adminAuth, requirePermission } from '../middleware/auth.js';
 import { resolveParentPath, checkPathConflict, buildPath, renameDirectory } from '../services/directories/directory-operations.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, ForbiddenError } from '../errors/AppError.js';
@@ -16,8 +16,6 @@ import { countFilesByDirectoryPrefix } from '../database/files-dao.js';
 
 const dirsApp = express.Router();
 
-dirsApp.use(adminAuth);
-
 const buildTree = (directories, parentId = null) => {
     return directories
         .filter(dir => dir.parent_id === parentId)
@@ -31,7 +29,7 @@ const buildTree = (directories, parentId = null) => {
  * 获取目录树
  * GET /api/directories
  */
-dirsApp.get('/', asyncHandler(async (req, res) => {
+dirsApp.get('/', requirePermission('directories:read'), asyncHandler(async (req, res) => {
     const type = req.query.type;
     const dirs = getAllDirectories(sqlite);
 
@@ -47,7 +45,7 @@ dirsApp.get('/', asyncHandler(async (req, res) => {
  * 创建新目录
  * POST /api/directories
  */
-dirsApp.post('/', asyncHandler(async (req, res) => {
+dirsApp.post('/', adminAuth, asyncHandler(async (req, res) => {
     const body = req.body || {};
     const { name, parent_id } = body;
 
@@ -70,7 +68,7 @@ dirsApp.post('/', asyncHandler(async (req, res) => {
  * 修改目录
  * PUT /api/directories/:id
  */
-dirsApp.put('/:id', asyncHandler(async (req, res) => {
+dirsApp.put('/:id', adminAuth, asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
         throw new ValidationError('无效的 ID 格式');
@@ -91,7 +89,7 @@ dirsApp.put('/:id', asyncHandler(async (req, res) => {
  * 删除目录
  * DELETE /api/directories/:id
  */
-dirsApp.delete('/:id', asyncHandler(async (req, res) => {
+dirsApp.delete('/:id', adminAuth, asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
         throw new ValidationError('无效的 ID 格式');

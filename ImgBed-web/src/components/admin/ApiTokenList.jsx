@@ -4,12 +4,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableRow, Paper
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import { PERMISSION_OPTIONS } from '../../constants/permissions.js';
 import { BORDER_RADIUS } from '../../utils/constants';
-
-const PERMISSION_OPTIONS = [
-  { key: 'upload:image', label: '上传图片', description: '允许调用上传接口', defaultChecked: true },
-  { key: 'files:read', label: '查看文件列表', description: '允许读取文件列表与文件详情' }
-];
 
 const formatDateTime = (value) => {
   if (!value) return '—';
@@ -18,7 +15,7 @@ const formatDateTime = (value) => {
   return date.toLocaleString('zh-CN', { hour12: false });
 };
 
-export default function ApiTokenList({ tokens, loading, onDelete }) {
+export default function ApiTokenList({ tokens, loading, onDelete, onEdit }) {
   const permissionMap = useMemo(() => {
     return PERMISSION_OPTIONS.reduce((map, option) => {
       map[option.key] = option;
@@ -77,6 +74,15 @@ export default function ApiTokenList({ tokens, loading, onDelete }) {
                 <TableCell>{formatDateTime(token.last_used_at)}</TableCell>
                 <TableCell>{formatDateTime(token.created_at)}</TableCell>
                 <TableCell align="right">
+                  <Tooltip title="编辑">
+                    <IconButton
+                      color="primary"
+                      size="small"
+                      onClick={(event) => onEdit(event.currentTarget, token)}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title="删除">
                     <IconButton
                       color="error"
