@@ -8,8 +8,9 @@ export function normalizeFilesPageSize(value, fallback = DEFAULT_PAGE_SIZE) {
   return parsed;
 }
 
-export function buildFilesPageCacheKey(directory, pageSize, page) {
-  return `${directory}::size:${pageSize}::page:${page}`;
+export function buildFilesPageCacheKey(directory, pageSize, page, search = '') {
+  const searchPart = search ? `::search:${search}` : '';
+  return `${directory}::size:${pageSize}::page:${page}${searchPart}`;
 }
 
 export function createFilesListState({
@@ -35,11 +36,11 @@ export function createFilesListState({
   };
 }
 
-export function flattenFilesPages(pageMap, directory, pageSize, loadedPageCount) {
+export function flattenFilesPages(pageMap, directory, pageSize, loadedPageCount, search = '') {
   const result = [];
 
   for (let page = 1; page <= loadedPageCount; page += 1) {
-    const pageData = pageMap.get(buildFilesPageCacheKey(directory, pageSize, page));
+    const pageData = pageMap.get(buildFilesPageCacheKey(directory, pageSize, page, search));
     if (!pageData) {
       break;
     }

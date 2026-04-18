@@ -33,7 +33,7 @@ export default function FilesAdmin() {
   const cols = parseInt(prefCols, 10) > 0 ? parseInt(prefCols, 10) : autoCols;
 
   const {
-    masonryData, pageData, total, totalPages, currentPage, loading, hasMore, directories, currentDir, selected, error,
+    masonryData, pageData, total, totalPages, currentPage, loading, hasMore, directories, currentDir, searchQuery, selected, error,
     deleteDialog, deleting, migrateDialog, moveDialog, detailOpen, selectedItem,
     handleOpenDetail, handleCloseDetail, triggerDeleteFromDetail,
     clearSelection, selectAll,
@@ -43,7 +43,7 @@ export default function FilesAdmin() {
     navigateToDir,
     openMigrate, closeMigrate,
     openMove, closeMove,
-    loadNextPage, goToPage,
+    loadNextPage, goToPage, clearSearch,
   } = useFilesAdmin(viewMode);
 
   const currentFiles = viewMode === 'masonry' ? masonryData : pageData;
@@ -94,6 +94,7 @@ export default function FilesAdmin() {
         cols={cols}
         viewMode={viewMode}
         selected={selected}
+        searchQuery={searchQuery}
         onToggleSelect={toggleSelect}
         onSelectAll={selectAll}
         onClearSelection={clearSelection}
@@ -102,6 +103,7 @@ export default function FilesAdmin() {
         onTriggerDelete={triggerDelete}
         onLoadNextPage={loadNextPage}
         onPageChange={goToPage}
+        onClearSearch={clearSearch}
       />
 
       <ConfirmDialog

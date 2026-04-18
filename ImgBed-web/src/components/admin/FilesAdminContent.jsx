@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, CircularProgress, Typography, Alert, Button } from '@mui/material';
 import FilesAdminMasonryView from './FilesAdminMasonryView';
 import FilesAdminListView from './FilesAdminListView';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -16,6 +16,7 @@ export default function FilesAdminContent({
   cols,
   viewMode,
   selected,
+  searchQuery,
   onToggleSelect,
   onSelectAll,
   onClearSelection,
@@ -24,8 +25,10 @@ export default function FilesAdminContent({
   onTriggerDelete,
   onLoadNextPage,
   onPageChange,
+  onClearSearch,
 }) {
   const hasItems = masonryData.length > 0 || pageData.length > 0 || directories.length > 0;
+  const showDirectories = !searchQuery && directories.length > 0;
   const scrollContainerRef = useRef(null);
   const sentinelRef = useRef(null);
 
@@ -62,17 +65,31 @@ export default function FilesAdminContent({
       ref={scrollContainerRef}
       sx={{ flexGrow: 1, minHeight: 0, height: '100%', overflow: viewMode === 'list' ? 'hidden' : 'auto' }}
     >
+      {searchQuery && (
+        <Alert
+          severity="info"
+          sx={{ m: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={onClearSearch}>
+              清除搜索
+            </Button>
+          }
+        >
+          搜索结果："{searchQuery}" （共 {total} 个文件）
+        </Alert>
+      )}
+
       {loading && masonryData.length === 0 && pageData.length === 0 && <LoadingSpinner />}
 
       {!loading && masonryData.length === 0 && pageData.length === 0 && directories.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
-          <Typography>暂无文件</Typography>
+          <Typography>{searchQuery ? '未找到匹配的文件' : '暂无文件'}</Typography>
         </Box>
       )}
 
       {hasItems && viewMode === 'masonry' && (
         <FilesAdminMasonryView
-          directories={directories}
+          directories={showDirectories ? directories : []}
           data={masonryData}
           cols={cols}
           selected={selected}
@@ -85,7 +102,7 @@ export default function FilesAdminContent({
 
       {hasItems && viewMode === 'list' && (
         <FilesAdminListView
-          directories={directories}
+          directories={showDirectories ? directories : []}
           data={pageData}
           total={total}
           totalPages={totalPages}

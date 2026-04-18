@@ -47,6 +47,10 @@ export function useFilesAdmin(viewMode = 'masonry') {
   const allDirsRef = useRef(null);
   const requestGuardRef = useRef(createRequestGuard());
   const currentDir = useMemo(() => getDirectoryPathFromSearch(location.search), [location.search]);
+  const searchQuery = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('search') || '';
+  }, [location.search]);
   const pageSize = useMemo(() => normalizeFilesPageSize(prefPageSize), [prefPageSize]);
 
   if (!deleteDialogFocusManagerRef.current) {
@@ -79,8 +83,8 @@ export function useFilesAdmin(viewMode = 'masonry') {
   const clearSelection = useCallback(() => setSelected(new Set()), []);
 
   const buildPageCacheKey = useCallback((page) => {
-    return buildFilesPageCacheKey(currentDir, pageSize, page);
-  }, [currentDir, pageSize]);
+    return buildFilesPageCacheKey(currentDir, pageSize, page, searchQuery);
+  }, [currentDir, pageSize, searchQuery]);
 
   const getCachedPage = useCallback((page) => {
     return pageCacheRef.current.get(buildPageCacheKey(page)) || null;
@@ -114,14 +118,14 @@ export function useFilesAdmin(viewMode = 'masonry') {
   }) => {
     return createFilesListState({
       pageData: pageResult?.data || [],
-      masonryData: flattenFilesPages(pageCacheRef.current, currentDir, pageSize, loadedPageCount),
+      masonryData: flattenFilesPages(pageCacheRef.current, currentDir, pageSize, loadedPageCount, searchQuery),
       directories,
       total: pageResult?.total || 0,
       currentPage,
       loadedPageCount,
       pageSize,
     });
-  }, [currentDir, pageSize]);
+  }, [currentDir, pageSize, searchQuery]);
 
   const selectAll = useCallback(() => {
     const currentItems = viewMode === 'masonry' ? listData.masonryData : listData.pageData;
@@ -157,6 +161,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
           currentDir,
           page: 1,
           pageSize,
+          search: searchQuery,
           keepDirectories: reuseDirectories && Array.isArray(allDirsRef.current),
           cachedDirectories: allDirsRef.current,
           fetchListPageImpl: async (dir, options) => cachedPage || fetchListPage(dir, options),
@@ -175,7 +180,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
       }
 
       if (!pageResult) {
-        pageResult = await fetchListPage(currentDir, { page: 1, pageSize });
+        pageResult = await fetchListPage(currentDir, { page: 1, pageSize, search: searchQuery });
       }
 
       cachePage(pageResult);
@@ -213,6 +218,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     getCachedPage,
     pageSize,
     resolveDirectories,
+    searchQuery,
   ]);
 
   const goToPage = useCallback(async (page) => {
@@ -229,7 +235,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     try {
       let pageResult = getCachedPage(nextPageNumber);
       if (!pageResult) {
-        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize });
+        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize, search: searchQuery });
         cachePage(pageResult);
       }
 
@@ -271,6 +277,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     listData.loadedPageCount,
     pageSize,
     resolveDirectories,
+    searchQuery,
   ]);
 
   const loadNextPage = useCallback(async () => {
@@ -290,7 +297,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     try {
       let pageResult = getCachedPage(nextPageNumber);
       if (!pageResult) {
-        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize });
+        pageResult = await fetchListPage(currentDir, { page: nextPageNumber, pageSize, search: searchQuery });
         cachePage(pageResult);
       }
 
@@ -338,6 +345,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     loading,
     pageSize,
     resolveDirectories,
+    searchQuery,
   ]);
 
   useEffect(() => {
@@ -448,6 +456,10 @@ export function useFilesAdmin(viewMode = 'masonry') {
     }, 0);
   }, [handleCloseDetail, triggerDelete]);
 
+  const clearSearch = useCallback(() => {
+    navigate(buildFilesAdminPath(currentDir));
+  }, [navigate, currentDir]);
+
   return {
     masonryData: listData.masonryData,
     pageData: listData.pageData,
@@ -460,6 +472,7 @@ export function useFilesAdmin(viewMode = 'masonry') {
     pageSize,
     loading,
     currentDir,
+    searchQuery,
     selected,
     error,
     deleteDialog,
@@ -486,5 +499,6 @@ export function useFilesAdmin(viewMode = 'masonry') {
     closeMove,
     loadNextPage,
     goToPage,
+    clearSearch,
   };
 }

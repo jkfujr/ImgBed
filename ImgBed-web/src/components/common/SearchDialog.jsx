@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, TextField, InputAdornment, Box,
   List, ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Typography, Divider, CircularProgress
+  Typography, Divider, CircularProgress, Button
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ImageIcon from '@mui/icons-material/Image';
@@ -30,7 +30,18 @@ export default function SearchDialog({ open, onClose }) {
   }, [searchInput, open, loadFiles]);
 
   const handleItemClick = (item) => {
-    navigate(`/admin/files?path=${encodeURIComponent(item.directory)}`);
+    const params = new URLSearchParams();
+    params.set('path', item.directory);
+    params.set('search', searchInput.trim());
+    navigate(`/admin/files?${params.toString()}`);
+    handleClose();
+  };
+
+  const handleViewAllResults = () => {
+    const params = new URLSearchParams();
+    params.set('path', '/');
+    params.set('search', searchInput.trim());
+    navigate(`/admin/files?${params.toString()}`);
     handleClose();
   };
 
@@ -99,6 +110,16 @@ export default function SearchDialog({ open, onClose }) {
                 </ListItem>
               ))}
             </List>
+            <Divider />
+            <Box sx={{ p: 2 }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={handleViewAllResults}
+              >
+                查看所有搜索结果
+              </Button>
+            </Box>
           </>
         )}
       </DialogContent>

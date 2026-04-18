@@ -113,9 +113,12 @@ export async function fetchDirectories(currentDir) {
   };
 }
 
-export async function fetchListPage(dir, { page = 1, pageSize = PAGE_SIZE } = {}) {
+export async function fetchListPage(dir, { page = 1, pageSize = PAGE_SIZE, search = '' } = {}) {
   const normalizedDir = normalizeDirectoryPath(dir);
   const params = { page, pageSize, directory: normalizedDir };
+  if (search) {
+    params.search = search;
+  }
   const pageRes = await FileDocs.list(params);
   return parseListResponse(pageRes, { page, pageSize });
 }
@@ -124,6 +127,7 @@ export async function loadFilesAdminPageData({
   currentDir,
   page = 1,
   pageSize = PAGE_SIZE,
+  search = '',
   keepDirectories = false,
   cachedDirectories = null,
   fetchDirectoriesImpl = fetchDirectories,
@@ -145,7 +149,7 @@ export async function loadFilesAdminPageData({
 
   const [directoryResult, pageResult] = await Promise.all([
     directoryPromise,
-    fetchListPageImpl(currentDir, { page, pageSize }),
+    fetchListPageImpl(currentDir, { page, pageSize, search }),
   ]);
 
   return {
