@@ -8,7 +8,18 @@ import { createLogger } from '../../utils/logger.js';
 import { readImageMetadata } from '../files/image-metadata.js';
 
 const log = createLogger('upload');
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+const ALLOWED_EXTENSIONS = [
+  // 传统格式
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
+  // 现代格式
+  '.webp', '.avif', '.apng',
+  // 矢量格式
+  '.svg',
+  // 移动设备格式
+  '.heic', '.heif',
+  // 专业格式
+  '.tiff', '.tif'
+];
 
 function validateUploadFile(file) {
   if (!file || typeof file === 'string') {
