@@ -288,6 +288,8 @@ class S3Storage extends StorageProvider {
         const startTime = Date.now();
         const timeoutMs = 300000; // 5 分钟超时
         let continuationToken = null;
+        let lastDeletedKeys = new Set(); // 记录上一轮删除的对象
+        let sameKeysCount = 0; // 连续遇到相同对象的次数
 
         while (true) {
             // 检查超时
@@ -314,6 +316,37 @@ class S3Storage extends StorageProvider {
                 log.info({ deletedCount }, 'S3 清空完成');
                 return { deletedCount };
             }
+
+            // 检测是否在重复删除相同的对象（Alist 兼容性问题）
+            const currentKeys = new Set(objects.map(obj => obj.Key));
+            const isSameAsLast = lastDeletedKeys.size > 0 &&
+                currentKeys.size === lastDeletedKeys.size &&
+                [...currentKeys].every(key => lastDeletedKeys.has(key));
+
+            if (isSameAsLast) {
+                sameKeysCount++;
+                log.warn({
+                    sameKeysCount,
+                    keys: [...currentKeys],
+                    deletedCount
+                }, 'S3 检测到重复对象（可能是服务端缓存问题）');
+
+                // 如果连续 3 次都是相同的对象，说明服务端有问题，停止删除
+                if (sameKeysCount >= 3) {
+                    log.warn({
+                        deletedCount,
+                        remainingKeys: [...currentKeys]
+                    }, 'S3 清空操作因服务端缓存问题提前终止');
+                    return { deletedCount, warning: '服务端可能存在缓存问题，部分对象可能未完全删除' };
+                }
+
+                // 等待一下，让服务端缓存更新
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+                sameKeysCount = 0;
+            }
+
+            lastDeletedKeys = currentKeys;
 
             // 分批删除，避免单次请求过大
             const batchSize = 1000; // S3 DeleteObjects 最大支持 1000
