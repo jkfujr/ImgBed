@@ -20,8 +20,9 @@ export function useLoadBalance() {
   });
 
   useEffect(() => {
+    const guard = requestGuardRef.current;
     return () => {
-      requestGuardRef.current.dispose();
+      guard.dispose();
     };
   }, []);
 

@@ -17,8 +17,7 @@ function createDashboardService({
 
       const todayAccessResult = db.prepare(`
         SELECT COUNT(*) as count FROM access_logs
-        WHERE created_at >= date('now', 'start of day')
-          AND created_at < date('now', 'start of day', '+1 day')
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
       `).get();
 
       return {
@@ -50,8 +49,7 @@ function createDashboardService({
           COUNT(*) as todayAccess,
           COUNT(DISTINCT ip) as todayVisitors
         FROM access_logs
-        WHERE created_at >= date('now', 'start of day')
-          AND created_at < date('now', 'start of day', '+1 day')
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
           AND (is_admin = 0 OR is_admin IS NULL)
       `).get();
 
@@ -63,7 +61,7 @@ function createDashboardService({
           COUNT(access_logs.id) as accessCount
         FROM access_logs
         INNER JOIN files ON access_logs.file_id = files.id
-        WHERE access_logs.created_at >= datetime('now', '-7 days')
+        WHERE access_logs.created_at >= datetime('now', 'localtime', '-7 days')
           AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
           AND files.status = 'active'
         GROUP BY access_logs.file_id
@@ -73,12 +71,12 @@ function createDashboardService({
 
       const accessTrend = db.prepare(`
         SELECT
-          DATE(created_at) as date,
+          DATE(created_at, 'localtime') as date,
           COUNT(*) as accessCount
         FROM access_logs
-        WHERE created_at >= datetime('now', '-7 days')
+        WHERE created_at >= datetime('now', 'localtime', '-7 days')
           AND (is_admin = 0 OR is_admin IS NULL)
-        GROUP BY DATE(created_at)
+        GROUP BY DATE(created_at, 'localtime')
         ORDER BY date ASC
       `).all();
 

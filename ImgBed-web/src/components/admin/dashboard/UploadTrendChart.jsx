@@ -8,7 +8,7 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Box from '@mui/material/Box';
 import { LineChart } from '@mui/x-charts/LineChart';
-import { fmtSize } from '../../../utils/formatters';
+import { fmtSize, fmtShortDate } from '../../../utils/formatters';
 
 function AreaGradient({ color, id }) {
   return (
@@ -31,10 +31,7 @@ export default function UploadTrendChart({ data, days, onDaysChange }) {
   ];
 
   // 提取日期和数据
-  const dates = data.map(item => {
-    const date = new Date(item.date);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  });
+  const dates = data.map(item => fmtShortDate(item.date));
 
   const fileCounts = data.map(item => item.fileCount || 0);
   const totalSizes = data.map(item => (item.totalSize || 0) / (1024 * 1024)); // 转换为 MB

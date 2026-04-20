@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Box, IconButton, Dialog, useTheme, useMediaQuery } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import useImageTransform from '../../hooks/useImageTransform';
@@ -10,6 +10,12 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
   const theme = useTheme();
   const isLg = useMediaQuery(theme.breakpoints.up('lg'));
   const [previewMode, setPreviewMode] = useState('image');
+  const previewKey = `${open ? '1' : '0'}|${item?.id ?? ''}`;
+  const [prevPreviewKey, setPrevPreviewKey] = useState(previewKey);
+  if (prevPreviewKey !== previewKey) {
+    setPrevPreviewKey(previewKey);
+    setPreviewMode('image');
+  }
 
   const {
     containerRef,
@@ -26,10 +32,6 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
   const allowVideoFallback = shouldUseVideoFallback(item);
   const mediaSrc = buildAdminMediaSrc(item);
   const showVideo = previewMode === 'video';
-
-  useEffect(() => {
-    setPreviewMode('image');
-  }, [item?.id, open]);
 
   if (!item) return null;
 
@@ -157,7 +159,7 @@ export default function ImageDetailLightbox({ open, item, onClose, onDelete }) {
         </Box>
 
         {isLg && (
-          <ImageDetailPanel item={item} theme={theme} onClose={onClose} onDelete={onDelete} />
+          <ImageDetailPanel item={item} theme={theme} onDelete={onDelete} />
         )}
       </Box>
     </Dialog>

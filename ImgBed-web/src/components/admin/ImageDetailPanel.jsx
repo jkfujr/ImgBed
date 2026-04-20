@@ -7,7 +7,7 @@ import { BORDER_RADIUS } from '../../utils/constants';
 /**
  * ImageDetailLightbox 右侧详情面板
  */
-export default function ImageDetailPanel({ item, theme, onClose, onDelete }) {
+export default function ImageDetailPanel({ item, theme, onDelete }) {
   const escapeHtml = (str) => {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');

@@ -7,7 +7,7 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
-import LinearProgress, { linearProgressClasses } from '@mui/material/LinearProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import { BORDER_RADIUS } from '../../../utils/constants';
 
 const StyledText = styled('text', {

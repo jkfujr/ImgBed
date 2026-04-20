@@ -25,7 +25,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useAuth } from '../hooks/useAuth';
-import { useThemeMode } from '../contexts/ThemeContext';
+import { useThemeMode } from '../hooks/useThemeMode';
 import { BORDER_RADIUS } from '../utils/constants';
 import { createOverlayFocusManager } from '../utils/overlay-focus';
 import SearchDialog from '../components/common/SearchDialog';
@@ -41,7 +41,7 @@ export default function MainLayout() {
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const searchDialogFocusManagerRef = useRef(null);
 
-  if (!searchDialogFocusManagerRef.current) {
+  if (searchDialogFocusManagerRef.current == null) {
     searchDialogFocusManagerRef.current = createOverlayFocusManager();
   }
 

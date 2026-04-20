@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useTheme } from '@mui/material/styles';
 import { BORDER_RADIUS } from '../../../utils/constants';
+import { fmtShortDate } from '../../../utils/formatters';
 
 export default function AccessTrendChart({ data }) {
   const theme = useTheme();
@@ -31,10 +32,7 @@ export default function AccessTrendChart({ data }) {
   }
 
   // 提取日期和数据
-  const dates = data.accessTrend.map(item => {
-    const date = new Date(item.date);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  });
+  const dates = data.accessTrend.map(item => fmtShortDate(item.date));
 
   const accessCounts = data.accessTrend.map(item => item.accessCount || 0);
 

@@ -21,8 +21,9 @@ export function useUploadConfig() {
   });
 
   useEffect(() => {
+    const guard = requestGuardRef.current;
     return () => {
-      requestGuardRef.current.dispose();
+      guard.dispose();
     };
   }, []);
 

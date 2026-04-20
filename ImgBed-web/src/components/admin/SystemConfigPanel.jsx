@@ -16,8 +16,9 @@ export default function SystemConfigPanel() {
   const requestGuardRef = useRef(createRequestGuard());
 
   useEffect(() => {
+    const guard = requestGuardRef.current;
     return () => {
-      requestGuardRef.current.dispose();
+      guard.dispose();
     };
   }, []);
 

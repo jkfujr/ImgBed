@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Checkbox,
@@ -7,16 +7,40 @@ import {
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { PERMISSION_OPTIONS } from '../../constants/permissions.js';
 
+const INITIAL_FORM = {
+  name: '',
+  permissions: ['upload:image'],
+  expiresMode: 'never',
+  expiresAt: ''
+};
+
+function buildEditForm(initialData) {
+  return {
+    name: initialData.name || '',
+    permissions: initialData.permissions || [],
+    expiresMode: initialData.expires_at ? 'custom' : 'never',
+    expiresAt: initialData.expires_at
+      ? new Date(initialData.expires_at).toISOString().slice(0, 16)
+      : ''
+  };
+}
+
 export default function ApiTokenDialog({ open, onClose, onSubmit, submitting, mode = 'create', initialData = null }) {
-  const [form, setForm] = useState({
-    name: '',
-    permissions: ['upload:image'],
-    expiresMode: 'never',
-    expiresAt: ''
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
   const [createResult, setCreateResult] = useState(null);
   const [error, setError] = useState('');
   const [copySuccess, setCopySuccess] = useState('');
+  const openKey = `${open ? '1' : '0'}|${mode}|${initialData?.id ?? ''}`;
+  const [prevOpenKey, setPrevOpenKey] = useState(openKey);
+  if (prevOpenKey !== openKey) {
+    setPrevOpenKey(openKey);
+    if (open) {
+      setForm(mode === 'edit' && initialData ? buildEditForm(initialData) : INITIAL_FORM);
+      setCreateResult(null);
+      setError('');
+      setCopySuccess('');
+    }
+  }
 
   const permissionMap = useMemo(() => {
     return PERMISSION_OPTIONS.reduce((map, option) => {
@@ -25,40 +49,13 @@ export default function ApiTokenDialog({ open, onClose, onSubmit, submitting, mo
     }, {});
   }, []);
 
-  const resetForm = () => {
-    setForm({
-      name: '',
-      permissions: ['upload:image'],
-      expiresMode: 'never',
-      expiresAt: ''
-    });
-    setCreateResult(null);
-    setError('');
-    setCopySuccess('');
-  };
-
-  useEffect(() => {
-    if (open && mode === 'edit' && initialData) {
-      setForm({
-        name: initialData.name || '',
-        permissions: initialData.permissions || [],
-        expiresMode: initialData.expires_at ? 'custom' : 'never',
-        expiresAt: initialData.expires_at
-          ? new Date(initialData.expires_at).toISOString().slice(0, 16)
-          : ''
-      });
-      setCreateResult(null);
-      setError('');
-      setCopySuccess('');
-    } else if (open && mode === 'create') {
-      resetForm();
-    }
-  }, [open, mode, initialData]);
-
   const handleClose = () => {
     if (submitting) return;
     onClose();
-    resetForm();
+    setForm(INITIAL_FORM);
+    setCreateResult(null);
+    setError('');
+    setCopySuccess('');
   };
 
   const togglePermission = (permission) => {

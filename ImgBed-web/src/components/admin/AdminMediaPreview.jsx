@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Box } from '@mui/material';
 import { buildAdminMediaSrc, shouldUseVideoFallback } from '../../admin/mediaPreviewShared';
 
@@ -11,6 +11,11 @@ export default function AdminMediaPreview({
   videoProps = {},
 }) {
   const [previewMode, setPreviewMode] = useState('image');
+  const [prevItemId, setPrevItemId] = useState(item?.id);
+  if (prevItemId !== item?.id) {
+    setPrevItemId(item?.id);
+    setPreviewMode('image');
+  }
   const src = buildAdminMediaSrc(item);
   const allowVideoFallback = shouldUseVideoFallback(item);
   const {
@@ -21,10 +26,6 @@ export default function AdminMediaPreview({
     onError: onVideoError,
     ...restVideoProps
   } = videoProps;
-
-  useEffect(() => {
-    setPreviewMode('image');
-  }, [item?.id]);
 
   if (!src) {
     return null;

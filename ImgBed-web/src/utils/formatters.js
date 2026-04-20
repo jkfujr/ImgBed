@@ -16,6 +16,18 @@ export function fmtDate(str) {
 }
 
 /**
+ * 将后端返回的本地日期字符串 "YYYY-MM-DD" 格式化为 "M/D"。
+ * 不使用 new Date()，避免其把无时区日期按 UTC 午夜解析导致跨时区偏移一天。
+ * @param {string} str 形如 "2026-04-18" 的本地日期字符串
+ * @returns {string}
+ */
+export function fmtShortDate(str) {
+  if (!str) return '-';
+  const [, m, d] = str.split('-');
+  return `${Number(m)}/${Number(d)}`;
+}
+
+/**
  * 格式化字节大小为人类可读格式
  * @param {number} bytes 字节数
  * @returns {string} 格式化后的大小

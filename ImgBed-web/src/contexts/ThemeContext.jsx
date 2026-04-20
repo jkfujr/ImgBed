@@ -1,7 +1,6 @@
-import { createContext, useContext, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useUserPreference } from '../hooks/useUserPreference';
-
-const ThemeContext = createContext();
+import { ThemeContext } from '../hooks/useThemeMode';
 
 /**
  * 主题模式提供者
@@ -33,15 +32,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-/**
- * 使用主题上下文的 Hook
- */
-export function useThemeMode() {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useThemeMode 必须在 ThemeProvider 内部使用');
-  }
-  return context;
 }

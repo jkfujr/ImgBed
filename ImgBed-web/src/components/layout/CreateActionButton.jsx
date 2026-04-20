@@ -29,7 +29,7 @@ export default function CreateActionButton({ currentDir = ROOT_DIR }) {
   const overlayFocusManagerRef = useRef(null);
   const resolvedDir = normalizeDirectoryPath(currentDir);
 
-  if (!overlayFocusManagerRef.current) {
+  if (overlayFocusManagerRef.current == null) {
     overlayFocusManagerRef.current = createOverlayFocusManager();
   }
 

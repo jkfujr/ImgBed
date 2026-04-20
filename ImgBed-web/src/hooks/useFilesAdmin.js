@@ -349,8 +349,9 @@ export function useFilesAdmin(viewMode = 'masonry') {
   ]);
 
   useEffect(() => {
+    const guard = requestGuardRef.current;
     return () => {
-      requestGuardRef.current.dispose();
+      guard.dispose();
     };
   }, []);
 

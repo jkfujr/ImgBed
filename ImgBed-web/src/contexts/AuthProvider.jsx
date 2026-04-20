@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthDocs, api } from '../api';
 import {
   applySessionInvalidationFallback,
@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
   const sessionVersionRef = useRef(0);
   const activeTokenRef = useRef(null);
 
-  const syncActiveSessionToken = (token) => {
+  const syncActiveSessionToken = useCallback((token) => {
     const normalizedToken = token || null;
     activeTokenRef.current = normalizedToken;
     setActiveSessionToken(normalizedToken);
@@ -35,9 +35,9 @@ export const AuthProvider = ({ children }) => {
     }
 
     delete api.defaults.headers.common.Authorization;
-  };
+  }, []);
 
-  const invalidateSession = ({
+  const invalidateSession = useCallback(({
     reason = null,
     requestToken = null,
     message = null,
@@ -64,18 +64,18 @@ export const AuthProvider = ({ children }) => {
     }
 
     return true;
-  };
+  }, [syncActiveSessionToken]);
 
-  const canApplySessionResult = ({ token, version }) => {
+  const canApplySessionResult = useCallback(({ token, version }) => {
     return shouldApplySessionCheck({
       requestVersion: version,
       activeVersion: sessionVersionRef.current,
       requestToken: token,
       activeToken: activeTokenRef.current,
     });
-  };
+  }, []);
 
-  const checkLoginState = async ({ token, version }) => {
+  const checkLoginState = useCallback(async ({ token, version }) => {
     if (!token) {
       if (canApplySessionResult({ token, version })) {
         setIsAuthenticated(false);
@@ -120,12 +120,12 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
       }
     }
-  };
+  }, [canApplySessionResult, invalidateSession]);
 
   useEffect(() => {
     const cleanup = setSessionInvalidationHandler((context) => invalidateSession(context));
     return cleanup;
-  }, []);
+  }, [invalidateSession]);
 
   useEffect(() => {
     const token = readStoredAuthToken();
@@ -146,7 +146,7 @@ export const AuthProvider = ({ children }) => {
       token,
       version: sessionVersionRef.current,
     });
-  }, []);
+  }, [syncActiveSessionToken, checkLoginState]);
 
   const login = async (credentials) => {
     const res = await AuthDocs.login(credentials);
@@ -180,6 +180,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await AuthDocs.logout();
     } catch {
+      // 服务端登出失败不影响本地会话清理，继续走本地 invalidateSession
     }
 
     invalidateSession({

@@ -15,8 +15,9 @@ export function useDashboard() {
   const requestGuardRef = useRef(createRequestGuard());
 
   useEffect(() => {
+    const guard = requestGuardRef.current;
     return () => {
-      requestGuardRef.current.dispose();
+      guard.dispose();
     };
   }, []);
 
@@ -84,11 +85,21 @@ export function useDashboard() {
     fetchData(true); // force = true
   }, [fetchData]);
 
+  const fetchDataRef = useRef(fetchData);
   useEffect(() => {
-    fetchData(false); // 初始加载使用缓存
-    const interval = setInterval(() => fetchData(false), 30000); // 自动轮询使用缓存
-    return () => clearInterval(interval);
+    fetchDataRef.current = fetchData;
   }, [fetchData]);
+
+  useEffect(() => {
+    const tick = () => fetchDataRef.current(false);
+    tick();
+    const interval = setInterval(tick, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetchDataRef.current(false);
+  }, [trendDays]);
 
   return {
     overview,

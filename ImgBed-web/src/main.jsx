@@ -7,7 +7,8 @@ import { Box, ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import Layout from './layout/MainLayout';
 import { AuthProvider } from './contexts/AuthProvider';
 import { RefreshProvider } from './contexts/RefreshContext';
-import { ThemeProvider as CustomThemeProvider, useThemeMode } from './contexts/ThemeContext';
+import { ThemeProvider as CustomThemeProvider } from './contexts/ThemeContext';
+import { useThemeMode } from './hooks/useThemeMode';
 import RequireAuth from './components/RequireAuth';
 import LoadingSpinner from './components/common/LoadingSpinner';
 
