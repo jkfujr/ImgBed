@@ -86,14 +86,17 @@ test('createTokenRecord 会固定写入 active 状态、admin 创建者并序列
     expiresAt: null,
   }, 'ib_xxx.secret', 'ib_xxx', 'hashed-token', () => 'tok-fixed-id');
 
-  assert.deepEqual(record, {
-    id: 'tok-fixed-id',
-    name: '文件读取令牌',
-    token_prefix: 'ib_xxx',
-    token_hash: 'hashed-token',
-    permissions: JSON.stringify([apiTokenUtils.API_TOKEN_PERMISSIONS.FILES_READ]),
-    status: 'active',
-    expires_at: null,
-    created_by: 'admin',
-  });
+  assert.equal(record.id, 'tok-fixed-id');
+  assert.equal(record.name, '文件读取令牌');
+  assert.equal(record.token_prefix, 'ib_xxx');
+  assert.equal(record.token_hash, 'hashed-token');
+  assert.equal(record.permissions, JSON.stringify([apiTokenUtils.API_TOKEN_PERMISSIONS.FILES_READ]));
+  assert.equal(record.status, 'active');
+  assert.equal(record.expires_at, null);
+  assert.equal(record.last_used_at, null);
+  assert.equal(record.last_used_ip, null);
+  assert.equal(record.created_by, 'admin');
+  assert.match(record.created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.match(record.updated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.equal(record.created_at, record.updated_at);
 });

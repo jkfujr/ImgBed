@@ -154,21 +154,31 @@ test('S3 清空 bucket 时会按分页结果逐批删除整个 bucket 的对象'
   });
 
   const deletePayloads = [];
-  let listCallCount = 0;
+  const listPayloads = [];
   s3.s3 = {
     async send(command) {
       if (command instanceof FakeListObjectsV2Command) {
-        listCallCount += 1;
-        if (listCallCount === 1) {
+        listPayloads.push(command.input);
+        if (command.input.MaxKeys === 1) {
+          return {
+            Contents: [],
+          };
+        }
+
+        if (!command.input.ContinuationToken) {
           return {
             Contents: [{ Key: 'a.png' }, { Key: 'b.png' }],
+            IsTruncated: true,
+            NextContinuationToken: 'page-2',
           };
         }
-        if (listCallCount === 2) {
+        if (command.input.ContinuationToken === 'page-2') {
           return {
             Contents: [{ Key: 'c.png' }],
+            IsTruncated: false,
           };
         }
+
         return {
           Contents: [],
         };
@@ -182,7 +192,22 @@ test('S3 清空 bucket 时会按分页结果逐批删除整个 bucket 的对象'
   const result = await s3.clearBucketContents();
 
   assert.deepEqual(result, { deletedCount: 3 });
-  assert.equal(listCallCount, 3);
+  assert.deepEqual(listPayloads, [
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1000,
+      ContinuationToken: null,
+    },
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1000,
+      ContinuationToken: 'page-2',
+    },
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1,
+    },
+  ]);
   assert.deepEqual(deletePayloads, [
     {
       Bucket: 'bucket-1',
@@ -226,21 +251,31 @@ test('S3 清空 bucket 时会按每批最多 1000 个 key 删除', async () => {
   });
 
   const deleteBatchSizes = [];
-  let listCallCount = 0;
+  const listPayloads = [];
   s3.s3 = {
     async send(command) {
       if (command instanceof FakeListObjectsV2Command) {
-        listCallCount += 1;
-        if (listCallCount === 1) {
+        listPayloads.push(command.input);
+        if (command.input.MaxKeys === 1) {
+          return {
+            Contents: [],
+          };
+        }
+
+        if (!command.input.ContinuationToken) {
           return {
             Contents: Array.from({ length: 1000 }, (_, index) => ({ Key: `file-${index}` })),
+            IsTruncated: true,
+            NextContinuationToken: 'page-2',
           };
         }
-        if (listCallCount === 2) {
+        if (command.input.ContinuationToken === 'page-2') {
           return {
             Contents: [{ Key: 'file-1000' }],
+            IsTruncated: false,
           };
         }
+
         return {
           Contents: [],
         };
@@ -255,6 +290,22 @@ test('S3 清空 bucket 时会按每批最多 1000 个 key 删除', async () => {
 
   assert.deepEqual(result, { deletedCount: 1001 });
   assert.deepEqual(deleteBatchSizes, [1000, 1]);
+  assert.deepEqual(listPayloads, [
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1000,
+      ContinuationToken: null,
+    },
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1000,
+      ContinuationToken: 'page-2',
+    },
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 1,
+    },
+  ]);
 });
 
 test('S3 清空空 bucket 时保持幂等且不会发起删除请求', async () => {
