@@ -7,7 +7,6 @@ export const TYPE_COLORS = {
   telegram: 'info',
   discord: 'secondary',
   huggingface: 'warning',
-  external: 'success',
 };
 
 /**
@@ -41,10 +40,6 @@ export const CHANNEL_SCHEMAS = {
     { key: 'token',      label: 'API Token',            required: true, sensitive: true },
     { key: 'pathPrefix', label: '路径前缀' },
     { key: 'branch',     label: '分支（默认 main）' },
-  ],
-  external: [
-    { key: 'baseUrl',    label: '基础 URL', required: true },
-    { key: 'authHeader', label: '认证 Header', sensitive: true },
   ],
 };
 

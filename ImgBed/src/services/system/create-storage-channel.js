@@ -1,4 +1,4 @@
-const VALID_STORAGE_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface', 'external'];
+const VALID_STORAGE_TYPES = ['local', 's3', 'telegram', 'discord', 'huggingface'];
 
 function normalizeStorageChannelConfig(type, storageConfig = {}) {
   const normalizedConfig = { ...storageConfig };

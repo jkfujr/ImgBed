@@ -56,12 +56,11 @@ export function parseChannelName(storageInstanceId) {
  */
 export function channelTypeLabel(channel) {
   const map = {
-    local: '本地',
+    local: 'Local(本地)',
     s3: 'S3',
     telegram: 'Telegram',
     discord: 'Discord',
-    huggingface: 'HuggingFace',
-    external: '第三方'
+    huggingface: 'HuggingFace'
   };
   return map[channel] || channel || '-';
 }

@@ -48,6 +48,13 @@ function validateSchemaV2(db) {
   assertTableMissing(db, 'storage_channels');
 }
 
+function cleanupRemovedStorageTypes(db) {
+  const res = db.prepare("DELETE FROM files WHERE storage_channel = 'external'").run();
+  if (res.changes > 0) {
+    log.warn({ removed: res.changes }, '已清理不再支持的 external 存储类型文件记录');
+  }
+}
+
 export function runMigrations(db) {
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -56,6 +63,7 @@ export function runMigrations(db) {
     )`);
 
     validateSchemaV2(db);
+    cleanupRemovedStorageTypes(db);
     db.prepare('DELETE FROM schema_migrations WHERE version != ?').run(SCHEMA_VERSION);
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(SCHEMA_VERSION);
 

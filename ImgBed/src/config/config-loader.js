@@ -133,10 +133,44 @@ function normalizeSensitiveConfig(config, randomBytes) {
   };
 }
 
-function persistNormalizedConfig({ config, fsImpl, configPath, logger, randomBytes, stats }) {
-  const normalizedResult = normalizeSensitiveConfig(config, randomBytes);
+function filterRemovedStorageTypes(config) {
+  const storages = config?.storage?.storages;
+  if (!Array.isArray(storages)) {
+    return { config, changed: false, removed: [] };
+  }
 
-  if (!normalizedResult.changed) {
+  const removed = [];
+  const filtered = storages.filter((storage) => {
+    if (storage?.type === 'external') {
+      removed.push(storage.id);
+      return false;
+    }
+    return true;
+  });
+
+  if (removed.length === 0) {
+    return { config, changed: false, removed: [] };
+  }
+
+  return {
+    config: {
+      ...config,
+      storage: {
+        ...config.storage,
+        storages: filtered,
+      },
+    },
+    changed: true,
+    removed,
+  };
+}
+
+function persistNormalizedConfig({ config, fsImpl, configPath, logger, randomBytes, stats }) {
+  const sensitiveResult = normalizeSensitiveConfig(config, randomBytes);
+  const storageResult = filterRemovedStorageTypes(sensitiveResult.config);
+  const changed = sensitiveResult.changed || storageResult.changed;
+
+  if (!changed) {
     return {
       config,
       stats,
@@ -146,12 +180,18 @@ function persistNormalizedConfig({ config, fsImpl, configPath, logger, randomByt
   writeConfigFile({
     fsImpl,
     configPath,
-    config: normalizedResult.config,
+    config: storageResult.config,
   });
-  logger.info({ configPath }, '检测到管理员明文密码配置，已自动迁移为哈希存储');
+
+  if (sensitiveResult.changed) {
+    logger.info({ configPath }, '检测到管理员明文密码配置，已自动迁移为哈希存储');
+  }
+  if (storageResult.changed) {
+    logger.warn({ configPath, removed: storageResult.removed }, '已移除不再支持的 external 存储渠道配置');
+  }
 
   return {
-    config: normalizedResult.config,
+    config: storageResult.config,
     stats: fsImpl.statSync(configPath),
   };
 }
@@ -387,7 +427,11 @@ export function createConfigRepository({
 
     writeRuntimeConfig(nextConfig) {
       ensureDataRoot();
-      const normalizedConfig = normalizeSensitiveConfig(cloneConfig(nextConfig), randomBytes).config;
+      const sensitiveConfig = normalizeSensitiveConfig(cloneConfig(nextConfig), randomBytes).config;
+      const { config: normalizedConfig, changed, removed } = filterRemovedStorageTypes(sensitiveConfig);
+      if (changed) {
+        logger.warn({ configPath, removed }, '已移除不再支持的 external 存储渠道配置');
+      }
       const snapshot = validateRequiredConfig({
         config: normalizedConfig,
         configPath,

@@ -92,14 +92,6 @@ test('StorageRegistry.reload 会按运行时配置装载启用渠道并跳过初
             config: { marker: 'local-driver' },
           },
           {
-            id: 'external-1',
-            name: '外链只读',
-            type: 'external',
-            enabled: true,
-            allowUpload: false,
-            config: { marker: 'external-driver' },
-          },
-          {
             id: 'bad-1',
             name: '失败渠道',
             type: 'telegram',
@@ -134,7 +126,6 @@ test('StorageRegistry.reload 会按运行时配置装载启用渠道并跳过初
     await registry.reload();
 
     const localMeta = registry.getStorageMeta('local-1');
-    const externalMeta = registry.getStorageMeta('external-1');
 
     console.log('${JSON_RESULT_TAG}' + JSON.stringify({
       defaultId: registry.getDefaultStorageId(),
@@ -144,10 +135,6 @@ test('StorageRegistry.reload 会按运行时配置装载启用渠道并跳过初
         allowUpload: localMeta.allowUpload,
         weight: localMeta.weight,
         marker: localMeta.instance.marker,
-      },
-      externalMeta: {
-        type: externalMeta.type,
-        allowUpload: externalMeta.allowUpload,
       },
       missingBadStorage: registry.getStorage('bad-1') === null,
       missingDisabledStorage: registry.getStorage('disabled-1') === null,
@@ -162,17 +149,12 @@ test('StorageRegistry.reload 会按运行时配置装载启用渠道并跳过初
   assert.equal(result.defaultId, 'local-1');
   assert.deepEqual(result.enabled, [
     { id: 'local-1', type: 'local', allowUpload: true },
-    { id: 'external-1', type: 'external', allowUpload: false },
   ]);
   assert.deepEqual(result.localMeta, {
     type: 'local',
     allowUpload: true,
     weight: 3,
     marker: 'local-driver',
-  });
-  assert.deepEqual(result.externalMeta, {
-    type: 'external',
-    allowUpload: false,
   });
   assert.equal(result.missingBadStorage, true);
   assert.equal(result.missingDisabledStorage, true);

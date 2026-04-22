@@ -1,7 +1,6 @@
 import { readRuntimeConfig } from '../../config/index.js';
 import { createLogger } from '../../utils/logger.js';
 import DiscordStorage from '../discord.js';
-import ExternalStorage from '../external.js';
 import HuggingFaceStorage from '../huggingface.js';
 import LocalStorage from '../local.js';
 import S3Storage from '../s3.js';
@@ -15,7 +14,6 @@ const STORAGE_DRIVERS = new Map([
   ['telegram', TelegramStorage],
   ['discord', DiscordStorage],
   ['huggingface', HuggingFaceStorage],
-  ['external', ExternalStorage],
 ]);
 
 function resolveStorageDriver(type) {
