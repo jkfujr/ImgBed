@@ -17,6 +17,10 @@ export const api = axios.create({
   timeout: 60000,
 });
 
+export function buildFileApiPath(id) {
+  return `/api/files/${encodeURIComponent(id)}`;
+}
+
 api.interceptors.request.use(
   (config) => {
     return markAuthRequest(config);
@@ -100,8 +104,8 @@ export const ApiTokenDocs = {
 
 export const FileDocs = {
   list: (params) => api.get('/api/files', { params }),
-  update: (id, payload) => api.put(`/api/files/${id}`, payload),
-  delete: (id, deleteMode) => api.delete(`/api/files/${id}`, {
+  update: (id, payload) => api.put(buildFileApiPath(id), payload),
+  delete: (id, deleteMode) => api.delete(buildFileApiPath(id), {
     params: deleteMode ? { delete_mode: deleteMode } : undefined,
   }),
   batch: (payload) => api.post('/api/files/batch', payload),

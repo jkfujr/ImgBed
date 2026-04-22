@@ -12,7 +12,7 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('view');
 const viewApp = express.Router();
-const FILE_ID_PATTERN = /^[0-9a-f]{12}_[A-Za-z0-9_]+\.[A-Za-z0-9]+$/;
+const FILE_ID_PATTERN = /^[0-9a-f]{12}_[0-9A-Za-z_\p{Script=Han}]+\.[A-Za-z0-9]+$/u;
 
 /**
  * 生成 ETag（基于文件 ID 和更新时间）

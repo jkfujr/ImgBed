@@ -7,10 +7,15 @@ import { guestUploadAuth } from '../middleware/guestUpload.js';
 import { createUploadApplicationService } from '../services/upload/upload-application-service.js';
 import { success } from '../utils/response.js';
 
+const defaultUploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  defParamCharset: 'utf8',
+}).single('file');
+
 function createUploadRouter({
   guestUploadAuth: guestUploadAuthMiddleware = guestUploadAuth,
   requirePermission: requirePermissionFactory = requirePermission,
-  uploadMiddleware = multer({ storage: multer.memoryStorage() }).single('file'),
+  uploadMiddleware = defaultUploadMiddleware,
   uploadApplicationService = null,
   success: successBuilder = success,
   ...serviceOverrides

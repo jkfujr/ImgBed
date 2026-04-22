@@ -2,6 +2,10 @@ function endsWithGif(value) {
   return typeof value === 'string' && value.toLowerCase().endsWith('.gif');
 }
 
+function buildFileViewPath(fileId) {
+  return fileId ? `/${encodeURIComponent(fileId)}` : '';
+}
+
 function shouldUseVideoFallback(item) {
   if (!item || typeof item !== 'object') {
     return false;
@@ -16,10 +20,11 @@ function shouldUseVideoFallback(item) {
 }
 
 function buildAdminMediaSrc(item) {
-  return item?.id ? `/${item.id}` : '';
+  return buildFileViewPath(item?.id);
 }
 
 export {
   buildAdminMediaSrc,
+  buildFileViewPath,
   shouldUseVideoFallback,
 };

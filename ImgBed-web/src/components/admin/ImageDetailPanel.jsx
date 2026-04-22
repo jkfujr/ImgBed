@@ -3,6 +3,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
 import { fmtDate, fmtSize, parseChannelName, channelTypeLabel, parseTags } from '../../utils/formatters';
 import { BORDER_RADIUS } from '../../utils/constants';
+import { buildFileViewPath } from '../../admin/mediaPreviewShared';
 
 /**
  * ImageDetailLightbox 右侧详情面板
@@ -101,7 +102,7 @@ export default function ImageDetailPanel({ item, theme, onDelete }) {
         <Button
           fullWidth
           sx={{ mt: 1, color: 'text.secondary' }}
-          onClick={() => window.open(`/${item.id}`, '_blank')}
+          onClick={() => window.open(buildFileViewPath(item.id), '_blank')}
           startIcon={<ImageIcon />}
         >
           查看原图

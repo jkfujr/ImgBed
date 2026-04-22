@@ -8,6 +8,7 @@ import { createLogger } from '../../utils/logger.js';
 import { readImageMetadata } from '../files/image-metadata.js';
 
 const log = createLogger('upload');
+const MAX_SAFE_BASE_NAME_LENGTH = 24;
 const ALLOWED_EXTENSIONS = [
   // 传统格式
   '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
@@ -20,6 +21,17 @@ const ALLOWED_EXTENSIONS = [
   // 专业格式
   '.tiff', '.tif'
 ];
+
+function sanitizeFileBaseName(input) {
+  const normalized = String(input || '')
+    .normalize('NFC')
+    .replace(/[^\p{Script=Han}0-9A-Za-z]+/gu, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  const clipped = Array.from(normalized).slice(0, MAX_SAFE_BASE_NAME_LENGTH).join('');
+  return clipped.replace(/^_+|_+$/g, '');
+}
 
 function validateUploadFile(file) {
   if (!file || typeof file === 'string') {
@@ -42,7 +54,7 @@ async function prepareUploadFile(file, {
   readImageMetadataFn = readImageMetadata,
 } = {}) {
   const buffer = file.buffer;
-  const originalName = file.originalname || 'blob';
+  const originalName = String(file.originalname || 'blob').normalize('NFC');
   const mimeType = file.mimetype || 'application/octet-stream';
   const rawExt = path.extname(originalName).toLowerCase();
   const mimeExt = mimeType ? `.${mimeType.split('/')[1]}`.replace('.jpeg', '.jpg') : '';
@@ -69,7 +81,7 @@ async function prepareUploadFile(file, {
 
   const hash = crypto.createHash('sha1').update(buffer).digest('hex').substring(0, 12);
   const baseNameOnly = originalName.replace(/\.[^/.]+$/, '');
-  const safeBaseName = baseNameOnly.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 24);
+  const safeBaseName = sanitizeFileBaseName(baseNameOnly);
   const fileId = `${hash}_${safeBaseName || 'file'}${extension}`;
 
   return {
@@ -89,5 +101,6 @@ export {
   ALLOWED_EXTENSIONS,
   normalizeUploadDirectory,
   prepareUploadFile,
+  sanitizeFileBaseName,
   validateUploadFile,
 };

@@ -1,5 +1,9 @@
 import { serializeStorageMeta } from '../files/storage-artifacts.js';
 
+function buildPublicFileUrl(fileId) {
+  return `/${encodeURIComponent(String(fileId))}`;
+}
+
 function buildUploadRecord({
   storageManager,
   fileId,
@@ -69,7 +73,7 @@ function buildUploadResponse({
 } = {}) {
   const data = {
     id: fileId,
-    url: `/${fileId}`,
+    url: buildPublicFileUrl(fileId),
     file_name: newFileName,
     original_name: originalName,
     size: fileSize,
@@ -94,6 +98,7 @@ function buildUploadResponse({
 }
 
 export {
+  buildPublicFileUrl,
   buildUploadRecord,
   buildUploadResponse,
   resolveStoredFileSize,

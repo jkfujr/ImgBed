@@ -16,11 +16,11 @@ configModule.loadStartupConfig();
 const { createUploadApplicationService } = await import(resolveProjectModuleUrl('src', 'services', 'upload', 'upload-application-service.js'));
 const { prepareUploadFile } = await import(resolveProjectModuleUrl('src', 'services', 'upload', 'prepare-upload-file.js'));
 
-function createUploadFixture() {
+function createUploadFixture(originalname = 'demo.png') {
   const buffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=', 'base64');
 
   return {
-    originalname: 'demo.png',
+    originalname,
     mimetype: 'image/png',
     size: buffer.length,
     buffer,
@@ -413,4 +413,20 @@ test('createUploadApplicationService 在元数据提取失败时只记 warn 并�
   assert.equal(result.data.height, null);
   assert.equal(records.warn.length, 1);
   assert.equal(records.warn[0][0].filename, 'demo.png');
+});
+
+test('prepareUploadFile 会保留中文文件名并仅清洗特殊符号', async () => {
+  const file = createUploadFixture('截图_2026-04-23_02-11-25.png');
+
+  const result = await prepareUploadFile(file, {
+    readImageMetadataFn: async () => ({
+      width: 1,
+      height: 1,
+      exif: null,
+    }),
+  });
+
+  assert.equal(result.originalName, '截图_2026-04-23_02-11-25.png');
+  assert.match(result.fileId, /^[0-9a-f]{12}_截图_2026_04_23_02_11_25\.png$/u);
+  assert.equal(result.newFileName, result.fileId);
 });

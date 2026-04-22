@@ -600,6 +600,7 @@ test('真实 multipart 上传成功链会写入数据库、完成生命周期并
   assert.equal(payload.upload.status, 200);
   assert.equal(payload.upload.body.message, '文件上传成功');
   assert.equal(payload.upload.body.data.original_name, 'demo.png');
+  assert.equal(payload.upload.body.data.url, `/${payload.upload.body.data.id}`);
   assert.equal(payload.upload.body.data.width, 1);
   assert.equal(payload.upload.body.data.height, 1);
   assert.equal(payload.upload.body.data.failover, undefined);
@@ -622,6 +623,137 @@ test('真实 multipart 上传成功链会写入数据库、完成生命周期并
   assert.equal(payload.storageOperation.remote_payload.storageKey, payload.upload.body.data.id);
   assert.equal(payload.storageOperation.compensation_payload, null);
 
+  assert.equal(payload.view.status, 200);
+  assert.equal(payload.view.contentType, 'image/png');
+  assert.equal(payload.view.bodyBase64, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=');
+});
+
+test('真实 multipart 上传会保留中文文件名与中文 ID，并通过编码后的公开直链访问', () => {
+  const script = `
+    const { createHash } = await import('node:crypto');
+    const { loadStartupConfig, writeRuntimeConfig } = await import('./src/config/index.js');
+    const baseConfig = loadStartupConfig();
+    writeRuntimeConfig({
+      ...baseConfig,
+      security: {
+        ...baseConfig.security,
+        guestUploadEnabled: true,
+        uploadPassword: '',
+      },
+      storage: {
+        ...baseConfig.storage,
+        default: 'local-main',
+        allowedUploadChannels: ['local-main'],
+        loadBalanceStrategy: 'default',
+        failoverEnabled: true,
+        storages: [
+          {
+            id: 'local-main',
+            name: '本地主渠道',
+            type: 'local',
+            enabled: true,
+            allowUpload: true,
+            config: {
+              basePath: './data/storage',
+            },
+          },
+        ],
+      },
+      performance: {
+        ...baseConfig.performance,
+        responseCache: {
+          enabled: true,
+          ttlSeconds: 60,
+          maxKeys: 100,
+        },
+      },
+    });
+
+    const { sqlite } = await import('./src/database/index.js');
+    const { initSchema } = await import('./src/database/schema.js');
+    const {
+      initResponseCache,
+      destroyResponseCache,
+    } = await import('./src/services/cache/response-cache.js');
+    const storageManager = (await import('./src/storage/manager.js')).default;
+    const app = (await import('./src/app.js')).default;
+
+    initSchema(sqlite);
+    initResponseCache({
+      enabled: true,
+      ttlSeconds: 60,
+      maxKeys: 100,
+    });
+    await storageManager.initialize();
+
+    const server = await new Promise((resolve) => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    const address = server.address();
+    const baseUrl = \`http://127.0.0.1:\${address.port}\`;
+
+    const fileName = '截图_2026-04-23_02-11-25.png';
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=';
+    const pngBuffer = Buffer.from(pngBase64, 'base64');
+    const expectedId = \`\${createHash('sha1').update(pngBuffer).digest('hex').slice(0, 12)}_截图_2026_04_23_02_11_25.png\`;
+    const expectedUrl = '/' + encodeURIComponent(expectedId);
+
+    try {
+      const form = new FormData();
+      form.set('directory', '/');
+      form.set('file', new Blob([pngBuffer], { type: 'image/png' }), fileName);
+
+      const uploadResponse = await fetch(baseUrl + '/api/upload', {
+        method: 'POST',
+        body: form,
+      });
+      const uploadBody = JSON.parse(await uploadResponse.text());
+      const fileId = uploadBody.data.id;
+
+      const dbFile = sqlite.prepare('SELECT * FROM files WHERE id = ?').get(fileId);
+      const viewResponse = await fetch(baseUrl + uploadBody.data.url);
+      const viewBuffer = Buffer.from(await viewResponse.arrayBuffer());
+
+      console.log('JSON_RESULT ' + JSON.stringify({
+        expected: {
+          id: expectedId,
+          url: expectedUrl,
+        },
+        upload: {
+          status: uploadResponse.status,
+          body: uploadBody,
+        },
+        dbFile,
+        view: {
+          status: viewResponse.status,
+          contentType: viewResponse.headers.get('content-type'),
+          bodyBase64: viewBuffer.toString('base64'),
+        },
+      }));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      storageManager.stopMaintenance();
+      destroyResponseCache();
+    }
+  `;
+
+  const execution = runIsolatedModuleScript(script, {
+    appRootPrefix: 'imgbed-http-upload-chinese-name-',
+  });
+
+  assert.equal(execution.status, 0, execution.stderr || execution.stdout);
+
+  const payload = parseJsonResult(execution);
+
+  assert.equal(payload.upload.status, 200);
+  assert.equal(payload.upload.body.message, '文件上传成功');
+  assert.equal(payload.upload.body.data.id, payload.expected.id);
+  assert.equal(payload.upload.body.data.file_name, payload.expected.id);
+  assert.equal(payload.upload.body.data.url, payload.expected.url);
+  assert.equal(payload.upload.body.data.original_name, '截图_2026-04-23_02-11-25.png');
+  assert.equal(payload.dbFile.id, payload.expected.id);
+  assert.equal(payload.dbFile.file_name, payload.expected.id);
+  assert.equal(payload.dbFile.original_name, '截图_2026-04-23_02-11-25.png');
   assert.equal(payload.view.status, 200);
   assert.equal(payload.view.contentType, 'image/png');
   assert.equal(payload.view.bodyBase64, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5mG9sAAAAASUVORK5CYII=');
