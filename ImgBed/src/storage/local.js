@@ -14,10 +14,18 @@ class LocalStorage extends StorageProvider {
   constructor(config) {
     super();
     this.basePath = resolveAppPath(config.basePath || './data/storage');
+  }
 
-    if (!fs.existsSync(this.basePath)) {
-      fs.mkdirSync(this.basePath, { recursive: true });
-    }
+  async _ensureBasePath() {
+    await fs.promises.mkdir(this.basePath, { recursive: true });
+  }
+
+  async _ensureParentDir(filePath) {
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  }
+
+  _isMissingPathError(error) {
+    return error?.code === 'ENOENT';
   }
 
   _getPhysicalPath(id) {
@@ -36,10 +44,7 @@ class LocalStorage extends StorageProvider {
     }
 
     const filePath = this._getPhysicalPath(id);
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    await this._ensureParentDir(filePath);
 
     let fileSize = null;
 
@@ -66,27 +71,30 @@ class LocalStorage extends StorageProvider {
 
   async getStreamResponse(id, options = {}) {
     const filePath = this._getPhysicalPath(id);
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`文件不存在: ${id}`);
+    try {
+      const stat = await fs.promises.stat(filePath);
+      const { start, end } = options;
+      const readOptions = {};
+      const isPartial = start !== undefined && end !== undefined;
+
+      if (isPartial) {
+        readOptions.start = start;
+        readOptions.end = end;
+      }
+
+      return createStorageReadResult({
+        stream: fs.createReadStream(filePath, readOptions),
+        contentLength: isPartial ? (end - start + 1) : stat.size,
+        totalSize: stat.size,
+        statusCode: isPartial ? 206 : 200,
+        acceptRanges: true,
+      });
+    } catch (error) {
+      if (this._isMissingPathError(error)) {
+        throw new Error(`文件不存在: ${id}`);
+      }
+      throw error;
     }
-
-    const stat = await fs.promises.stat(filePath);
-    const { start, end } = options;
-    const readOptions = {};
-    const isPartial = start !== undefined && end !== undefined;
-
-    if (isPartial) {
-      readOptions.start = start;
-      readOptions.end = end;
-    }
-
-    return createStorageReadResult({
-      stream: fs.createReadStream(filePath, readOptions),
-      contentLength: isPartial ? (end - start + 1) : stat.size,
-      totalSize: stat.size,
-      statusCode: isPartial ? 206 : 200,
-      acceptRanges: true,
-    });
   }
 
   async getUrl(id) {
@@ -96,11 +104,12 @@ class LocalStorage extends StorageProvider {
   async delete(id) {
     const filePath = this._getPhysicalPath(id);
     try {
-      if (fs.existsSync(filePath)) {
-        await fs.promises.unlink(filePath);
-      }
+      await fs.promises.unlink(filePath);
       return true;
     } catch (err) {
+      if (this._isMissingPathError(err)) {
+        return true;
+      }
       log.error({ err }, '删除文件失败');
       return false;
     }
@@ -108,15 +117,20 @@ class LocalStorage extends StorageProvider {
 
   async exists(id) {
     const filePath = this._getPhysicalPath(id);
-    return fs.existsSync(filePath);
+    try {
+      await fs.promises.access(filePath, fs.constants.F_OK);
+      return true;
+    } catch (error) {
+      if (this._isMissingPathError(error)) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async testConnection() {
     try {
-      if (!fs.existsSync(this.basePath)) {
-        return { ok: false, message: `目录不存在: ${this.basePath}` };
-      }
-
+      await this._ensureBasePath();
       await fs.promises.access(this.basePath, fs.constants.W_OK);
       return { ok: true, message: `目录可写: ${this.basePath}` };
     } catch (err) {
