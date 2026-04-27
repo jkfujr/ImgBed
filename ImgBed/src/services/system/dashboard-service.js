@@ -17,7 +17,8 @@ function createDashboardService({
 
       const todayAccessResult = db.prepare(`
         SELECT COUNT(*) as count FROM access_logs
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+        WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')
+          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
       `).get();
 
       return {
@@ -49,8 +50,9 @@ function createDashboardService({
           COUNT(*) as todayAccess,
           COUNT(DISTINCT ip) as todayVisitors
         FROM access_logs
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
-          AND (is_admin = 0 OR is_admin IS NULL)
+        WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')
+          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+          AND is_admin = 0
       `).get();
 
       const topFiles = db.prepare(`
@@ -61,8 +63,9 @@ function createDashboardService({
           COUNT(access_logs.id) as accessCount
         FROM access_logs
         INNER JOIN files ON access_logs.file_id = files.id
-        WHERE access_logs.created_at >= datetime('now', 'localtime', '-7 days')
-          AND (access_logs.is_admin = 0 OR access_logs.is_admin IS NULL)
+        WHERE access_logs.created_at >= datetime('now', 'localtime', 'start of day', '-6 days', 'utc')
+          AND access_logs.created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+          AND access_logs.is_admin = 0
           AND files.status = 'active'
         GROUP BY access_logs.file_id
         ORDER BY accessCount DESC
@@ -74,8 +77,9 @@ function createDashboardService({
           DATE(created_at, 'localtime') as date,
           COUNT(*) as accessCount
         FROM access_logs
-        WHERE created_at >= datetime('now', 'localtime', '-7 days')
-          AND (is_admin = 0 OR is_admin IS NULL)
+        WHERE created_at >= datetime('now', 'localtime', 'start of day', '-6 days', 'utc')
+          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+          AND is_admin = 0
         GROUP BY DATE(created_at, 'localtime')
         ORDER BY date ASC
       `).all();

@@ -55,6 +55,13 @@ function cleanupRemovedStorageTypes(db) {
   }
 }
 
+function cleanupAccessLogAdminFlag(db) {
+  const res = db.prepare('UPDATE access_logs SET is_admin = 0 WHERE is_admin IS NULL').run();
+  if (res.changes > 0) {
+    log.info({ updated: res.changes }, '已清理访问日志中的历史空管理员标记');
+  }
+}
+
 export function runMigrations(db) {
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -64,6 +71,7 @@ export function runMigrations(db) {
 
     validateSchemaV2(db);
     cleanupRemovedStorageTypes(db);
+    cleanupAccessLogAdminFlag(db);
     db.prepare('DELETE FROM schema_migrations WHERE version != ?').run(SCHEMA_VERSION);
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(SCHEMA_VERSION);
 

@@ -88,6 +88,33 @@ test('runMigrations 不做旧版迁移，只验证当前 v2 结构并登记 sche
   assert.deepEqual(rows, [{ version: SCHEMA_VERSION }]);
 });
 
+test('runMigrations 会把历史访问日志空管理员标记收口为普通访问', (t) => {
+  const db = createEmptyDb();
+  t.after(() => db.close());
+
+  initSchema(db);
+  db.prepare(`
+    INSERT INTO files (
+      id, file_name, original_name, mime_type, size,
+      storage_channel, storage_key, storage_meta, storage_instance_id,
+      status
+    ) VALUES (
+      'file-1', 'file-1.png', 'file-1.png', 'image/png', 123,
+      'mock', 'remote-key', '{}', 'storage-1',
+      'active'
+    )
+  `).run();
+  db.prepare(`
+    INSERT INTO access_logs (file_id, ip, is_admin)
+    VALUES ('file-1', '127.0.0.1', NULL)
+  `).run();
+
+  runMigrations(db);
+
+  const row = db.prepare('SELECT is_admin FROM access_logs LIMIT 1').get();
+  assert.equal(row.is_admin, 0);
+});
+
 test('runMigrations 在发现已废弃数据表时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
