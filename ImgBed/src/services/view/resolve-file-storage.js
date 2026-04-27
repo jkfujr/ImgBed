@@ -32,6 +32,35 @@ function parseRangeHeader(rangeHeader, totalSize) {
   return { start, end, isPartial: true };
 }
 
+function normalizeContentType(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function isImageContentType(value) {
+  const normalized = normalizeContentType(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.toLowerCase().split(';', 1)[0].trim().startsWith('image/');
+}
+
+function resolveInlineContentType(upstreamContentType, storedContentType) {
+  const normalizedUpstream = normalizeContentType(upstreamContentType);
+  const normalizedStored = normalizeContentType(storedContentType);
+
+  if (isImageContentType(normalizedUpstream)) {
+    return normalizedUpstream;
+  }
+
+  return normalizedStored || normalizedUpstream || 'application/octet-stream';
+}
+
 function buildStreamHeaders({
   fileRecord,
   start,
@@ -46,7 +75,7 @@ function buildStreamHeaders({
   contentType = null,
 }) {
   const headers = new Headers();
-  headers.set('Content-Type', contentType || fileRecord.mime_type || 'application/octet-stream');
+  headers.set('Content-Type', resolveInlineContentType(contentType, fileRecord.mime_type));
   headers.set('Cache-Control', 'public, max-age=31536000');
   headers.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileRecord.original_name)}`);
 
