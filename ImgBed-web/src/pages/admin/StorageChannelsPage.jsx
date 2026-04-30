@@ -202,16 +202,8 @@ export default function StorageChannelsPage() {
     },
   ];
 
-  // 转换数据格式
-  const rows = filteredStorages.map(s => ({
-    id: s.id,
-    name: s.name,
-    type: s.type,
-    enabled: s.enabled,
-    allowUpload: s.allowUpload,
-    quotaLimitGB: s.quotaLimitGB,
-    disableThresholdPercent: s.disableThresholdPercent,
-  }));
+  // 保留完整渠道数据，编辑弹窗需要 config 和高级限制字段回填表单
+  const rows = filteredStorages.map(s => ({ ...s }));
 
   if (loading && storages.length === 0) {
     return <LoadingSpinner fullHeight={false} />;
