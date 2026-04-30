@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { getFileById } from '../../src/database/files-dao.js';
+import { deleteTerminalTaskLogs } from '../../src/database/task-logs-dao.js';
 import { createMaintenanceTaskExecutor } from '../../src/services/maintenance/maintenance-task-executor.js';
 import {
   createTestDb,
@@ -386,4 +387,200 @@ test('渠道迁移服务可以取消运行中任务并从终态任务创建重�
     sourceChannel: 'source-1',
     targetChannel: 'target-1',
   });
+});
+
+test('暂停任务不是终态，不能被清理或重试，但可以取消', (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const service = createChannelMigrationTaskService({
+    db,
+    storageManager,
+    logger,
+    taskExecutor: {
+      registerTask() {},
+      getSnapshot() {
+        return null;
+      },
+      requestStop() {},
+      start() {},
+    },
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'paused', 'source-1', 'target-1', 2)
+  `).run(taskId);
+  db.prepare(`
+    INSERT INTO task_log_items (id, task_id, file_id, status, attempt_count, last_error)
+    VALUES (?, ?, 'file-paused-1', 'paused', 1, '用户暂停任务')
+  `).run(crypto.randomUUID(), taskId);
+
+  const clearResult = deleteTerminalTaskLogs(db);
+  assert.equal(clearResult.changes, 0);
+  assert.throws(
+    () => service.retryChannelMigration(taskId),
+    /任务当前状态不支持重试/,
+  );
+
+  const cancelled = service.stopChannelMigration(taskId, { action: 'cancel' });
+  const task = db.prepare('SELECT * FROM task_logs WHERE id = ?').get(taskId);
+  const item = db.prepare('SELECT * FROM task_log_items WHERE task_id = ?').get(taskId);
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(task.status, 'cancelled');
+  assert.equal(item.status, 'cancelled');
+});
+
+test('暂停任务恢复会复用同一 taskId 并继续迁移剩余源渠道文件', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+  const calls = { starts: [] };
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const executor = createMaintenanceTaskExecutor({ logger, wait: async () => {} });
+  const service = createChannelMigrationTaskService({
+    db,
+    storageManager,
+    logger,
+    taskExecutor: {
+      registerTask(definition) {
+        executor.registerTask(definition);
+      },
+      getSnapshot(name) {
+        return executor.getSnapshot(name);
+      },
+      requestStop(name, options) {
+        return executor.requestStop(name, options);
+      },
+      start(name, input) {
+        calls.starts.push({ name, input });
+        return executor.start(name, input);
+      },
+    },
+  });
+
+  insertFileRecord(db, {
+    id: 'file-resume-1',
+    storageInstanceId: 'target-1',
+    storageKey: 'target-key-1',
+    size: 4,
+  });
+  insertFileRecord(db, {
+    id: 'file-resume-2',
+    storageInstanceId: 'source-1',
+    storageKey: 'source-key-2',
+    size: 4,
+  });
+  insertFileRecord(db, {
+    id: 'file-resume-3',
+    storageInstanceId: 'source-1',
+    storageKey: 'source-key-3',
+    size: 4,
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (
+      id, task_type, status, source_storage_id, target_storage_id,
+      total_count, success_count, failed_count, skipped_count, ended_at
+    )
+    VALUES (?, 'channel_migration', 'paused', 'source-1', 'target-1', 3, 1, 0, 0, CURRENT_TIMESTAMP)
+  `).run(taskId);
+
+  const resumed = service.resumeChannelMigration(taskId);
+  assert.equal(resumed.status, 'processing');
+  assert.equal(resumed.taskId, taskId);
+  assert.deepEqual(calls.starts[0].input, {
+    taskId,
+    sourceChannel: 'source-1',
+    targetChannel: 'target-1',
+    resuming: true,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const task = db.prepare('SELECT * FROM task_logs WHERE id = ?').get(taskId);
+  const migrated2 = getFileById(db, 'file-resume-2');
+  const migrated3 = getFileById(db, 'file-resume-3');
+
+  assert.equal(task.status, 'completed');
+  assert.equal(task.total_count, 3);
+  assert.equal(task.success_count, 3);
+  assert.equal(task.failed_count, 0);
+  assert.equal(task.ended_at !== null, true);
+  assert.equal(migrated2.storage_instance_id, 'target-1');
+  assert.equal(migrated3.storage_instance_id, 'target-1');
+});
+
+test('已取消任务不能恢复，但可以创建新的重试任务', (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+  const calls = { starts: [] };
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const service = createChannelMigrationTaskService({
+    db,
+    storageManager,
+    logger,
+    taskExecutor: {
+      registerTask() {},
+      getSnapshot() {
+        return null;
+      },
+      requestStop() {},
+      start(name, input) {
+        calls.starts.push({ name, input });
+      },
+    },
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'cancelled', 'source-1', 'target-1', 1)
+  `).run(taskId);
+
+  assert.throws(
+    () => service.resumeChannelMigration(taskId),
+    /任务当前状态不支持继续/,
+  );
+
+  const retried = service.retryChannelMigration(taskId);
+  assert.equal(retried.status, 'processing');
+  assert.notEqual(retried.taskId, taskId);
+  assert.equal(calls.starts.length, 1);
+});
+
+test('恢复暂停任务时如果已有渠道迁移在运行会返回冲突', (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const service = createChannelMigrationTaskService({
+    db,
+    storageManager,
+    logger,
+    taskExecutor: {
+      registerTask() {},
+      getSnapshot() {
+        return { runId: 'running-1', endedAt: null };
+      },
+      requestStop() {},
+      start() {},
+    },
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'paused', 'source-1', 'target-1', 1)
+  `).run(taskId);
+
+  assert.throws(
+    () => service.resumeChannelMigration(taskId),
+    /已有渠道迁移任务正在运行/,
+  );
 });

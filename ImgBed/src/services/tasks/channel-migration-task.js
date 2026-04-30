@@ -5,11 +5,13 @@ import {
   listActiveFilesByStorageInstanceAfter,
 } from '../../database/files-dao.js';
 import {
+  countTaskLogs,
   createTaskLog,
   finishTaskLog,
   getTaskLogById,
   insertTaskLogItem,
   markActiveTaskItemsStopped,
+  resumeTaskLog,
   startTaskLog,
   stopTaskLog,
   updateTaskLogItem,
@@ -29,6 +31,7 @@ const CHANNEL_MIGRATION_STOP_MESSAGES = {
   pause: '用户暂停任务',
   cancel: '用户取消任务',
 };
+const CHANNEL_MIGRATION_RETRY_STATUSES = new Set(['failed', 'partial_failed', 'cancelled']);
 
 function resolveItemTimeoutMs(value) {
   const parsed = Number(value);
@@ -67,6 +70,25 @@ function assertMigrationChannels({
   return { sourceEntry, targetEntry };
 }
 
+function assertNoRunningChannelMigration(taskExecutor) {
+  const currentSnapshot = typeof taskExecutor.getSnapshot === 'function'
+    ? taskExecutor.getSnapshot(CHANNEL_MIGRATION_TASK_NAME)
+    : null;
+  if (currentSnapshot?.runId && !currentSnapshot?.endedAt) {
+    throw new ConflictError('已有渠道迁移任务正在运行，请稍后再试', 'CHANNEL_MIGRATION_RUNNING');
+  }
+}
+
+function assertNoPausedChannelMigration(db) {
+  const pausedCount = countTaskLogs(db, {
+    status: 'paused',
+    taskType: CHANNEL_MIGRATION_TASK_TYPE,
+  });
+  if (pausedCount > 0) {
+    throw new ConflictError('已有暂停的渠道迁移任务，请先继续或取消', 'CHANNEL_MIGRATION_PAUSED');
+  }
+}
+
 function createChannelMigrationTaskDefinition({
   db,
   storageManager,
@@ -88,6 +110,16 @@ function createChannelMigrationTaskDefinition({
     storageManager,
     applyPendingQuotaEvents,
   });
+
+  function buildInitialStats(task, total) {
+    return {
+      total,
+      success: Number(task?.success_count || 0),
+      failed: Number(task?.failed_count || 0),
+      skipped: Number(task?.skipped_count || 0),
+      errors: [],
+    };
+  }
 
   async function processFile(file, {
     taskId,
@@ -193,19 +225,23 @@ function createChannelMigrationTaskDefinition({
       taskId,
       sourceChannel,
       targetChannel,
+      resuming = false,
     } = {}, taskRuntime = {}) {
       assertMigrationChannels({ sourceChannel, targetChannel, storageManager });
       const targetEntry = validateMigrationTarget(targetChannel, storageManager);
-      const total = countFilesByStorageInstance(db, sourceChannel);
-      const stats = {
-        total,
-        success: 0,
-        failed: 0,
-        skipped: 0,
-        errors: [],
-      };
+      const task = getTaskLogById(db, taskId);
+      const sourceTotal = countFilesByStorageInstance(db, sourceChannel);
+      const shouldResumeTaskLog = task?.status === 'paused';
+      const total = shouldResumeTaskLog || resuming
+        ? Math.max(Number(task.total_count || 0), sourceTotal)
+        : sourceTotal;
+      const stats = buildInitialStats(task, total);
 
-      startTaskLog(db, taskId);
+      if (shouldResumeTaskLog) {
+        resumeTaskLog(db, taskId);
+      } else {
+        startTaskLog(db, taskId);
+      }
       updateTaskLogTotals(db, taskId, { totalCount: total });
       logger.info?.({ taskId, sourceChannel, targetChannel, total }, '渠道迁移任务开始');
 
@@ -324,12 +360,8 @@ function createChannelMigrationTaskService({
       targetChannel,
     } = {}) {
       assertMigrationChannels({ sourceChannel, targetChannel, storageManager });
-      const currentSnapshot = typeof taskExecutor.getSnapshot === 'function'
-        ? taskExecutor.getSnapshot(CHANNEL_MIGRATION_TASK_NAME)
-        : null;
-      if (currentSnapshot?.runId && !currentSnapshot?.endedAt) {
-        throw new ConflictError('已有渠道迁移任务正在运行，请稍后再试', 'CHANNEL_MIGRATION_RUNNING');
-      }
+      assertNoRunningChannelMigration(taskExecutor);
+      assertNoPausedChannelMigration(db);
 
       const total = countActiveFilesByStorageInstance(db, sourceChannel);
       const taskId = createTaskLog(db, {
@@ -367,6 +399,23 @@ function createChannelMigrationTaskService({
         throw new ValidationError('仅支持操作渠道迁移任务');
       }
       if (task.status !== 'pending' && task.status !== 'running') {
+        if (action === 'cancel' && task.status === 'paused') {
+          const finalReason = reason || CHANNEL_MIGRATION_STOP_MESSAGES[action];
+          stopTaskLog(db, taskId, {
+            status: 'cancelled',
+            reason: finalReason,
+          });
+          markActiveTaskItemsStopped(db, taskId, {
+            status: 'cancelled',
+            reason: finalReason,
+          });
+
+          return {
+            taskId,
+            status: 'cancelled',
+          };
+        }
+
         throw new ConflictError('任务当前状态不支持该操作', 'TASK_NOT_RUNNING');
       }
 
@@ -401,7 +450,7 @@ function createChannelMigrationTaskService({
       if (task.task_type !== CHANNEL_MIGRATION_TASK_TYPE) {
         throw new ValidationError('仅支持重试渠道迁移任务');
       }
-      if (!['failed', 'partial_failed', 'paused', 'cancelled'].includes(task.status)) {
+      if (!CHANNEL_MIGRATION_RETRY_STATUSES.has(task.status)) {
         throw new ConflictError('任务当前状态不支持重试', 'TASK_RETRY_NOT_ALLOWED');
       }
 
@@ -409,6 +458,39 @@ function createChannelMigrationTaskService({
         sourceChannel: task.source_storage_id,
         targetChannel: task.target_storage_id,
       });
+    },
+
+    resumeChannelMigration(taskId) {
+      const task = getTaskLogById(db, taskId);
+      if (!task) {
+        throw new ValidationError('任务日志不存在');
+      }
+      if (task.task_type !== CHANNEL_MIGRATION_TASK_TYPE) {
+        throw new ValidationError('仅支持恢复渠道迁移任务');
+      }
+      if (task.status !== 'paused') {
+        throw new ConflictError('任务当前状态不支持继续', 'TASK_RESUME_NOT_ALLOWED');
+      }
+
+      assertMigrationChannels({
+        sourceChannel: task.source_storage_id,
+        targetChannel: task.target_storage_id,
+        storageManager,
+      });
+      assertNoRunningChannelMigration(taskExecutor);
+
+      resumeTaskLog(db, taskId);
+      taskExecutor.start(CHANNEL_MIGRATION_TASK_NAME, {
+        taskId,
+        sourceChannel: task.source_storage_id,
+        targetChannel: task.target_storage_id,
+        resuming: true,
+      });
+
+      return {
+        taskId,
+        status: 'processing',
+      };
     },
   };
 }

@@ -3,7 +3,7 @@ import crypto from 'crypto';
 const ACTIVE_TASK_STATUSES = new Set(['pending', 'running']);
 const ACTIVE_TASK_ITEM_STATUSES = new Set(['pending', 'running', 'retrying']);
 const STOP_TASK_STATUSES = new Set(['paused', 'cancelled']);
-const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'partial_failed', 'paused', 'cancelled']);
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'partial_failed', 'cancelled']);
 
 function buildPlaceholders(values) {
   return Array.from(values).map(() => '?').join(', ');
@@ -108,10 +108,33 @@ function stopTaskLog(db, taskId, {
   reason = null,
 } = {}) {
   assertStopTaskStatus(status);
-  return finishTaskLog(db, taskId, {
+  const currentStatuses = status === 'cancelled'
+    ? "'pending', 'running', 'paused'"
+    : "'pending', 'running'";
+
+  return db.prepare(`
+    UPDATE task_logs SET
+      status = @status,
+      error_summary = @reason,
+      ended_at = CURRENT_TIMESTAMP
+    WHERE id = @id
+      AND status IN (${currentStatuses})
+  `).run({
+    id: taskId,
     status,
-    errorSummary: reason,
+    reason,
   });
+}
+
+function resumeTaskLog(db, taskId) {
+  return db.prepare(`
+    UPDATE task_logs SET
+      status = 'running',
+      started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+      ended_at = NULL
+    WHERE id = ?
+      AND status = 'paused'
+  `).run(taskId);
 }
 
 function insertTaskLogItem(db, {
@@ -166,12 +189,16 @@ function markActiveTaskItemsStopped(db, taskId, {
   reason = null,
 } = {}) {
   assertStopTaskStatus(status);
+  const currentStatuses = status === 'cancelled'
+    ? "'pending', 'running', 'retrying', 'paused'"
+    : "'pending', 'running', 'retrying'";
+
   return db.prepare(`
     UPDATE task_log_items SET
       status = @status,
       last_error = COALESCE(@reason, last_error)
     WHERE task_id = @task_id
-      AND status IN ('pending', 'running', 'retrying')
+      AND status IN (${currentStatuses})
   `).run({
     task_id: taskId,
     status,
@@ -293,6 +320,7 @@ export {
   listTaskLogItems,
   listTaskLogs,
   markActiveTaskItemsStopped,
+  resumeTaskLog,
   startTaskLog,
   stopTaskLog,
   updateTaskLogItem,

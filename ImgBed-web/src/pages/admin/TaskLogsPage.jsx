@@ -21,6 +21,7 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ReplayIcon from '@mui/icons-material/Replay';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
@@ -58,7 +59,9 @@ const ITEM_STATUS_LABELS = {
 };
 
 const CONTROLLABLE_STATUSES = new Set(['pending', 'running']);
-const RETRYABLE_STATUSES = new Set(['failed', 'partial_failed', 'paused', 'cancelled']);
+const RESUMABLE_STATUSES = new Set(['paused']);
+const CANCELLABLE_STATUSES = new Set(['pending', 'running', 'paused']);
+const RETRYABLE_STATUSES = new Set(['failed', 'partial_failed', 'cancelled']);
 
 function formatDate(value) {
   if (!value) return '-';
@@ -176,6 +179,67 @@ export default function TaskLogsPage() {
     ));
   };
 
+  const renderTaskActionButtons = useCallback((row) => (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      {CONTROLLABLE_STATUSES.has(row.status) && (
+        <Tooltip title="暂停任务">
+          <span>
+            <IconButton
+              size="small"
+              color="warning"
+              disabled={loading}
+              onClick={() => runTaskAction(row, 'pause')}
+            >
+              <PauseCircleIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+      {RESUMABLE_STATUSES.has(row.status) && (
+        <Tooltip title="继续任务">
+          <span>
+            <IconButton
+              size="small"
+              color="success"
+              disabled={loading}
+              onClick={() => runTaskAction(row, 'resume')}
+            >
+              <PlayCircleIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+      {CANCELLABLE_STATUSES.has(row.status) && (
+        <Tooltip title="取消任务">
+          <span>
+            <IconButton
+              size="small"
+              color="error"
+              disabled={loading}
+              onClick={() => runTaskAction(row, 'cancel')}
+            >
+              <CancelIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+      {RETRYABLE_STATUSES.has(row.status) && (
+        <Tooltip title="重试任务">
+          <span>
+            <IconButton
+              size="small"
+              color="primary"
+              disabled={loading}
+              onClick={() => runTaskAction(row, 'retry')}
+            >
+              <ReplayIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+    </Stack>
+  ), [loading, runTaskAction]);
+
   const columns = useMemo(() => [
     {
       field: 'task_type',
@@ -233,7 +297,7 @@ export default function TaskLogsPage() {
     {
       field: 'actions',
       headerName: '操作',
-      width: 180,
+      width: 220,
       sortable: false,
       renderCell: (params) => (
         <Stack direction="row" spacing={0.5} alignItems="center">
@@ -242,46 +306,11 @@ export default function TaskLogsPage() {
               <VisibilityIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Tooltip title="暂停任务">
-            <span>
-              <IconButton
-                size="small"
-                color="warning"
-                disabled={!CONTROLLABLE_STATUSES.has(params.row.status) || loading}
-                onClick={() => runTaskAction(params.row, 'pause')}
-              >
-                <PauseCircleIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="取消任务">
-            <span>
-              <IconButton
-                size="small"
-                color="error"
-                disabled={!CONTROLLABLE_STATUSES.has(params.row.status) || loading}
-                onClick={() => runTaskAction(params.row, 'cancel')}
-              >
-                <CancelIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="重试任务">
-            <span>
-              <IconButton
-                size="small"
-                color="primary"
-                disabled={!RETRYABLE_STATUSES.has(params.row.status) || loading}
-                onClick={() => runTaskAction(params.row, 'retry')}
-              >
-                <ReplayIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          {renderTaskActionButtons(params.row)}
         </Stack>
       ),
     },
-  ], [loading, openDetail, runTaskAction]);
+  ], [openDetail, renderTaskActionButtons]);
 
   if (loading && rows.length === 0) {
     return <LoadingSpinner fullHeight={false} />;
@@ -390,6 +419,7 @@ export default function TaskLogsPage() {
           )}
         </DialogContent>
         <DialogActions>
+          {detail.data?.task && renderTaskActionButtons(detail.data.task)}
           <Button onClick={closeDetail}>关闭</Button>
         </DialogActions>
       </Dialog>

@@ -33,6 +33,10 @@ function createSystemTaskLogsRouter({
     return res.json(success(taskLogService.cancelTask(req.params.id), '任务已取消'));
   }));
 
+  router.post('/task-logs/:id/resume', asyncHandler(async (req, res) => {
+    return res.json(success(taskLogService.resumeTask(req.params.id), '任务已继续'));
+  }));
+
   router.post('/task-logs/:id/retry', asyncHandler(async (req, res) => {
     return res.json(success(taskLogService.retryTask(req.params.id), '任务重试已启动'));
   }));

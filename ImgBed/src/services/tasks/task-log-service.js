@@ -117,6 +117,10 @@ function createTaskLogService({
       });
     },
 
+    resumeTask(taskId) {
+      return requireChannelMigrationTaskService().resumeChannelMigration(taskId);
+    },
+
     retryTask(taskId) {
       return requireChannelMigrationTaskService().retryChannelMigration(taskId);
     },

@@ -172,6 +172,7 @@ export const TaskLogDocs = {
   detail: (id, params) => api.get(`/api/system/task-logs/${id}`, { params }),
   pause: (id) => api.post(`/api/system/task-logs/${id}/pause`),
   cancel: (id) => api.post(`/api/system/task-logs/${id}/cancel`),
+  resume: (id) => api.post(`/api/system/task-logs/${id}/resume`),
   retry: (id) => api.post(`/api/system/task-logs/${id}/retry`),
   clearTerminal: () => api.delete('/api/system/task-logs'),
 };

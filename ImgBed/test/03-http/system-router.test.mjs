@@ -531,6 +531,10 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
         calls.push({ type: 'cancel', id });
         return { taskId: id, status: 'cancelled' };
       },
+      resumeTask(id) {
+        calls.push({ type: 'resume', id });
+        return { taskId: id, status: 'processing' };
+      },
       retryTask(id) {
         calls.push({ type: 'retry', id });
         return { taskId: 'task-2', status: 'processing' };
@@ -547,6 +551,9 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
   const cancelResponse = await requestJson(appHandle, '/task-logs/task-1/cancel', {
     method: 'POST',
   });
+  const resumeResponse = await requestJson(appHandle, '/task-logs/task-1/resume', {
+    method: 'POST',
+  });
   const retryResponse = await requestJson(appHandle, '/task-logs/task-1/retry', {
     method: 'POST',
   });
@@ -559,6 +566,7 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
   assert.equal(detailResponse.body.data.items[0].file_id, 'file-1');
   assert.equal(pauseResponse.body.data.status, 'paused');
   assert.equal(cancelResponse.body.data.status, 'cancelled');
+  assert.equal(resumeResponse.body.data.status, 'processing');
   assert.equal(retryResponse.body.data.taskId, 'task-2');
   assert.equal(clearResponse.body.data.deleted, 2);
   assert.deepEqual(calls, [
@@ -566,6 +574,7 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
     { type: 'detail', id: 'task-1', query: { itemStatus: 'failed', page: undefined, pageSize: undefined } },
     { type: 'pause', id: 'task-1' },
     { type: 'cancel', id: 'task-1' },
+    { type: 'resume', id: 'task-1' },
     { type: 'retry', id: 'task-1' },
     { type: 'clear' },
   ]);
