@@ -12,9 +12,21 @@ import logger from '../../utils/logger';
 
 const DEFAULT_CHANNEL = '__system_default__';
 
+const createFileEntry = (file) => ({
+  id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+  file,
+  previewUrl: URL.createObjectURL(file),
+});
+
+const revokeFileEntry = (entry) => {
+  if (entry?.previewUrl) {
+    URL.revokeObjectURL(entry.previewUrl);
+  }
+};
+
 export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder = false }) {
   const theme = useTheme();
-  const [files, setFiles] = useState([]);
+  const [fileEntries, setFileEntries] = useState([]);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -24,15 +36,27 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
   const [channelsError, setChannelsError] = useState(null);
   const boxRef = useRef(null);
   const fileInputRef = useRef(null);
+  const fileEntriesRef = useRef([]);
+
+  useEffect(() => {
+    fileEntriesRef.current = fileEntries;
+  }, [fileEntries]);
 
   const resetState = useCallback(() => {
-    setFiles([]);
+    fileEntriesRef.current.forEach(revokeFileEntry);
+    fileEntriesRef.current = [];
+    setFileEntries([]);
     setError(null);
     setProgress(0);
     setSelectedChannel(DEFAULT_CHANNEL);
     setAvailableChannels([]);
     setChannelsError(null);
     setChannelsLoading(false);
+  }, []);
+
+  useEffect(() => () => {
+    fileEntriesRef.current.forEach(revokeFileEntry);
+    fileEntriesRef.current = [];
   }, []);
 
   const loadChannels = useCallback(async () => {
@@ -65,6 +89,17 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
     loadChannels();
   }, [open, loadChannels, resetState]);
 
+  const appendFiles = useCallback((selectedFiles) => {
+    const nextEntries = selectedFiles.filter(Boolean).map(createFileEntry);
+    if (nextEntries.length === 0) return false;
+
+    const next = [...fileEntriesRef.current, ...nextEntries];
+    fileEntriesRef.current = next;
+    setFileEntries(next);
+    setError(null);
+    return true;
+  }, []);
+
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -76,10 +111,7 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
       }
     }
 
-    if (newFiles.length > 0) {
-      setFiles(prev => [...prev, ...newFiles]);
-      setError(null);
-    } else {
+    if (!appendFiles(newFiles)) {
       setError('剪贴板中没有图片');
     }
   };
@@ -90,19 +122,20 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
 
   const handleFileSelect = (e) => {
     const selectedFiles = Array.from(e.target.files || []);
-    if (selectedFiles.length > 0) {
-      setFiles(prev => [...prev, ...selectedFiles]);
-      setError(null);
-    }
+    appendFiles(selectedFiles);
     e.target.value = null;
   };
 
   const removeFile = (index) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+    const target = fileEntriesRef.current[index];
+    revokeFileEntry(target);
+    const next = fileEntriesRef.current.filter((_, i) => i !== index);
+    fileEntriesRef.current = next;
+    setFileEntries(next);
   };
 
   const handleConfirm = async () => {
-    if (files.length === 0) return;
+    if (fileEntries.length === 0) return;
 
     setUploading(true);
     setProgress(0);
@@ -110,9 +143,9 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
     const uploadOptions = selectedChannel === DEFAULT_CHANNEL ? {} : { channel: selectedChannel };
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        await onUpload(files[i], uploadOptions);
-        setProgress(((i + 1) / files.length) * 100);
+      for (let i = 0; i < fileEntries.length; i++) {
+        await onUpload(fileEntries[i].file, uploadOptions);
+        setProgress(((i + 1) / fileEntries.length) * 100);
       }
       handleClose();
     } catch (err) {
@@ -158,7 +191,7 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
           onClick={handleBoxClick}
           sx={{
             border: '2px dashed',
-            borderColor: files.length > 0 ? 'success.light' : 'primary.light',
+            borderColor: fileEntries.length > 0 ? 'success.light' : 'primary.light',
             borderRadius: BORDER_RADIUS.md,
             p: 4,
             textAlign: 'center',
@@ -194,17 +227,17 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
 
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
 
-        {files.length > 0 && (
+        {fileEntries.length > 0 && (
           <Box sx={{ mt: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              已选择 {files.length} 个文件
+              已选择 {fileEntries.length} 个文件
             </Typography>
             <ImageList cols={4} gap={8} sx={{ maxHeight: 300, overflow: 'auto' }}>
-              {files.map((file, index) => (
-                <ImageListItem key={`${file.name}-${file.size}`} sx={{ position: 'relative' }}>
+              {fileEntries.map((entry, index) => (
+                <ImageListItem key={entry.id} sx={{ position: 'relative' }}>
                   <img
-                    src={URL.createObjectURL(file)}
-                    alt={file.name}
+                    src={entry.previewUrl}
+                    alt={entry.file.name}
                     loading="lazy"
                     style={{ height: 120, objectFit: 'cover', borderRadius: BORDER_RADIUS.sm }}
                   />
@@ -240,8 +273,8 @@ export default function PasteUploadDialog({ open, onClose, onUpload, allowFolder
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose} disabled={uploading}>取消</Button>
-        <Button variant="contained" onClick={handleConfirm} disabled={files.length === 0 || uploading}>
-          上传 {files.length > 0 && `(${files.length})`}
+        <Button variant="contained" onClick={handleConfirm} disabled={fileEntries.length === 0 || uploading}>
+          上传 {fileEntries.length > 0 && `(${fileEntries.length})`}
         </Button>
       </DialogActions>
     </Dialog>
