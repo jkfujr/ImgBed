@@ -20,6 +20,7 @@ const FilesAdmin = lazy(() => import('./pages/admin/FilesAdmin'));
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
 const SystemPage = lazy(() => import('./pages/admin/SystemPage'));
 const StorageChannelsPage = lazy(() => import('./pages/admin/StorageChannelsPage'));
+const TaskLogsPage = lazy(() => import('./pages/admin/TaskLogsPage'));
 
 const routeFallback = (
   <Box sx={{ height: '100vh' }}>
@@ -77,6 +78,7 @@ function AppWithTheme() {
                            <Route path="files" element={<FilesAdmin />} />
                            <Route path="settings" element={<SettingsPage />} />
                            <Route path="channels" element={<StorageChannelsPage />} />
+                           <Route path="task-logs" element={<TaskLogsPage />} />
                            <Route path="system" element={<SystemPage />} />
                       </Route>
                       <Route path="*" element={<Navigate to="/" replace/>} />

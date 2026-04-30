@@ -22,6 +22,7 @@ const { createSystemStoragesRouter } = await import(resolveProjectModuleUrl('src
 const { createSystemMaintenanceRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'maintenance-router.js'));
 const { createSystemRuntimeRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'runtime-router.js'));
 const { createSystemDashboardRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'dashboard-router.js'));
+const { createSystemTaskLogsRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'task-logs-router.js'));
 
 function createPassthroughCache() {
   return () => (_req, _res, next) => next();
@@ -133,6 +134,22 @@ test('createSystemRouter 会使用注入依赖完成装配，而不是直接依�
         return true;
       },
     },
+    channelMigrationTaskService: {
+      startChannelMigration() {
+        return { taskId: 'task-1', status: 'processing' };
+      },
+    },
+    taskLogService: {
+      listTasks() {
+        return { list: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } };
+      },
+      getTaskDetail() {
+        return { task: { id: 'task-1' }, items: [], pagination: { page: 1, pageSize: 200, total: 0, totalPages: 0 } };
+      },
+      clearTerminalTasks() {
+        return { deleted: 0 };
+      },
+    },
     maintenanceService: {
       triggerQuotaStatsRebuild() {
         return { status: 'processing' };
@@ -180,6 +197,7 @@ test('createSystemRouter 会使用注入依赖完成装配，而不是直接依�
   const archiveResponse = await requestJson(appHandle, '/archive/stats');
   const schedulerResponse = await requestJson(appHandle, '/archive/scheduler');
   const dashboardResponse = await requestJson(appHandle, '/dashboard/overview');
+  const taskLogsResponse = await requestJson(appHandle, '/task-logs');
 
   assert.equal(configResponse.status, 200);
   assert.equal(configResponse.body.data.masked, true);
@@ -189,7 +207,8 @@ test('createSystemRouter 会使用注入依赖完成装配，而不是直接依�
   assert.equal(archiveResponse.body.data.archivedEvents, 3);
   assert.equal(schedulerResponse.body.data.enabled, false);
   assert.equal(dashboardResponse.body.data.totalFiles, 1);
-  assert.equal(authCalls.length, 6);
+  assert.equal(taskLogsResponse.status, 200);
+  assert.equal(authCalls.length, 7);
 });
 
 test('createSystemConfigRouter 会保持 GET 脱敏与 PUT 成功响应契约', async (t) => {
@@ -284,6 +303,12 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
         return true;
       },
     },
+    channelMigrationTaskService: {
+      startChannelMigration(payload) {
+        serviceCalls.push({ migrate: payload });
+        return { taskId: 'task-1', status: 'processing' };
+      },
+    },
   }));
   t.after(() => appHandle.stop());
 
@@ -315,6 +340,12 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       },
     },
   });
+  const migrateResponse = await requestJson(appHandle, '/storages/s3-1/migrate', {
+    method: 'POST',
+    json: {
+      target_channel: 's3-2',
+    },
+  });
 
   assert.equal(storagesResponse.status, 200);
   assert.equal(storagesResponse.body.data.list[0].config.secretAccessKey, '***');
@@ -325,6 +356,8 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
   assert.equal(loadBalanceResponse.body.data.strategy, 'weighted');
   assert.deepEqual(quotaStatsResponse.body.data.stats, { 's3-1': 64 });
   assert.equal(updateLoadBalanceResponse.status, 200);
+  assert.equal(migrateResponse.body.message, '渠道迁移任务已启动');
+  assert.deepEqual(migrateResponse.body.data, { taskId: 'task-1', status: 'processing' });
   assert.deepEqual(serviceCalls, [
     { type: 's3', config: { region: 'ap-southeast-1' } },
     { updateLoadBalance: { strategy: 'weighted' } },
@@ -337,6 +370,12 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
         config: {
           bucket: 'bucket-1',
         },
+      },
+    },
+    {
+      migrate: {
+        sourceChannel: 's3-1',
+        targetChannel: 's3-2',
       },
     },
   ]);
@@ -380,6 +419,11 @@ test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason'
       async setDefaultStorage() {},
       async toggleStorage() {
         return true;
+      },
+    },
+    channelMigrationTaskService: {
+      startChannelMigration() {
+        return { taskId: 'task-1', status: 'processing' };
       },
     },
   }));
@@ -430,6 +474,43 @@ test('createSystemMaintenanceRouter 会返回 processing 与容量历史数据',
     limit: '5',
     storageId: 's3-1',
   }]);
+});
+
+test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async (t) => {
+  const calls = [];
+  const appHandle = await startRouterApp(createSystemTaskLogsRouter({
+    taskLogService: {
+      listTasks(query) {
+        calls.push({ type: 'list', query });
+        return { list: [{ id: 'task-1' }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } };
+      },
+      getTaskDetail(id, query) {
+        calls.push({ type: 'detail', id, query });
+        return { task: { id }, items: [{ file_id: 'file-1' }], pagination: { page: 1, pageSize: 200, total: 1, totalPages: 1 } };
+      },
+      clearTerminalTasks() {
+        calls.push({ type: 'clear' });
+        return { deleted: 2 };
+      },
+    },
+  }));
+  t.after(() => appHandle.stop());
+
+  const listResponse = await requestJson(appHandle, '/task-logs?status=failed&page=2&pageSize=5');
+  const detailResponse = await requestJson(appHandle, '/task-logs/task-1?item_status=failed');
+  const clearResponse = await requestJson(appHandle, '/task-logs', {
+    method: 'DELETE',
+  });
+
+  assert.equal(listResponse.status, 200);
+  assert.equal(listResponse.body.data.list[0].id, 'task-1');
+  assert.equal(detailResponse.body.data.items[0].file_id, 'file-1');
+  assert.equal(clearResponse.body.data.deleted, 2);
+  assert.deepEqual(calls, [
+    { type: 'list', query: { page: '2', pageSize: '5', status: 'failed', taskType: undefined } },
+    { type: 'detail', id: 'task-1', query: { itemStatus: 'failed', page: undefined, pageSize: undefined } },
+    { type: 'clear' },
+  ]);
 });
 
 test('createSystemRuntimeRouter 会返回注入的缓存与归档运行态信息', async (t) => {

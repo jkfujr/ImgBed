@@ -6,6 +6,7 @@ import { createDirectoriesSchema } from '../../src/database/schemas/directories.
 import { createFilesSchema } from '../../src/database/schemas/files.js';
 import { createStorageOperationsSchema } from '../../src/database/schemas/storage-operations.js';
 import { createStorageQuotaEventsSchema } from '../../src/database/schemas/storage-quota-events.js';
+import { createTaskLogsSchema } from '../../src/database/schemas/task-logs.js';
 import { serializeStorageMeta } from '../../src/utils/storage-meta.js';
 
 const require = createRequire(import.meta.url);
@@ -32,6 +33,7 @@ function createTestDb() {
   createChunksSchema(db);
   createDirectoriesSchema(db);
   createAccessLogsSchema(db);
+  createTaskLogsSchema(db);
   return db;
 }
 

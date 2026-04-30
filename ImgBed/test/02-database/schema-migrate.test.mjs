@@ -6,7 +6,7 @@ import { initSchema } from '../../src/database/schema.js';
 import { getTableColumns, hasColumn, hasTable } from '../../src/database/schema-utils.js';
 import { createEmptyDb, listTableNames, listTriggerNames } from '../helpers/database-test-helpers.mjs';
 
-test('initSchema 会建立当前 v2 所需的全部核心数据表', (t) => {
+test('initSchema 会建立当前 v3 所需的全部核心数据表', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -26,6 +26,8 @@ test('initSchema 会建立当前 v2 所需的全部核心数据表', (t) => {
       'storage_quota_events',
       'storage_quota_events_archive',
       'storage_quota_history',
+      'task_log_items',
+      'task_logs',
     ],
   );
 });
@@ -73,11 +75,13 @@ test('当前 schema 只包含 updated_at 维护触发器，不包含配额跨表
       'update_directories_updated_at',
       'update_files_updated_at',
       'update_storage_operations_updated_at',
+      'update_task_log_items_updated_at',
+      'update_task_logs_updated_at',
     ],
   );
 });
 
-test('runMigrations 不做旧版迁移，只验证当前 v2 结构并登记 schema_migrations', (t) => {
+test('runMigrations 不做旧版迁移，只验证当前 v3 结构并登记 schema_migrations', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -125,7 +129,7 @@ test('runMigrations 在发现已废弃数据表时会拒绝继续登记', (t) =>
   assert.throws(() => runMigrations(db), /storage_channels/);
 });
 
-test('runMigrations 在发现缺失的 v2 字段时会拒绝继续登记', (t) => {
+test('runMigrations 在发现缺失的 v3 字段时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -148,4 +152,14 @@ test('runMigrations 在发现缺失的 v2 字段时会拒绝继续登记', (t) =
   `);
 
   assert.throws(() => runMigrations(db), /storage_operations\.retry_count/);
+});
+
+test('runMigrations 在发现缺失的 v3 任务日志表时会拒绝继续登记', (t) => {
+  const db = createEmptyDb();
+  t.after(() => db.close());
+
+  initSchema(db);
+  db.exec('DROP TABLE task_log_items');
+
+  assert.throws(() => runMigrations(db), /task_log_items/);
 });

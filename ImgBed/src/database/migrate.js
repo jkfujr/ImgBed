@@ -3,11 +3,11 @@ import { hasColumn, hasTable } from './schema-utils.js';
 
 const log = createLogger('database:migrate');
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 function assertTableExists(db, tableName) {
   if (!hasTable(db, tableName)) {
-    throw new Error(`数据库缺少 v2 必需数据表 ${tableName}，请删除旧数据库后重建`);
+    throw new Error(`数据库缺少 v3 必需数据表 ${tableName}，请删除旧数据库后重建`);
   }
 }
 
@@ -19,7 +19,7 @@ function assertTableMissing(db, tableName) {
 
 function assertSchemaColumn(db, tableName, columnName) {
   if (!hasColumn(db, tableName, columnName)) {
-    throw new Error(`数据库缺少 v2 必需字段 ${tableName}.${columnName}，请删除旧数据库后重建`);
+    throw new Error(`数据库缺少 v3 必需字段 ${tableName}.${columnName}，请删除旧数据库后重建`);
   }
 }
 
@@ -29,10 +29,18 @@ function assertSchemaColumnMissing(db, tableName, columnName) {
   }
 }
 
-function validateSchemaV2(db) {
+function validateSchemaV3(db) {
   assertTableExists(db, 'files');
   assertTableExists(db, 'chunks');
   assertTableExists(db, 'storage_operations');
+  assertTableExists(db, 'task_logs');
+  assertTableExists(db, 'task_log_items');
+  assertSchemaColumn(db, 'task_logs', 'task_type');
+  assertSchemaColumn(db, 'task_logs', 'source_storage_id');
+  assertSchemaColumn(db, 'task_logs', 'target_storage_id');
+  assertSchemaColumn(db, 'task_logs', 'error_summary');
+  assertSchemaColumn(db, 'task_log_items', 'attempt_count');
+  assertSchemaColumn(db, 'task_log_items', 'last_error');
   assertSchemaColumn(db, 'storage_operations', 'retry_count');
   assertSchemaColumn(db, 'storage_operations', 'source_storage_id');
   assertSchemaColumn(db, 'storage_operations', 'target_storage_id');
@@ -69,13 +77,13 @@ export function runMigrations(db) {
       applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    validateSchemaV2(db);
+    validateSchemaV3(db);
     cleanupRemovedStorageTypes(db);
     cleanupAccessLogAdminFlag(db);
     db.prepare('DELETE FROM schema_migrations WHERE version != ?').run(SCHEMA_VERSION);
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(SCHEMA_VERSION);
 
-    log.info({ version: SCHEMA_VERSION }, '数据库结构已登记为 v2');
+    log.info({ version: SCHEMA_VERSION }, '数据库结构已登记为 v3');
   } catch (err) {
     log.error({ err }, '数据库结构版本登记失败');
     throw err;

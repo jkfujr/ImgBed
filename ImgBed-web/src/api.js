@@ -157,6 +157,7 @@ export const StorageDocs = {
   create: (data) => api.post('/api/system/storages', data),
   update: (id, data) => api.put(`/api/system/storages/${id}`, data),
   remove: (id) => api.delete(`/api/system/storages/${id}`),
+  migrate: (id, data) => api.post(`/api/system/storages/${id}/migrate`, data),
   setDefault: (id) => api.put(`/api/system/storages/${id}/default`),
   toggle: (id) => api.put(`/api/system/storages/${id}/toggle`),
   test: (data) => api.post('/api/system/storages/test', data),
@@ -164,6 +165,12 @@ export const StorageDocs = {
     params: force ? { force: 'true' } : {}
   }),
   updateLoadBalance: (data) => api.put('/api/system/load-balance', data),
+};
+
+export const TaskLogDocs = {
+  list: (params) => api.get('/api/system/task-logs', { params }),
+  detail: (id, params) => api.get(`/api/system/task-logs/${id}`, { params }),
+  clearTerminal: () => api.delete('/api/system/task-logs'),
 };
 
 export const SystemConfigDocs = {

@@ -6,6 +6,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
@@ -13,6 +14,7 @@ import ToggleOffIcon from '@mui/icons-material/ToggleOff';
 import LinearProgress from '@mui/material/LinearProgress';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
+import ChannelMigrationDialog from '../../components/common/ChannelMigrationDialog';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
@@ -60,7 +62,9 @@ export default function StorageChannelsPage() {
   const {
     storages, defaultId, loading, error, quotaStats, stats,
     dialogOpen, editTarget, deleteTarget, deleting,
+    migrationDialogOpen, migrationTarget, migrationStarted,
     loadStorages, openEdit, closeDialog,
+    openMigrationDialog, closeMigrationDialog, handleMigrationStarted,
     handleToggle, handleSetDefault, handleDelete,
     openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
   } = useStorageChannels();
@@ -147,7 +151,7 @@ export default function StorageChannelsPage() {
     {
       field: 'actions',
       headerName: '操作',
-      width: 160,
+      width: 200,
       sortable: false,
       renderCell: (params) => (
         <Stack direction="row" spacing={0.5}>
@@ -170,6 +174,11 @@ export default function StorageChannelsPage() {
           <Tooltip title="编辑">
             <IconButton size="small" onClick={(event) => openEdit(event.currentTarget, params.row)}>
               <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="迁移渠道文件">
+            <IconButton size="small" onClick={(event) => openMigrationDialog(event.currentTarget, params.row)}>
+              <DriveFileMoveIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title={params.row.enabled ? '禁用' : '启用'}>
@@ -253,6 +262,12 @@ export default function StorageChannelsPage() {
         </Alert>
       )}
 
+      {migrationStarted && (
+        <Alert severity="success" onClose={closeMigrationDialog}>
+          渠道迁移任务已启动：{migrationStarted.taskId}
+        </Alert>
+      )}
+
       {/* 数据表格 */}
       <GenericDataGrid
         rows={rows}
@@ -276,6 +291,14 @@ export default function StorageChannelsPage() {
         onClose={closeDialog}
         editTarget={editTarget}
         onSuccess={onDialogSuccess}
+      />
+
+      <ChannelMigrationDialog
+        open={migrationDialogOpen}
+        sourceChannel={migrationTarget}
+        storages={storages}
+        onClose={closeMigrationDialog}
+        onStarted={handleMigrationStarted}
       />
 
       {/* 删除确认对话框 */}

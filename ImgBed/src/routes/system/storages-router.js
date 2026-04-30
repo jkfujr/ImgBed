@@ -13,6 +13,7 @@ function createSystemStoragesRouter({
   summarizeStorages,
   storageManager,
   storageConfigService,
+  channelMigrationTaskService,
 } = {}) {
   const router = express.Router();
 
@@ -71,6 +72,14 @@ function createSystemStoragesRouter({
   router.delete('/storages/:id', asyncHandler(async (req, res) => {
     await storageConfigService.deleteStorage(req.params.id);
     return res.json(success(null, '存储渠道已删除，关联文件已冻结'));
+  }));
+
+  router.post('/storages/:id/migrate', asyncHandler(async (req, res) => {
+    const result = channelMigrationTaskService.startChannelMigration({
+      sourceChannel: req.params.id,
+      targetChannel: req.body?.target_channel,
+    });
+    return res.json(success(result, '渠道迁移任务已启动'));
   }));
 
   router.put('/storages/:id/default', asyncHandler(async (req, res) => {

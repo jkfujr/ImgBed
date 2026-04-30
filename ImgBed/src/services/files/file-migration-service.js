@@ -214,6 +214,7 @@ function createFileMigrationService({
   async function migrateFileRecord(fileRecord, {
     targetChannel,
     targetEntry = validateMigrationTarget(targetChannel, storageManager),
+    preserveSource = false,
   } = {}) {
     const sourceInstanceId = resolveStorageInstanceIdFn(fileRecord);
 
@@ -274,7 +275,7 @@ function createFileMigrationService({
         }),
         sourceStorageId: sourceContext.sourceInstanceId,
         targetStorageId: targetChannel,
-        committedCompensationPayload: sourceContext.sourceCleanupPayload,
+        committedCompensationPayload: preserveSource ? null : sourceContext.sourceCleanupPayload,
         failureCompensationPayload: targetCleanupPayload,
         executeCompensation: async () => {
           await removeStoredArtifactsFn({
@@ -286,16 +287,18 @@ function createFileMigrationService({
             chunkRecords: targetCleanupPayload.chunkRecords,
           });
         },
-        afterCommit: async () => {
-          await removeStoredArtifactsFn({
-            getStorage: (storageId) => storageManager.getStorage(storageId),
-            storageId: sourceContext.sourceInstanceId,
-            storageKey: sourceContext.sourceCleanupPayload.storageKey,
-            deleteToken: sourceContext.sourceCleanupPayload.deleteToken,
-            isChunked: sourceContext.sourceCleanupPayload.isChunked,
-            chunkRecords: sourceContext.sourceCleanupPayload.chunkRecords,
-          });
-        },
+        afterCommit: preserveSource
+          ? null
+          : async () => {
+            await removeStoredArtifactsFn({
+              getStorage: (storageId) => storageManager.getStorage(storageId),
+              storageId: sourceContext.sourceInstanceId,
+              storageKey: sourceContext.sourceCleanupPayload.storageKey,
+              deleteToken: sourceContext.sourceCleanupPayload.deleteToken,
+              isChunked: sourceContext.sourceCleanupPayload.isChunked,
+              chunkRecords: sourceContext.sourceCleanupPayload.chunkRecords,
+            });
+          },
       });
     } catch (error) {
       if (error?.message) {
@@ -307,7 +310,7 @@ function createFileMigrationService({
     return { status: 'success' };
   }
 
-  async function migrateFilesBatch(files, { targetChannel } = {}) {
+  async function migrateFilesBatch(files, { targetChannel, preserveSource = false } = {}) {
     const targetEntry = validateMigrationTarget(targetChannel, storageManager);
     const limit = pLimit(3);
     const results = {
@@ -323,6 +326,7 @@ function createFileMigrationService({
         const result = await migrateFileRecord(fileRecord, {
           targetChannel,
           targetEntry,
+          preserveSource,
         });
         return { fileRecord, result };
       } catch (error) {

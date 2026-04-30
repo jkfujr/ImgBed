@@ -3,6 +3,7 @@ import { StorageDocs, SystemConfigDocs } from '../api';
 import { createOverlayFocusManager } from '../utils/overlay-focus';
 
 const EMPTY_EDIT = { open: false, target: null };
+const EMPTY_MIGRATE = { open: false, target: null, started: null };
 const EMPTY_DELETE = { target: null, saving: false };
 
 /**
@@ -14,8 +15,10 @@ export function useStorageChannels() {
   const [error, setError] = useState(null);
 
   const [editDialog, setEditDialog] = useState(EMPTY_EDIT);
+  const [migrationDialog, setMigrationDialog] = useState(EMPTY_MIGRATE);
   const [deleteState, setDeleteState] = useState(EMPTY_DELETE);
   const editDialogFocusManagerRef = useRef(null);
+  const migrationDialogFocusManagerRef = useRef(null);
   const deleteDialogFocusManagerRef = useRef(null);
 
   if (!editDialogFocusManagerRef.current) {
@@ -26,7 +29,12 @@ export function useStorageChannels() {
     deleteDialogFocusManagerRef.current = createOverlayFocusManager();
   }
 
+  if (!migrationDialogFocusManagerRef.current) {
+    migrationDialogFocusManagerRef.current = createOverlayFocusManager();
+  }
+
   const editDialogFocusManager = editDialogFocusManagerRef.current;
+  const migrationDialogFocusManager = migrationDialogFocusManagerRef.current;
   const deleteDialogFocusManager = deleteDialogFocusManagerRef.current;
 
   const loadStorages = useCallback(async () => {
@@ -70,6 +78,14 @@ export function useStorageChannels() {
     editDialogFocusManager.open(trigger, () => setEditDialog({ open: true, target: storage }));
   };
   const closeDialog = () => editDialogFocusManager.close(() => setEditDialog(EMPTY_EDIT));
+  const openMigrationDialog = (trigger, storage) => {
+    migrationDialogFocusManager.open(trigger, () => setMigrationDialog({ open: true, target: storage, started: null }));
+  };
+  const closeMigrationDialog = () => migrationDialogFocusManager.close(() => setMigrationDialog(EMPTY_MIGRATE));
+  const handleMigrationStarted = (task) => {
+    migrationDialogFocusManager.close(() => setMigrationDialog({ open: false, target: null, started: task }));
+    loadStorages();
+  };
 
   const handleToggle = async (s) => {
     try {
@@ -118,9 +134,13 @@ export function useStorageChannels() {
     loading, error,
     dialogOpen: editDialog.open,
     editTarget: editDialog.target,
+    migrationDialogOpen: migrationDialog.open,
+    migrationTarget: migrationDialog.target,
+    migrationStarted: migrationDialog.started,
     deleteTarget: deleteState.target,
     deleting: deleteState.saving,
     loadStorages, openEdit, closeDialog,
+    openMigrationDialog, closeMigrationDialog, handleMigrationStarted,
     handleToggle, handleSetDefault, handleDelete,
     openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
   };

@@ -15,6 +15,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { BORDER_RADIUS } from '../../utils/constants';
@@ -27,6 +28,7 @@ const ADMIN_MENU_ITEMS = [
   { text: '仪表盘', icon: <DashboardIcon />, path: '/admin/dashboard' },
   { text: '文件管理', icon: <FolderIcon />, path: '/admin/files' },
   { text: '存储渠道', icon: <StorageIcon />, path: '/admin/channels' },
+  { text: '任务日志', icon: <TaskAltIcon />, path: '/admin/task-logs' },
   { text: '系统配置', icon: <SettingsIcon />, path: '/admin/system' },
 ];
 

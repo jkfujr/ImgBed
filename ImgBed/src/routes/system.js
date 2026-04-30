@@ -13,7 +13,10 @@ import { readRuntimeConfig, writeRuntimeConfig } from '../config/index.js';
 import { applyStorageConfigChange } from '../services/system/apply-storage-config.js';
 import { createSystemConfigService } from '../services/system/system-config-service.js';
 import { createStorageConfigService } from '../services/system/storage-config-service.js';
+import { createChannelMigrationTaskService } from '../services/tasks/channel-migration-task.js';
+import { createTaskLogService } from '../services/tasks/task-log-service.js';
 import { createMaintenanceService } from '../services/system/maintenance-service.js';
+import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../storage/runtime/default-storage-runtime.js';
 import { createDashboardService } from '../services/system/dashboard-service.js';
 import { applySystemConfigUpdates, applyStorageFieldUpdates } from '../services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../services/system/update-load-balance.js';
@@ -55,6 +58,7 @@ import { createSystemStoragesRouter } from './system/storages-router.js';
 import { createSystemMaintenanceRouter } from './system/maintenance-router.js';
 import { createSystemRuntimeRouter } from './system/runtime-router.js';
 import { createSystemDashboardRouter } from './system/dashboard-router.js';
+import { createSystemTaskLogsRouter } from './system/task-logs-router.js';
 
 function createFreezeStorageFiles(db) {
   if (typeof db.transaction === 'function') {
@@ -76,6 +80,7 @@ function buildSystemDependencies(overrides = {}) {
     adminAuth: overrides.adminAuth || adminAuth,
     db,
     storageManager: overrides.storageManager || storageManager,
+    applyPendingQuotaEvents: overrides.applyPendingQuotaEvents || defaultApplyPendingQuotaEvents,
     readRuntimeConfig: overrides.readRuntimeConfig || readRuntimeConfig,
     writeRuntimeConfig: overrides.writeRuntimeConfig || writeRuntimeConfig,
     getResponseCache: overrides.getResponseCache || getResponseCache,
@@ -138,6 +143,20 @@ function buildSystemDependencies(overrides = {}) {
     preserveNullConfigKeys: deps.preserveNullConfigKeys,
   });
 
+  deps.channelMigrationTaskService = overrides.channelMigrationTaskService || createChannelMigrationTaskService({
+    db: deps.db,
+    storageManager: deps.storageManager,
+    logger: deps.logger,
+    applyPendingQuotaEvents: deps.applyPendingQuotaEvents,
+    invalidateFilesCache: deps.invalidateFilesCache,
+    invalidateStorageCaches: deps.invalidateStorageCaches,
+    invalidateDashboardCaches: deps.invalidateDashboardCaches,
+  });
+
+  deps.taskLogService = overrides.taskLogService || createTaskLogService({
+    db: deps.db,
+  });
+
   deps.maintenanceService = overrides.maintenanceService || createMaintenanceService({
     db: deps.db,
     storageManager: deps.storageManager,
@@ -177,6 +196,10 @@ function createSystemRouter(overrides = {}) {
     summarizeStorages: deps.summarizeStorages,
     storageManager: deps.storageManager,
     storageConfigService: deps.storageConfigService,
+    channelMigrationTaskService: deps.channelMigrationTaskService,
+  }));
+  router.use(createSystemTaskLogsRouter({
+    taskLogService: deps.taskLogService,
   }));
   router.use(createSystemMaintenanceRouter({
     maintenanceService: deps.maintenanceService,

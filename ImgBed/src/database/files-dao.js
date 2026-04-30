@@ -197,6 +197,51 @@ function listImageFilesForMetadataRebuildAfter(db, {
   `).all(...params, limit);
 }
 
+/**
+ * 统计指定存储实例下的 active 文件数量。
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} storageInstanceId
+ * @returns {number}
+ */
+function countActiveFilesByStorageInstance(db, storageInstanceId) {
+  const row = db.prepare(`
+    SELECT COUNT(id) AS total
+    FROM files
+    WHERE storage_instance_id = ? AND status = 'active'
+  `).get(storageInstanceId);
+  return Number(row?.total || 0);
+}
+
+/**
+ * 使用按 ID 的 keyset 分页读取指定存储实例下的 active 文件。
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ storageInstanceId: string, afterId?: string|null, limit?: number }} options
+ * @returns {Object[]}
+ */
+function listActiveFilesByStorageInstanceAfter(db, {
+  storageInstanceId,
+  afterId = null,
+  limit = 100,
+} = {}) {
+  const params = [storageInstanceId];
+  let afterClause = '';
+
+  if (afterId) {
+    afterClause = 'AND id > ?';
+    params.push(afterId);
+  }
+
+  return db.prepare(`
+    SELECT *
+    FROM files
+    WHERE storage_instance_id = ?
+      AND status = 'active'
+      ${afterClause}
+    ORDER BY id ASC
+    LIMIT ?
+  `).all(...params, limit);
+}
+
 // ─── 写操作 ───────────────────────────────────────────────
 
 /**
@@ -377,11 +422,13 @@ function countFilesByDirectoryPrefix(db, pathPrefix) {
 
 export {
   countActiveFiles,
+  countActiveFilesByStorageInstance,
   countImageFilesForMetadataRebuild,
   getActiveFileById,
   getFileById,
   getActiveFilesByIds,
   listActiveFiles,
+  listActiveFilesByStorageInstanceAfter,
   getActiveFilesStats,
   getTodayUploadCount,
   getUploadTrend,
