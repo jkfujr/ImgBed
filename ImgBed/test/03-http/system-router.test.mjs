@@ -544,7 +544,7 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
   t.after(() => appHandle.stop());
 
   const listResponse = await requestJson(appHandle, '/task-logs?status=failed&page=2&pageSize=5');
-  const detailResponse = await requestJson(appHandle, '/task-logs/task-1?item_status=failed');
+  const detailResponse = await requestJson(appHandle, '/task-logs/task-1?item_status=failed&page=1&pageSize=50');
   const pauseResponse = await requestJson(appHandle, '/task-logs/task-1/pause', {
     method: 'POST',
   });
@@ -571,7 +571,7 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
   assert.equal(clearResponse.body.data.deleted, 2);
   assert.deepEqual(calls, [
     { type: 'list', query: { page: '2', pageSize: '5', status: 'failed', taskType: undefined } },
-    { type: 'detail', id: 'task-1', query: { itemStatus: 'failed', page: undefined, pageSize: undefined } },
+    { type: 'detail', id: 'task-1', query: { itemStatus: 'failed', page: '1', pageSize: '50' } },
     { type: 'pause', id: 'task-1' },
     { type: 'cancel', id: 'task-1' },
     { type: 'resume', id: 'task-1' },

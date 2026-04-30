@@ -10,6 +10,7 @@ import {
   DialogTitle,
   IconButton,
   LinearProgress,
+  Pagination,
   Stack,
   Tab,
   Tabs,
@@ -62,6 +63,31 @@ const CONTROLLABLE_STATUSES = new Set(['pending', 'running']);
 const RESUMABLE_STATUSES = new Set(['paused']);
 const CANCELLABLE_STATUSES = new Set(['pending', 'running', 'paused']);
 const RETRYABLE_STATUSES = new Set(['failed', 'partial_failed', 'cancelled']);
+const DETAIL_PAGE_SIZE = 200;
+
+function createEmptyDetailItems(pageSize = DETAIL_PAGE_SIZE) {
+  return {
+    loading: false,
+    list: [],
+    pagination: {
+      page: 1,
+      pageSize,
+      total: 0,
+      totalPages: 0,
+    },
+  };
+}
+
+function createEmptyDetailState() {
+  return {
+    open: false,
+    loading: false,
+    task: null,
+    error: null,
+    items: createEmptyDetailItems(),
+    failedItems: createEmptyDetailItems(),
+  };
+}
 
 function formatDate(value) {
   if (!value) return '-';
@@ -80,7 +106,7 @@ export default function TaskLogsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [detail, setDetail] = useState({ open: false, loading: false, data: null });
+  const [detail, setDetail] = useState(createEmptyDetailState);
   const [detailTab, setDetailTab] = useState('overview');
 
   const loadTasks = useCallback(async () => {
@@ -124,22 +150,113 @@ export default function TaskLogsPage() {
     }
   };
 
-  const openDetail = useCallback(async (taskId) => {
-    setDetailTab('overview');
-    setDetail({ open: true, loading: true, data: null });
+  const loadDetailItems = useCallback(async (taskId, {
+    target = 'items',
+    itemStatus = '',
+    page = 1,
+    pageSize = DETAIL_PAGE_SIZE,
+  } = {}) => {
+    setDetail((prev) => ({
+      ...prev,
+      [target]: {
+        ...prev[target],
+        loading: true,
+        pagination: {
+          ...prev[target].pagination,
+          page,
+          pageSize,
+        },
+      },
+    }));
+
     try {
-      const res = await TaskLogDocs.detail(taskId);
+      const res = await TaskLogDocs.detail(taskId, {
+        item_status: itemStatus || undefined,
+        page,
+        pageSize,
+      });
       if (res.code === 0) {
-        setDetail({ open: true, loading: false, data: res.data });
+        setDetail((prev) => ({
+          ...prev,
+          error: null,
+          task: res.data.task || prev.task,
+          [target]: {
+            loading: false,
+            list: res.data.items || [],
+            pagination: {
+              page: res.data.pagination?.page || page,
+              pageSize: res.data.pagination?.pageSize || pageSize,
+              total: res.data.pagination?.total || 0,
+              totalPages: res.data.pagination?.totalPages || 0,
+            },
+          },
+        }));
       } else {
-        setDetail({ open: true, loading: false, data: { error: res.message || '加载失败' } });
+        setDetail((prev) => ({
+          ...prev,
+          error: res.message || '加载失败',
+          [target]: {
+            ...prev[target],
+            loading: false,
+          },
+        }));
       }
     } catch (err) {
-      setDetail({ open: true, loading: false, data: { error: err.response?.data?.message || err.message || '网络错误' } });
+      setDetail((prev) => ({
+        ...prev,
+        error: err.response?.data?.message || err.message || '网络错误',
+        [target]: {
+          ...prev[target],
+          loading: false,
+        },
+      }));
     }
   }, []);
 
-  const closeDetail = () => setDetail({ open: false, loading: false, data: null });
+  const openDetail = useCallback(async (taskId) => {
+    setDetailTab('overview');
+    setDetail({
+      ...createEmptyDetailState(),
+      open: true,
+      loading: true,
+    });
+
+    try {
+      const res = await TaskLogDocs.detail(taskId, { page: 1, pageSize: DETAIL_PAGE_SIZE });
+      if (res.code === 0) {
+        setDetail((prev) => ({
+          ...prev,
+          loading: false,
+          error: null,
+          task: res.data.task || null,
+          items: {
+            loading: false,
+            list: res.data.items || [],
+            pagination: {
+              page: res.data.pagination?.page || 1,
+              pageSize: res.data.pagination?.pageSize || DETAIL_PAGE_SIZE,
+              total: res.data.pagination?.total || 0,
+              totalPages: res.data.pagination?.totalPages || 0,
+            },
+          },
+        }));
+      } else {
+        setDetail((prev) => ({
+          ...prev,
+          loading: false,
+          error: res.message || '加载失败',
+        }));
+      }
+    } catch (err) {
+      setDetail((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.message || err.message || '网络错误',
+      }));
+    }
+  }, []);
+
+  const closeDetail = () => setDetail(createEmptyDetailState());
 
   const runTaskAction = useCallback(async (row, action) => {
     setLoading(true);
@@ -147,14 +264,50 @@ export default function TaskLogsPage() {
     try {
       await TaskLogDocs[action](row.id);
       await loadTasks();
-      if (detail.open && detail.data?.task?.id === row.id) {
+      if (detail.open && detail.task?.id === row.id) {
         await openDetail(row.id);
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || '任务操作失败');
       setLoading(false);
     }
-  }, [detail.open, detail.data?.task?.id, loadTasks, openDetail]);
+  }, [detail.open, detail.task?.id, loadTasks, openDetail]);
+
+  const handleDetailTabChange = useCallback((_event, value) => {
+    setDetailTab(value);
+    if (!detail.task?.id) {
+      return;
+    }
+
+    if (value === 'items' && detail.items.list.length === 0 && detail.items.pagination.total === 0) {
+      void loadDetailItems(detail.task.id, { target: 'items' });
+    }
+    if (value === 'failed' && detail.failedItems.list.length === 0 && detail.failedItems.pagination.total === 0) {
+      void loadDetailItems(detail.task.id, {
+        target: 'failedItems',
+        itemStatus: 'failed',
+      });
+    }
+  }, [
+    detail.failedItems.list.length,
+    detail.failedItems.pagination.total,
+    detail.items.list.length,
+    detail.items.pagination.total,
+    detail.task?.id,
+    loadDetailItems,
+  ]);
+
+  const handleDetailPageChange = useCallback((target, itemStatus) => (_event, page) => {
+    if (!detail.task?.id) {
+      return;
+    }
+    void loadDetailItems(detail.task.id, {
+      target,
+      itemStatus,
+      page,
+      pageSize: detail[target].pagination.pageSize,
+    });
+  }, [detail, loadDetailItems]);
 
   const renderTaskItems = (items, emptyText) => {
     const list = items || [];
@@ -178,6 +331,28 @@ export default function TaskLogsPage() {
       </Box>
     ));
   };
+
+  const renderTaskItemsPanel = ({
+    state,
+    emptyText,
+    target,
+    itemStatus = '',
+  }) => (
+    <Stack spacing={1}>
+      {state.loading && <LinearProgress />}
+      {!state.loading && renderTaskItems(state.list, emptyText)}
+      {state.pagination.totalPages > 1 && (
+        <Stack direction="row" justifyContent="flex-end">
+          <Pagination
+            size="small"
+            page={state.pagination.page}
+            count={state.pagination.totalPages}
+            onChange={handleDetailPageChange(target, itemStatus)}
+          />
+        </Stack>
+      )}
+    </Stack>
+  );
 
   const renderTaskActionButtons = useCallback((row) => (
     <Stack direction="row" spacing={0.5} alignItems="center">
@@ -382,10 +557,10 @@ export default function TaskLogsPage() {
         <DialogTitle>任务详情</DialogTitle>
         <DialogContent dividers>
           {detail.loading && <LinearProgress />}
-          {detail.data?.error && <Alert severity="error">{detail.data.error}</Alert>}
-          {detail.data?.task && (
+          {detail.error && <Alert severity="error">{detail.error}</Alert>}
+          {detail.task && (
             <Stack spacing={1}>
-              <Tabs value={detailTab} onChange={(_event, value) => setDetailTab(value)}>
+              <Tabs value={detailTab} onChange={handleDetailTabChange}>
                 <Tab label="概览" value="overview" />
                 <Tab label="任务日志" value="items" />
                 <Tab label="失败项" value="failed" />
@@ -393,33 +568,36 @@ export default function TaskLogsPage() {
 
               {detailTab === 'overview' && (
                 <Stack spacing={1}>
-                  <Typography variant="body2">任务 ID：{detail.data.task.id}</Typography>
-                  <Typography variant="body2">状态：{STATUS_LABELS[detail.data.task.status] || detail.data.task.status}</Typography>
-                  <Typography variant="body2">进度：{progressValue(detail.data.task).toFixed(0)}%</Typography>
+                  <Typography variant="body2">任务 ID：{detail.task.id}</Typography>
+                  <Typography variant="body2">状态：{STATUS_LABELS[detail.task.status] || detail.task.status}</Typography>
+                  <Typography variant="body2">进度：{progressValue(detail.task).toFixed(0)}%</Typography>
                   <Typography variant="body2">
-                    成功 {detail.data.task.success_count} / 失败 {detail.data.task.failed_count} / 跳过 {detail.data.task.skipped_count} / 总数 {detail.data.task.total_count}
+                    成功 {detail.task.success_count} / 失败 {detail.task.failed_count} / 跳过 {detail.task.skipped_count} / 总数 {detail.task.total_count}
                   </Typography>
-                  <Typography variant="body2">源 / 目标：{detail.data.task.source_storage_id || '-'} -&gt; {detail.data.task.target_storage_id || '-'}</Typography>
-                  <Typography variant="body2">创建时间：{formatDate(detail.data.task.created_at)}</Typography>
-                  <Typography variant="body2">开始时间：{formatDate(detail.data.task.started_at)}</Typography>
-                  <Typography variant="body2">结束时间：{formatDate(detail.data.task.ended_at)}</Typography>
-                  {detail.data.task.error_summary && (
-                    <Alert severity="warning">{detail.data.task.error_summary}</Alert>
-                  )}
+                  <Typography variant="body2">源 / 目标：{detail.task.source_storage_id || '-'} -&gt; {detail.task.target_storage_id || '-'}</Typography>
+                  <Typography variant="body2">创建时间：{formatDate(detail.task.created_at)}</Typography>
+                  <Typography variant="body2">开始时间：{formatDate(detail.task.started_at)}</Typography>
+                  <Typography variant="body2">结束时间：{formatDate(detail.task.ended_at)}</Typography>
                 </Stack>
               )}
 
-              {detailTab === 'items' && renderTaskItems(detail.data.items, '暂无任务日志')}
+              {detailTab === 'items' && renderTaskItemsPanel({
+                state: detail.items,
+                emptyText: '暂无任务日志',
+                target: 'items',
+              })}
 
-              {detailTab === 'failed' && renderTaskItems(
-                (detail.data.items || []).filter((item) => item.status === 'failed'),
-                '暂无失败项',
-              )}
+              {detailTab === 'failed' && renderTaskItemsPanel({
+                state: detail.failedItems,
+                emptyText: '暂无失败项',
+                target: 'failedItems',
+                itemStatus: 'failed',
+              })}
             </Stack>
           )}
         </DialogContent>
         <DialogActions>
-          {detail.data?.task && renderTaskActionButtons(detail.data.task)}
+          {detail.task && renderTaskActionButtons(detail.task)}
           <Button onClick={closeDetail}>关闭</Button>
         </DialogActions>
       </Dialog>
