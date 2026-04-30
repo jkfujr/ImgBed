@@ -130,11 +130,27 @@ class StorageRegistry {
   }
 
   async hasExistingObjects(type, instanceConfig) {
+    const result = await this.inspectExistingObjects(type, instanceConfig);
+    return result.hasObjects;
+  }
+
+  async inspectExistingObjects(type, instanceConfig) {
     const instance = await this.createStorageInstance(type, instanceConfig || {});
+    if (typeof instance?.inspectExistingObjects === 'function') {
+      return instance.inspectExistingObjects();
+    }
+
     if (typeof instance?.hasExistingObjects !== 'function') {
       throw new Error(`[StorageRegistry] 存储类型 "${type}" 不支持内容检查`);
     }
-    return instance.hasExistingObjects();
+
+    const hasObjects = await instance.hasExistingObjects();
+    return {
+      hasObjects,
+      sampleLimit: 0,
+      isTruncated: hasObjects,
+      items: [],
+    };
   }
 
   async clearStorageContents(type, instanceConfig) {

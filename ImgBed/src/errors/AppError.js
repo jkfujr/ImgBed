@@ -9,6 +9,9 @@ class AppError extends Error {
     if (options.reason) {
       this.reason = options.reason;
     }
+    if (options.details !== undefined) {
+      this.details = options.details;
+    }
   }
 }
 
@@ -37,8 +40,8 @@ class NotFoundError extends AppError {
 }
 
 class ConflictError extends AppError {
-  constructor(message = '资源冲突', reason = null) {
-    super(409, message, { reason });
+  constructor(message = '资源冲突', reason = null, details = undefined) {
+    super(409, message, { reason, details });
   }
 }
 

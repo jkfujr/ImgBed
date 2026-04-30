@@ -44,6 +44,20 @@ function createStorageConfigService({
     return normalizedAction;
   }
 
+  async function inspectExistingObjects(type, storageConfig) {
+    if (typeof storageManager.inspectExistingObjects === 'function') {
+      return storageManager.inspectExistingObjects(type, storageConfig);
+    }
+
+    const hasObjects = await storageManager.hasExistingObjects(type, storageConfig);
+    return {
+      hasObjects,
+      sampleLimit: 0,
+      isTruncated: hasObjects,
+      items: [],
+    };
+  }
+
   return {
     async testStorageConnection(type, storageConfig = {}) {
       if (!type || !validStorageTypes.includes(type)) {
@@ -78,11 +92,15 @@ function createStorageConfigService({
 
       if (body.type === 's3') {
         const s3NonEmptyAction = normalizeS3NonEmptyAction(body.s3NonEmptyAction);
-        const hasExistingObjects = await storageManager.hasExistingObjects('s3', body.config || {});
+        const existingObjects = await inspectExistingObjects('s3', body.config || {});
 
-        if (hasExistingObjects) {
+        if (existingObjects.hasObjects) {
           if (!s3NonEmptyAction) {
-            throw new ConflictError('S3 存储桶中已存在文件，请确认是否需要清空', 'S3_BUCKET_NOT_EMPTY');
+            throw new ConflictError(
+              'S3 存储桶中已存在文件，请确认是否需要清空',
+              'S3_BUCKET_NOT_EMPTY',
+              { existingObjects },
+            );
           }
 
           if (s3NonEmptyAction === 'clear_bucket') {

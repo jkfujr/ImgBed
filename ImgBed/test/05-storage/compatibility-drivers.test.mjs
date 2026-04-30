@@ -94,7 +94,7 @@ test('S3 读取对象遇到 Checksum mismatch 时只做一次定向重试', asyn
   assert.equal(sentInputs[1].ChecksumMode, 'ENABLED');
 });
 
-test('S3 非空检查会用 MaxKeys=1 快速判断 bucket 中是否已有对象', async () => {
+test('S3 非空检查会返回可展示的对象样例', async () => {
   class FakeListObjectsV2Command {
     constructor(input) {
       this.input = input;
@@ -120,13 +120,32 @@ test('S3 非空检查会用 MaxKeys=1 快速判断 bucket 中是否已有对象'
     },
   };
 
+  const existingObjects = await s3.inspectExistingObjects();
   const hasObjects = await s3.hasExistingObjects();
 
+  assert.deepEqual(existingObjects, {
+    hasObjects: true,
+    sampleLimit: 20,
+    isTruncated: false,
+    items: [
+      {
+        key: 'demo.png',
+        size: 0,
+        lastModified: null,
+      },
+    ],
+  });
   assert.equal(hasObjects, true);
-  assert.deepEqual(sentInputs, [{
-    Bucket: 'bucket-1',
-    MaxKeys: 1,
-  }]);
+  assert.deepEqual(sentInputs, [
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 20,
+    },
+    {
+      Bucket: 'bucket-1',
+      MaxKeys: 20,
+    },
+  ]);
 });
 
 test('S3 清空 bucket 时会按分页结果逐批删除整个 bucket 的对象', async () => {

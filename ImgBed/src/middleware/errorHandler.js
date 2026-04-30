@@ -16,6 +16,10 @@ const registerErrorHandlers = (app) => {
       payload.reason = err.reason;
     }
 
+    if (err?.details !== undefined) {
+      payload.details = err.details;
+    }
+
     if (status >= 500) {
       log.error({ err }, '应用错误');
     }

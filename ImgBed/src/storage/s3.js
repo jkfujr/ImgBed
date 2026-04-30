@@ -10,6 +10,27 @@ let ListObjectsV2Command, DeleteObjectsCommand;
 let CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand;
 let s3ModuleLoaded = false;
 const log = createLogger('s3');
+const EXISTING_OBJECT_SAMPLE_LIMIT = 20;
+
+function normalizeObjectSample(item) {
+    return {
+        key: item?.Key || '',
+        size: Number(item?.Size || 0),
+        lastModified: item?.LastModified ? item.LastModified.toISOString() : null,
+    };
+}
+
+function buildExistingObjectsCheck(response) {
+    const contents = response?.Contents || [];
+    return {
+        hasObjects: Number(response?.KeyCount || 0) > 0 || contents.length > 0,
+        sampleLimit: EXISTING_OBJECT_SAMPLE_LIMIT,
+        isTruncated: Boolean(response?.IsTruncated),
+        items: contents
+            .filter((item) => item?.Key)
+            .map((item) => normalizeObjectSample(item)),
+    };
+}
 
 /**
  * 延迟加载 AWS SDK（仅在实例化时按需导入）
@@ -273,13 +294,18 @@ class S3Storage extends StorageProvider {
     }
 
     async hasExistingObjects() {
+        const result = await this.inspectExistingObjects();
+        return result.hasObjects;
+    }
+
+    async inspectExistingObjects() {
         await this._ensureInitialized();
         const command = new ListObjectsV2Command({
             Bucket: this.bucket,
-            MaxKeys: 1,
+            MaxKeys: EXISTING_OBJECT_SAMPLE_LIMIT,
         });
         const response = await this.sendS3Command(command, 'listObjectsV2');
-        return Number(response?.KeyCount || 0) > 0 || (response?.Contents || []).length > 0;
+        return buildExistingObjectsCheck(response);
     }
 
     async clearBucketContents() {

@@ -95,6 +95,10 @@ class StorageRuntime {
     return this._registry.hasExistingObjects(type, instanceConfig);
   }
 
+  async inspectExistingObjects(type, instanceConfig) {
+    return this._registry.inspectExistingObjects(type, instanceConfig);
+  }
+
   async clearStorageContents(type, instanceConfig) {
     return this._registry.clearStorageContents(type, instanceConfig);
   }

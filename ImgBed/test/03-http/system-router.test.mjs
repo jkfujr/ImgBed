@@ -410,7 +410,24 @@ test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason'
       },
       async updateLoadBalance() {},
       async createStorage() {
-        throw new ConflictError('S3 存储桶中已存在文件，请确认是否需要清空', 'S3_BUCKET_NOT_EMPTY');
+        throw new ConflictError(
+          'S3 存储桶中已存在文件，请确认是否需要清空',
+          'S3_BUCKET_NOT_EMPTY',
+          {
+            existingObjects: {
+              hasObjects: true,
+              sampleLimit: 20,
+              isTruncated: true,
+              items: [
+                {
+                  key: 'images/demo.png',
+                  size: 1024,
+                  lastModified: '2026-04-30T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+        );
       },
       async updateStorage() {
         return { id: 's3-1', type: 's3', config: {} };
@@ -446,6 +463,20 @@ test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason'
     code: 409,
     message: 'S3 存储桶中已存在文件，请确认是否需要清空',
     reason: 'S3_BUCKET_NOT_EMPTY',
+    details: {
+      existingObjects: {
+        hasObjects: true,
+        sampleLimit: 20,
+        isTruncated: true,
+        items: [
+          {
+            key: 'images/demo.png',
+            size: 1024,
+            lastModified: '2026-04-30T00:00:00.000Z',
+          },
+        ],
+      },
+    },
   });
 });
 

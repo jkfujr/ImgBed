@@ -2,12 +2,19 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, FormControl, InputLabel, Select, MenuItem,
-  Box, Typography, Alert, CircularProgress
+  Box, Typography, Alert, CircularProgress,
+  Accordion, AccordionSummary, AccordionDetails, Chip, Stack
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { VALID_TYPES, CHANNEL_SCHEMAS } from '../../utils/constants';
 import { StorageDocs } from '../../api';
 import ChannelFormGeneral from './ChannelFormGeneral';
 import ChannelFormConfig from './ChannelFormConfig';
+import {
+  formatObjectSize,
+  formatObjectTime,
+  summarizeExistingObjects,
+} from './channelExistingObjects';
 
 const EMPTY_FORM = {
   id: '', type: 'local', name: '', enabled: true, allowUpload: false,
@@ -46,6 +53,53 @@ function buildEditForm(target) {
   };
 }
 
+function ExistingObjectsPreview({ existingObjects }) {
+  const items = existingObjects?.items || [];
+  const summary = summarizeExistingObjects(existingObjects);
+  if (!summary.hasItems) {
+    return null;
+  }
+
+  return (
+    <Accordion disableGutters elevation={0} sx={{ mt: 2, border: 1, borderColor: 'divider', '&:before': { display: 'none' } }}>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="body2">检测到的数据</Typography>
+          <Chip size="small" label={summary.countLabel} />
+          {summary.truncatedLabel && <Chip size="small" color="warning" label={summary.truncatedLabel} />}
+        </Stack>
+      </AccordionSummary>
+      <AccordionDetails sx={{ pt: 0 }}>
+        <Box sx={{ maxHeight: 240, overflow: 'auto' }}>
+          {items.map((item) => (
+            <Box
+              key={item.key}
+              sx={{
+                py: 1,
+                borderTop: 1,
+                borderColor: 'divider',
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  fontFamily: 'monospace',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {item.key}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {formatObjectSize(item.size)} · {formatObjectTime(item.lastModified)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+}
+
 export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -55,6 +109,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [s3ConfirmOpen, setS3ConfirmOpen] = useState(false);
+  const [s3ExistingObjects, setS3ExistingObjects] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -64,6 +119,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
       setFormError(null);
       setTestResult(null);
       setS3ConfirmOpen(false);
+      setS3ExistingObjects(null);
     }
   }, [open, editTarget]);
 
@@ -74,6 +130,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
     setFormError(null);
     setTestResult(null);
     setS3ConfirmOpen(false);
+    setS3ExistingObjects(null);
     onClose();
   };
 
@@ -131,6 +188,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
 
       if (!editTarget && form.type === 's3' && !s3NonEmptyAction
         && errorPayload.code === 409 && errorPayload.reason === 'S3_BUCKET_NOT_EMPTY') {
+        setS3ExistingObjects(errorPayload.details?.existingObjects || null);
         setS3ConfirmOpen(true);
         return;
       }
@@ -229,6 +287,7 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
           <Typography variant="body2">
             当前 Bucket 中已检测到已有对象。是否需要先清空整个 Bucket 再创建该存储？
           </Typography>
+          <ExistingObjectsPreview existingObjects={s3ExistingObjects} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setS3ConfirmOpen(false)} disabled={saving}>
