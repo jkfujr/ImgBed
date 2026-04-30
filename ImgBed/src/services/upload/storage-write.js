@@ -29,18 +29,24 @@ async function executePlannedBufferWrite({
   originalName,
   mimeType,
   config,
+  signal = null,
   writeGenericChunksFn = writeGenericChunks,
   writeNativeMultipartObjectFn = writeNativeMultipartObject,
 } = {}) {
   if (plan.mode === 'native') {
-    const storageResult = await writeNativeMultipartObjectFn({
+    const writeOptions = {
       storage,
       buffer,
       fileName: newFileName,
       mimeType,
       chunkConfig: plan.chunkConfig,
       config,
-    });
+    };
+    if (signal) {
+      writeOptions.signal = signal;
+    }
+
+    const storageResult = await writeNativeMultipartObjectFn(writeOptions);
 
     return {
       storageResult,
@@ -51,7 +57,7 @@ async function executePlannedBufferWrite({
   }
 
   if (plan.mode === 'chunked') {
-    const result = await writeGenericChunksFn({
+    const writeOptions = {
       storage,
       buffer,
       fileId,
@@ -60,7 +66,12 @@ async function executePlannedBufferWrite({
       storageId: plan.storageId,
       storageType: plan.storageType,
       chunkConfig: plan.chunkConfig,
-    });
+    };
+    if (signal) {
+      writeOptions.signal = signal;
+    }
+
+    const result = await writeGenericChunksFn(writeOptions);
 
     return {
       storageResult: createStoragePutResult({
@@ -73,12 +84,17 @@ async function executePlannedBufferWrite({
     };
   }
 
-  const storageResult = createStoragePutResult(await storage.put(buffer, {
+  const putOptions = {
     id: fileId,
     fileName: newFileName,
     originalName,
     mimeType,
-  }));
+  };
+  if (signal) {
+    putOptions.signal = signal;
+  }
+
+  const storageResult = createStoragePutResult(await storage.put(buffer, putOptions));
 
   return {
     storageResult,

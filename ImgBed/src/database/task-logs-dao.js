@@ -1,6 +1,25 @@
 import crypto from 'crypto';
 
-const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'partial_failed']);
+const ACTIVE_TASK_STATUSES = new Set(['pending', 'running']);
+const ACTIVE_TASK_ITEM_STATUSES = new Set(['pending', 'running', 'retrying']);
+const STOP_TASK_STATUSES = new Set(['paused', 'cancelled']);
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'partial_failed', 'paused', 'cancelled']);
+
+function buildPlaceholders(values) {
+  return Array.from(values).map(() => '?').join(', ');
+}
+
+function assertTerminalTaskStatus(status) {
+  if (!TERMINAL_TASK_STATUSES.has(status)) {
+    throw new Error(`不支持的任务终态: ${status}`);
+  }
+}
+
+function assertStopTaskStatus(status) {
+  if (!STOP_TASK_STATUSES.has(status)) {
+    throw new Error(`不支持的任务停止状态: ${status}`);
+  }
+}
 
 function createTaskLog(db, {
   taskType,
@@ -32,7 +51,7 @@ function startTaskLog(db, taskId) {
   return db.prepare(`
     UPDATE task_logs
     SET status = 'running', started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
-    WHERE id = ?
+    WHERE id = ? AND status = 'pending'
   `).run(taskId);
 }
 
@@ -45,6 +64,7 @@ function updateTaskLogTotals(db, taskId, totals = {}) {
       skipped_count = COALESCE(@skipped_count, skipped_count),
       error_summary = COALESCE(@error_summary, error_summary)
     WHERE id = @id
+      AND status IN ('pending', 'running')
   `).run({
     id: taskId,
     total_count: totals.totalCount ?? null,
@@ -55,29 +75,42 @@ function updateTaskLogTotals(db, taskId, totals = {}) {
   });
 }
 
-function completeTaskLog(db, taskId, {
+function finishTaskLog(db, taskId, {
   status,
   successCount,
   failedCount,
   skippedCount,
   errorSummary = null,
 } = {}) {
+  assertTerminalTaskStatus(status);
   return db.prepare(`
     UPDATE task_logs SET
       status = @status,
-      success_count = @success_count,
-      failed_count = @failed_count,
-      skipped_count = @skipped_count,
+      success_count = COALESCE(@success_count, success_count),
+      failed_count = COALESCE(@failed_count, failed_count),
+      skipped_count = COALESCE(@skipped_count, skipped_count),
       error_summary = @error_summary,
       ended_at = CURRENT_TIMESTAMP
     WHERE id = @id
+      AND status IN ('pending', 'running')
   `).run({
     id: taskId,
     status,
-    success_count: Number(successCount) || 0,
-    failed_count: Number(failedCount) || 0,
-    skipped_count: Number(skippedCount) || 0,
+    success_count: successCount === undefined ? null : Number(successCount) || 0,
+    failed_count: failedCount === undefined ? null : Number(failedCount) || 0,
+    skipped_count: skippedCount === undefined ? null : Number(skippedCount) || 0,
     error_summary: errorSummary,
+  });
+}
+
+function stopTaskLog(db, taskId, {
+  status,
+  reason = null,
+} = {}) {
+  assertStopTaskStatus(status);
+  return finishTaskLog(db, taskId, {
+    status,
+    errorSummary: reason,
   });
 }
 
@@ -119,11 +152,30 @@ function updateTaskLogItem(db, itemId, {
       attempt_count = @attempt_count,
       last_error = @last_error
     WHERE id = @id
+      AND status IN ('pending', 'running', 'retrying')
   `).run({
     id: itemId,
     status,
     attempt_count: Number(attemptCount) || 0,
     last_error: lastError,
+  });
+}
+
+function markActiveTaskItemsStopped(db, taskId, {
+  status,
+  reason = null,
+} = {}) {
+  assertStopTaskStatus(status);
+  return db.prepare(`
+    UPDATE task_log_items SET
+      status = @status,
+      last_error = COALESCE(@reason, last_error)
+    WHERE task_id = @task_id
+      AND status IN ('pending', 'running', 'retrying')
+  `).run({
+    task_id: taskId,
+    status,
+    reason,
   });
 }
 
@@ -219,7 +271,7 @@ function countTaskLogItems(db, taskId, { status = null } = {}) {
 }
 
 function deleteTerminalTaskLogs(db) {
-  const placeholders = Array.from(TERMINAL_TASK_STATUSES).map(() => '?').join(', ');
+  const placeholders = buildPlaceholders(TERMINAL_TASK_STATUSES);
   return db.prepare(`
     DELETE FROM task_logs
     WHERE status IN (${placeholders})
@@ -227,17 +279,22 @@ function deleteTerminalTaskLogs(db) {
 }
 
 export {
+  ACTIVE_TASK_STATUSES,
+  ACTIVE_TASK_ITEM_STATUSES,
+  STOP_TASK_STATUSES,
   TERMINAL_TASK_STATUSES,
-  completeTaskLog,
   countTaskLogItems,
   countTaskLogs,
   createTaskLog,
   deleteTerminalTaskLogs,
+  finishTaskLog,
   getTaskLogById,
   insertTaskLogItem,
   listTaskLogItems,
   listTaskLogs,
+  markActiveTaskItemsStopped,
   startTaskLog,
+  stopTaskLog,
   updateTaskLogItem,
   updateTaskLogTotals,
 };

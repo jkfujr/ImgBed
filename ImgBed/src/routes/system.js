@@ -155,6 +155,7 @@ function buildSystemDependencies(overrides = {}) {
 
   deps.taskLogService = overrides.taskLogService || createTaskLogService({
     db: deps.db,
+    channelMigrationTaskService: deps.channelMigrationTaskService,
   });
 
   deps.maintenanceService = overrides.maintenanceService || createMaintenanceService({

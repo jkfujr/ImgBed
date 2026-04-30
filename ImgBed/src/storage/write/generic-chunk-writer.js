@@ -2,8 +2,13 @@ import pLimit from 'p-limit';
 
 import { createLogger } from '../../utils/logger.js';
 import { parseStorageMeta, serializeStorageMeta } from '../../utils/storage-meta.js';
+import { throwIfAborted } from '../../utils/abort-signal.js';
 
 const log = createLogger('generic-chunk-writer');
+
+function withSignal(options, signal) {
+  return signal ? { ...options, signal } : options;
+}
 
 async function writeGenericChunks({
   storage,
@@ -14,19 +19,21 @@ async function writeGenericChunks({
   storageId,
   storageType,
   chunkConfig = null,
+  signal = null,
 } = {}) {
   if (!storageType) {
     throw new Error('普通分块写入缺少 storageType');
   }
+  throwIfAborted(signal);
 
   if (typeof storage.uploadChunkedBatch === 'function') {
-    return storage.uploadChunkedBatch(buffer, {
+    return storage.uploadChunkedBatch(buffer, withSignal({
       fileId,
       fileName,
       mimeType,
       storageId,
       storageType,
-    });
+    }, signal));
   }
 
   const config = chunkConfig || storage.getChunkConfig();
@@ -43,13 +50,14 @@ async function writeGenericChunks({
       let result;
       for (let attempt = 0; attempt <= 2; attempt++) {
         try {
-          result = await storage.putChunk(chunkBuffer, {
+          throwIfAborted(signal);
+          result = await storage.putChunk(chunkBuffer, withSignal({
             fileId,
             chunkIndex: index,
             totalChunks,
             fileName,
             mimeType,
-          });
+          }, signal));
           break;
         } catch (error) {
           log.warn({ chunkIndex: index, attempt: attempt + 1, err: error }, '分块上传尝试失败');

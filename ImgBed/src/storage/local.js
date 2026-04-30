@@ -49,7 +49,7 @@ class LocalStorage extends StorageProvider {
     let fileSize = null;
 
     if (Buffer.isBuffer(file) || file instanceof Uint8Array || file instanceof ArrayBuffer || typeof file?.arrayBuffer === 'function') {
-      const buf = await toBuffer(file);
+      const buf = await toBuffer(file, { signal: options.signal || null });
       fileSize = buf.length;
       await fs.promises.writeFile(filePath, buf);
     } else {

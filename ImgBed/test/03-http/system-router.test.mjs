@@ -523,12 +523,33 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
         calls.push({ type: 'clear' });
         return { deleted: 2 };
       },
+      pauseTask(id) {
+        calls.push({ type: 'pause', id });
+        return { taskId: id, status: 'paused' };
+      },
+      cancelTask(id) {
+        calls.push({ type: 'cancel', id });
+        return { taskId: id, status: 'cancelled' };
+      },
+      retryTask(id) {
+        calls.push({ type: 'retry', id });
+        return { taskId: 'task-2', status: 'processing' };
+      },
     },
   }));
   t.after(() => appHandle.stop());
 
   const listResponse = await requestJson(appHandle, '/task-logs?status=failed&page=2&pageSize=5');
   const detailResponse = await requestJson(appHandle, '/task-logs/task-1?item_status=failed');
+  const pauseResponse = await requestJson(appHandle, '/task-logs/task-1/pause', {
+    method: 'POST',
+  });
+  const cancelResponse = await requestJson(appHandle, '/task-logs/task-1/cancel', {
+    method: 'POST',
+  });
+  const retryResponse = await requestJson(appHandle, '/task-logs/task-1/retry', {
+    method: 'POST',
+  });
   const clearResponse = await requestJson(appHandle, '/task-logs', {
     method: 'DELETE',
   });
@@ -536,10 +557,16 @@ test('createSystemTaskLogsRouter 会保持列表、详情与清理契约', async
   assert.equal(listResponse.status, 200);
   assert.equal(listResponse.body.data.list[0].id, 'task-1');
   assert.equal(detailResponse.body.data.items[0].file_id, 'file-1');
+  assert.equal(pauseResponse.body.data.status, 'paused');
+  assert.equal(cancelResponse.body.data.status, 'cancelled');
+  assert.equal(retryResponse.body.data.taskId, 'task-2');
   assert.equal(clearResponse.body.data.deleted, 2);
   assert.deepEqual(calls, [
     { type: 'list', query: { page: '2', pageSize: '5', status: 'failed', taskType: undefined } },
     { type: 'detail', id: 'task-1', query: { itemStatus: 'failed', page: undefined, pageSize: undefined } },
+    { type: 'pause', id: 'task-1' },
+    { type: 'cancel', id: 'task-1' },
+    { type: 'retry', id: 'task-1' },
     { type: 'clear' },
   ]);
 });

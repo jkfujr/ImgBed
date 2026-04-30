@@ -104,9 +104,9 @@ class S3Storage extends StorageProvider {
         return this.pathPrefix ? `${this.pathPrefix}${fileName}` : fileName;
     }
 
-    async sendS3Command(command, action) {
+    async sendS3Command(command, action, options = {}) {
         try {
-            return await this.s3.send(command);
+            return await this.s3.send(command, options);
         } catch (error) {
             throw normalizeRemoteIoProcessError(error, {
                 source: `storage:s3:${action}`,
@@ -135,7 +135,7 @@ class S3Storage extends StorageProvider {
         return { body: toNodeReadable(file), size: null };
     }
 
-    async sendGetObject(params) {
+    async sendGetObject(params, options = {}) {
         let useChecksumMode = false;
         return runRemoteRetry({
             execute: async () => {
@@ -143,7 +143,9 @@ class S3Storage extends StorageProvider {
                     ? { ...params, ChecksumMode: 'ENABLED' }
                     : params;
                 const command = new GetObjectCommand(nextParams);
-                return this.sendS3Command(command, 'getObject');
+                return this.sendS3Command(command, 'getObject', {
+                    abortSignal: options.signal || undefined,
+                });
             },
             shouldRetry: ({ error }, { attempt }) => {
                 if (!error?.message || !error.message.includes('Checksum mismatch')) {
@@ -173,7 +175,7 @@ class S3Storage extends StorageProvider {
 
     async put(file, options) {
         await this._ensureInitialized();
-        const { fileName, mimeType, contentLength } = options;
+        const { fileName, mimeType, contentLength, signal } = options;
         if (!fileName) throw new Error('[S3Storage] 缺少 fileName');
 
         const fileKey = this._getFullPath(fileName);
@@ -192,7 +194,9 @@ class S3Storage extends StorageProvider {
         }
 
         const command = new PutObjectCommand(commandParams);
-        await this.sendS3Command(command, 'putObject');
+        await this.sendS3Command(command, 'putObject', {
+            abortSignal: signal || undefined,
+        });
         return createStoragePutResult({
             storageKey: fileKey,
             size: resolvedContentLength ?? null,
@@ -209,7 +213,9 @@ class S3Storage extends StorageProvider {
             params.Range = `bytes=${options.start}-${options.end}`;
         }
 
-        const response = await this.sendGetObject(params);
+        const response = await this.sendGetObject(params, {
+            signal: options.signal || null,
+        });
         const contentRange = parseContentRange(response.ContentRange);
 
         return createStorageReadResult({
@@ -422,7 +428,7 @@ class S3Storage extends StorageProvider {
         };
     }
 
-    async initMultipartUpload({ fileName, mimeType }) {
+    async initMultipartUpload({ fileName, mimeType, signal }) {
         await this._ensureInitialized();
         const key = this._getFullPath(fileName);
         const cmd = new CreateMultipartUploadCommand({
@@ -430,11 +436,13 @@ class S3Storage extends StorageProvider {
             Key: key,
             ContentType: mimeType || 'application/octet-stream'
         });
-        const res = await this.sendS3Command(cmd, 'initMultipartUpload');
+        const res = await this.sendS3Command(cmd, 'initMultipartUpload', {
+            abortSignal: signal || undefined,
+        });
         return { uploadId: res.UploadId, key };
     }
 
-    async uploadPart(chunkBuffer, { uploadId, key, partNumber }) {
+    async uploadPart(chunkBuffer, { uploadId, key, partNumber, signal }) {
         await this._ensureInitialized();
         const cmd = new UploadPartCommand({
             Bucket: this.bucket,
@@ -443,11 +451,13 @@ class S3Storage extends StorageProvider {
             PartNumber: partNumber,
             Body: chunkBuffer
         });
-        const res = await this.sendS3Command(cmd, 'uploadPart');
+        const res = await this.sendS3Command(cmd, 'uploadPart', {
+            abortSignal: signal || undefined,
+        });
         return { partNumber, etag: res.ETag };
     }
 
-    async completeMultipartUpload({ uploadId, key, parts }) {
+    async completeMultipartUpload({ uploadId, key, parts, signal }) {
         await this._ensureInitialized();
         const cmd = new CompleteMultipartUploadCommand({
             Bucket: this.bucket,
@@ -457,20 +467,24 @@ class S3Storage extends StorageProvider {
                 Parts: parts.map(p => ({ PartNumber: p.partNumber, ETag: p.etag }))
             }
         });
-        await this.sendS3Command(cmd, 'completeMultipartUpload');
+        await this.sendS3Command(cmd, 'completeMultipartUpload', {
+            abortSignal: signal || undefined,
+        });
         return createStoragePutResult({
             storageKey: key,
         });
     }
 
-    async abortMultipartUpload({ uploadId, key }) {
+    async abortMultipartUpload({ uploadId, key, signal }) {
         await this._ensureInitialized();
         const cmd = new AbortMultipartUploadCommand({
             Bucket: this.bucket,
             Key: key,
             UploadId: uploadId
         });
-        await this.sendS3Command(cmd, 'abortMultipartUpload');
+        await this.sendS3Command(cmd, 'abortMultipartUpload', {
+            abortSignal: signal || undefined,
+        });
     }
 }
 

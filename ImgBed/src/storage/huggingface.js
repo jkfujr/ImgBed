@@ -62,7 +62,7 @@ class HuggingFaceStorage extends StorageProvider {
     /**
      * 提交修改到 HuggingFace
      */
-    async commit(commitMessage, filesData) {
+    async commit(commitMessage, filesData, options = {}) {
         try {
             const operations = await this.buildCommitFiles(filesData);
             if (!operations) {
@@ -77,7 +77,8 @@ class HuggingFaceStorage extends StorageProvider {
             const response = await this.requestHuggingFace(`${this.baseURL}/commit/main`, {
                 method: 'POST',
                 headers: this.defaultHeaders,
-                body: JSON.stringify(commitData)
+                body: JSON.stringify(commitData),
+                signal: options.signal || undefined,
             }, 'commit');
 
             if (!response.ok) {
@@ -142,7 +143,8 @@ class HuggingFaceStorage extends StorageProvider {
                 headers.Range = `bytes=${options.start}-${options.end}`;
             }
             const response = await this.requestHuggingFace(url, {
-                headers
+                headers,
+                signal: options.signal || undefined,
             }, 'read');
 
             if (!response.ok) {
@@ -161,10 +163,12 @@ class HuggingFaceStorage extends StorageProvider {
     async put(file, options) {
         const { fileName, originalName } = options;
         if (!fileName) throw new Error('[HuggingFaceStorage] 缺少 fileName');
-        const fileBuffer = await toBuffer(file);
+        const fileBuffer = await toBuffer(file, { signal: options.signal || null });
 
         const filesData = { [fileName]: fileBuffer };
-        await this.commit(`Upload ${originalName || fileName}`, filesData);
+        await this.commit(`Upload ${originalName || fileName}`, filesData, {
+            signal: options.signal || null,
+        });
         return createStoragePutResult({
             storageKey: fileName,
             size: fileBuffer.length,
@@ -239,7 +243,9 @@ class HuggingFaceStorage extends StorageProvider {
         // 分块以 {fileId}/chunk_{index} 形式存入 HF 数据集
         const chunkPath = `chunks/${fileId}/chunk_${String(chunkIndex).padStart(4, '0')}`;
         const filesData = { [chunkPath]: chunkBuffer };
-        await this.commit(`上传分块 ${chunkIndex}，文件 ${fileName || fileId}`, filesData);
+        await this.commit(`上传分块 ${chunkIndex}，文件 ${fileName || fileId}`, filesData, {
+            signal: options.signal || null,
+        });
         return createStorageChunkPutResult({
             storageKey: chunkPath,
             size: chunkBuffer.length,
@@ -254,7 +260,7 @@ class HuggingFaceStorage extends StorageProvider {
     async uploadChunkedBatch(buffer, options) {
         const config = this.getChunkConfig();
         const totalChunks = Math.ceil(buffer.length / config.chunkSize);
-        const { fileId, fileName, storageId, storageType } = options;
+        const { fileId, fileName, storageId, storageType, signal } = options;
 
         const filesData = {};
         const chunkRecords = [];
@@ -275,7 +281,9 @@ class HuggingFaceStorage extends StorageProvider {
             });
         }
 
-        await this.commit(`Upload ${totalChunks} chunks of ${fileName || fileId}`, filesData);
+        await this.commit(`Upload ${totalChunks} chunks of ${fileName || fileId}`, filesData, {
+            signal: signal || null,
+        });
         log.info({ fileId, totalChunks }, 'HuggingFace 批量分块上传完成');
 
         return { chunkCount: totalChunks, totalSize: buffer.length, chunkRecords };

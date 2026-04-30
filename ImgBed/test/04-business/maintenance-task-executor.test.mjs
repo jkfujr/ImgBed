@@ -66,6 +66,40 @@ test('createMaintenanceTaskExecutor 会在任务失败后保留失败快照', as
   assert.equal(snapshot.error.message, 'task failed');
 });
 
+test('createMaintenanceTaskExecutor 收到停止请求后不再启动后续 item', async () => {
+  const { logger } = createLoggerDouble();
+  const executor = createMaintenanceTaskExecutor({
+    logger,
+    wait: async () => {},
+  });
+  const processed = [];
+
+  executor.registerTask({
+    name: 'stoppable-task',
+    concurrency: 1,
+    async run(_input, runtime) {
+      await runtime.processItems([1, 2, 3], async (item) => {
+        processed.push(item);
+        if (item === 1) {
+          executor.requestStop('stoppable-task', {
+            action: 'pause',
+            reason: '测试暂停',
+          });
+        }
+        return { item };
+      });
+    },
+  });
+
+  executor.start('stoppable-task');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const snapshot = executor.getSnapshot('stoppable-task');
+  assert.deepEqual(processed, [1]);
+  assert.equal(snapshot.status, 'paused');
+  assert.equal(snapshot.error.message, '测试暂停');
+});
+
 test('files 与 system 维护服务可以复用同一个维护任务执行器实例', async () => {
   const { logger } = createLoggerDouble();
   const executor = createMaintenanceTaskExecutor({

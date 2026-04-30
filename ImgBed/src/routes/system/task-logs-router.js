@@ -25,6 +25,18 @@ function createSystemTaskLogsRouter({
     })));
   }));
 
+  router.post('/task-logs/:id/pause', asyncHandler(async (req, res) => {
+    return res.json(success(taskLogService.pauseTask(req.params.id), '任务已暂停'));
+  }));
+
+  router.post('/task-logs/:id/cancel', asyncHandler(async (req, res) => {
+    return res.json(success(taskLogService.cancelTask(req.params.id), '任务已取消'));
+  }));
+
+  router.post('/task-logs/:id/retry', asyncHandler(async (req, res) => {
+    return res.json(success(taskLogService.retryTask(req.params.id), '任务重试已启动'));
+  }));
+
   router.delete('/task-logs', asyncHandler(async (_req, res) => {
     return res.json(success(taskLogService.clearTerminalTasks(), '终态任务日志已清理'));
   }));

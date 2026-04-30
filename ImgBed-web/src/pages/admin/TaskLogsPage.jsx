@@ -8,12 +8,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   LinearProgress,
   Stack,
+  Tab,
+  Tabs,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import ReplayIcon from '@mui/icons-material/Replay';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
@@ -26,6 +33,8 @@ const STATUS_LABELS = {
   completed: '已完成',
   failed: '失败',
   partial_failed: '部分失败',
+  paused: '已暂停',
+  cancelled: '已取消',
 };
 
 const STATUS_COLORS = {
@@ -34,6 +43,8 @@ const STATUS_COLORS = {
   completed: 'success',
   failed: 'error',
   partial_failed: 'warning',
+  paused: 'warning',
+  cancelled: 'default',
 };
 
 const ITEM_STATUS_LABELS = {
@@ -42,7 +53,12 @@ const ITEM_STATUS_LABELS = {
   success: '成功',
   failed: '失败',
   skipped: '跳过',
+  paused: '已暂停',
+  cancelled: '已取消',
 };
+
+const CONTROLLABLE_STATUSES = new Set(['pending', 'running']);
+const RETRYABLE_STATUSES = new Set(['failed', 'partial_failed', 'paused', 'cancelled']);
 
 function formatDate(value) {
   if (!value) return '-';
@@ -62,6 +78,7 @@ export default function TaskLogsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState({ open: false, loading: false, data: null });
+  const [detailTab, setDetailTab] = useState('overview');
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -104,10 +121,11 @@ export default function TaskLogsPage() {
     }
   };
 
-  const openDetail = async (taskId) => {
+  const openDetail = useCallback(async (taskId) => {
+    setDetailTab('overview');
     setDetail({ open: true, loading: true, data: null });
     try {
-      const res = await TaskLogDocs.detail(taskId, { item_status: 'failed' });
+      const res = await TaskLogDocs.detail(taskId);
       if (res.code === 0) {
         setDetail({ open: true, loading: false, data: res.data });
       } else {
@@ -116,9 +134,47 @@ export default function TaskLogsPage() {
     } catch (err) {
       setDetail({ open: true, loading: false, data: { error: err.response?.data?.message || err.message || '网络错误' } });
     }
-  };
+  }, []);
 
   const closeDetail = () => setDetail({ open: false, loading: false, data: null });
+
+  const runTaskAction = useCallback(async (row, action) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await TaskLogDocs[action](row.id);
+      await loadTasks();
+      if (detail.open && detail.data?.task?.id === row.id) {
+        await openDetail(row.id);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || '任务操作失败');
+      setLoading(false);
+    }
+  }, [detail.open, detail.data?.task?.id, loadTasks, openDetail]);
+
+  const renderTaskItems = (items, emptyText) => {
+    const list = items || [];
+    if (list.length === 0) {
+      return <Typography variant="body2" color="text.secondary">{emptyText}</Typography>;
+    }
+
+    return list.map((item) => (
+      <Box key={item.id} sx={{ py: 1, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+          {item.file_id || '-'} · {ITEM_STATUS_LABELS[item.status] || item.status} · 尝试 {item.attempt_count} 次
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          更新时间：{formatDate(item.updated_at)}
+        </Typography>
+        {item.last_error && (
+          <Typography variant="caption" color="error" display="block" sx={{ overflowWrap: 'anywhere' }}>
+            {item.last_error}
+          </Typography>
+        )}
+      </Box>
+    ));
+  };
 
   const columns = useMemo(() => [
     {
@@ -177,19 +233,55 @@ export default function TaskLogsPage() {
     {
       field: 'actions',
       headerName: '操作',
-      width: 90,
+      width: 180,
       sortable: false,
       renderCell: (params) => (
-        <Button
-          size="small"
-          startIcon={<VisibilityIcon fontSize="small" />}
-          onClick={() => openDetail(params.row.id)}
-        >
-          查看
-        </Button>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Tooltip title="查看详情">
+            <IconButton size="small" onClick={() => openDetail(params.row.id)}>
+              <VisibilityIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="暂停任务">
+            <span>
+              <IconButton
+                size="small"
+                color="warning"
+                disabled={!CONTROLLABLE_STATUSES.has(params.row.status) || loading}
+                onClick={() => runTaskAction(params.row, 'pause')}
+              >
+                <PauseCircleIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="取消任务">
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                disabled={!CONTROLLABLE_STATUSES.has(params.row.status) || loading}
+                onClick={() => runTaskAction(params.row, 'cancel')}
+              >
+                <CancelIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="重试任务">
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                disabled={!RETRYABLE_STATUSES.has(params.row.status) || loading}
+                onClick={() => runTaskAction(params.row, 'retry')}
+              >
+                <ReplayIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
       ),
     },
-  ], []);
+  ], [loading, openDetail, runTaskAction]);
 
   if (loading && rows.length === 0) {
     return <LoadingSpinner fullHeight={false} />;
@@ -264,26 +356,35 @@ export default function TaskLogsPage() {
           {detail.data?.error && <Alert severity="error">{detail.data.error}</Alert>}
           {detail.data?.task && (
             <Stack spacing={1}>
-              <Typography variant="body2">任务 ID：{detail.data.task.id}</Typography>
-              <Typography variant="body2">状态：{STATUS_LABELS[detail.data.task.status] || detail.data.task.status}</Typography>
-              <Typography variant="body2">创建时间：{formatDate(detail.data.task.created_at)}</Typography>
-              {detail.data.task.error_summary && (
-                <Alert severity="warning">{detail.data.task.error_summary}</Alert>
+              <Tabs value={detailTab} onChange={(_event, value) => setDetailTab(value)}>
+                <Tab label="概览" value="overview" />
+                <Tab label="任务日志" value="items" />
+                <Tab label="失败项" value="failed" />
+              </Tabs>
+
+              {detailTab === 'overview' && (
+                <Stack spacing={1}>
+                  <Typography variant="body2">任务 ID：{detail.data.task.id}</Typography>
+                  <Typography variant="body2">状态：{STATUS_LABELS[detail.data.task.status] || detail.data.task.status}</Typography>
+                  <Typography variant="body2">进度：{progressValue(detail.data.task).toFixed(0)}%</Typography>
+                  <Typography variant="body2">
+                    成功 {detail.data.task.success_count} / 失败 {detail.data.task.failed_count} / 跳过 {detail.data.task.skipped_count} / 总数 {detail.data.task.total_count}
+                  </Typography>
+                  <Typography variant="body2">源 / 目标：{detail.data.task.source_storage_id || '-'} -&gt; {detail.data.task.target_storage_id || '-'}</Typography>
+                  <Typography variant="body2">创建时间：{formatDate(detail.data.task.created_at)}</Typography>
+                  <Typography variant="body2">开始时间：{formatDate(detail.data.task.started_at)}</Typography>
+                  <Typography variant="body2">结束时间：{formatDate(detail.data.task.ended_at)}</Typography>
+                  {detail.data.task.error_summary && (
+                    <Alert severity="warning">{detail.data.task.error_summary}</Alert>
+                  )}
+                </Stack>
               )}
-              <Typography variant="subtitle2" sx={{ mt: 1 }}>失败项</Typography>
-              {(detail.data.items || []).length === 0 ? (
-                <Typography variant="body2" color="text.secondary">暂无失败项</Typography>
-              ) : (
-                (detail.data.items || []).map((item) => (
-                  <Box key={item.id} sx={{ py: 1, borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography variant="body2">
-                      {item.file_id} · {ITEM_STATUS_LABELS[item.status] || item.status} · 尝试 {item.attempt_count} 次
-                    </Typography>
-                    {item.last_error && (
-                      <Typography variant="caption" color="error">{item.last_error}</Typography>
-                    )}
-                  </Box>
-                ))
+
+              {detailTab === 'items' && renderTaskItems(detail.data.items, '暂无任务日志')}
+
+              {detailTab === 'failed' && renderTaskItems(
+                (detail.data.items || []).filter((item) => item.status === 'failed'),
+                '暂无失败项',
               )}
             </Stack>
           )}

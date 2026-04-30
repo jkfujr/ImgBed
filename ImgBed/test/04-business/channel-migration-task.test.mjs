@@ -201,3 +201,189 @@ test('渠道迁移任务会对失败文件重试 3 次并记录失败项', async
   assert.equal(item.attempt_count, 3);
   assert.equal(item.last_error, '写入失败');
 });
+
+test('渠道迁移任务会让单文件迁移超时进入失败统计', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+
+  insertFileRecord(db, {
+    id: 'file-timeout-1',
+    storageInstanceId: 'source-1',
+    storageKey: 'source-key',
+    size: 4,
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'pending', 'source-1', 'target-1', 1)
+  `).run(taskId);
+
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const definition = createChannelMigrationTaskDefinition({
+    db,
+    storageManager,
+    logger,
+    maxAttempts: 1,
+    itemTimeoutMs: 5,
+    fileMigrationService: {
+      async migrateFileRecord(_file, options = {}) {
+        await new Promise((resolve, reject) => {
+          options.signal?.addEventListener('abort', () => {
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      },
+    },
+  });
+
+  await definition.run({
+    taskId,
+    sourceChannel: 'source-1',
+    targetChannel: 'target-1',
+  }, {
+    async processItems(items, processor, options = {}) {
+      for (let index = 0; index < items.length; index += 1) {
+        const result = await processor(items[index], { index });
+        await options.onResult?.(result, items[index], { index });
+      }
+    },
+  });
+
+  const task = db.prepare('SELECT * FROM task_logs WHERE id = ?').get(taskId);
+  const item = db.prepare('SELECT * FROM task_log_items WHERE task_id = ?').get(taskId);
+
+  assert.equal(task.status, 'failed');
+  assert.equal(task.failed_count, 1);
+  assert.equal(item.status, 'failed');
+  assert.match(item.last_error, /迁移超时/);
+});
+
+
+test('渠道迁移任务收到暂停请求后会停止后续文件并记录 paused', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+
+  insertFileRecord(db, {
+    id: 'file-pause-1',
+    storageInstanceId: 'source-1',
+    storageKey: 'source-key-1',
+    size: 4,
+  });
+  insertFileRecord(db, {
+    id: 'file-pause-2',
+    storageInstanceId: 'source-1',
+    storageKey: 'source-key-2',
+    size: 4,
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'pending', 'source-1', 'target-1', 2)
+  `).run(taskId);
+
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const executor = createMaintenanceTaskExecutor({ logger, wait: async () => {} });
+  let migrationStarted;
+  const migrationStartedPromise = new Promise((resolve) => {
+    migrationStarted = resolve;
+  });
+  const definition = createChannelMigrationTaskDefinition({
+    db,
+    storageManager,
+    logger,
+    itemTimeoutMs: 1000,
+    fileMigrationService: {
+      async migrateFileRecord(_file, options = {}) {
+        migrationStarted();
+        await new Promise((resolve, reject) => {
+          options.signal?.addEventListener('abort', () => {
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      },
+    },
+  });
+  executor.registerTask({
+    ...definition,
+    concurrency: 1,
+  });
+
+  executor.start('channel-migration', {
+    taskId,
+    sourceChannel: 'source-1',
+    targetChannel: 'target-1',
+  });
+  await migrationStartedPromise;
+  executor.requestStop('channel-migration', {
+    action: 'pause',
+    reason: '测试暂停',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const task = db.prepare('SELECT * FROM task_logs WHERE id = ?').get(taskId);
+  const items = db.prepare('SELECT * FROM task_log_items WHERE task_id = ? ORDER BY file_id ASC').all(taskId);
+
+  assert.equal(task.status, 'paused');
+  assert.equal(task.success_count, 0);
+  assert.equal(items.every((item) => item.status !== 'running' && item.status !== 'retrying'), true);
+  assert.equal(items[0].status, 'paused');
+});
+
+test('渠道迁移服务可以取消运行中任务并从终态任务创建重试任务', async (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+  const { logger } = createLoggerDouble();
+  const calls = { stops: [], starts: [] };
+  const storageManager = createStorageManager({ sourceDeletes: [], targetPuts: [] });
+  const service = createChannelMigrationTaskService({
+    db,
+    storageManager,
+    logger,
+    taskExecutor: {
+      registerTask() {},
+      getSnapshot() {
+        return null;
+      },
+      requestStop(name, options) {
+        calls.stops.push({ name, options });
+      },
+      start(name, input) {
+        calls.starts.push({ name, input });
+      },
+    },
+  });
+
+  const taskId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status, source_storage_id, target_storage_id, total_count)
+    VALUES (?, 'channel_migration', 'running', 'source-1', 'target-1', 1)
+  `).run(taskId);
+
+  const cancelled = service.stopChannelMigration(taskId, { action: 'cancel' });
+  const stoppedTask = db.prepare('SELECT * FROM task_logs WHERE id = ?').get(taskId);
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(stoppedTask.status, 'cancelled');
+  assert.deepEqual(calls.stops, [{
+    name: 'channel-migration',
+    options: {
+      action: 'cancel',
+      reason: '用户取消任务',
+    },
+  }]);
+
+  const retried = service.retryChannelMigration(taskId);
+
+  assert.equal(retried.status, 'processing');
+  assert.notEqual(retried.taskId, taskId);
+  assert.equal(calls.starts.length, 1);
+  assert.deepEqual(calls.starts[0].input, {
+    taskId: retried.taskId,
+    sourceChannel: 'source-1',
+    targetChannel: 'target-1',
+  });
+});

@@ -2,8 +2,13 @@ import pLimit from 'p-limit';
 
 import { createStoragePutResult } from '../contract.js';
 import { createLogger } from '../../utils/logger.js';
+import { throwIfAborted } from '../../utils/abort-signal.js';
 
 const log = createLogger('native-multipart-writer');
+
+function withSignal(options, signal) {
+  return signal ? { ...options, signal } : options;
+}
 
 async function writeNativeMultipartObject({
   storage,
@@ -12,7 +17,9 @@ async function writeNativeMultipartObject({
   mimeType,
   chunkConfig = null,
   config,
+  signal = null,
 } = {}) {
+  throwIfAborted(signal);
   const resolvedChunkConfig = chunkConfig || storage.getChunkConfig();
   const totalChunks = Math.ceil(buffer.length / resolvedChunkConfig.chunkSize);
   let multipart;
@@ -25,10 +32,10 @@ async function writeNativeMultipartObject({
   );
 
   try {
-    multipart = await storage.initMultipartUpload({
+    multipart = await storage.initMultipartUpload(withSignal({
       fileName,
       mimeType,
-    });
+    }, signal));
 
     const parts = [];
 
@@ -42,11 +49,12 @@ async function writeNativeMultipartObject({
         const end = Math.min(start + resolvedChunkConfig.chunkSize, buffer.length);
         const chunkBuffer = buffer.subarray(start, end);
 
-        uploadTasks.push(limit(async () => storage.uploadPart(chunkBuffer, {
+        throwIfAborted(signal);
+        uploadTasks.push(limit(async () => storage.uploadPart(chunkBuffer, withSignal({
           uploadId: multipart.uploadId,
           key: multipart.key,
           partNumber,
-        })));
+        }, signal))));
       }
 
       const uploadedParts = await Promise.all(uploadTasks);
@@ -64,11 +72,12 @@ async function writeNativeMultipartObject({
         const end = Math.min(start + resolvedChunkConfig.chunkSize, buffer.length);
         const chunkBuffer = buffer.subarray(start, end);
 
-        const part = await storage.uploadPart(chunkBuffer, {
+        throwIfAborted(signal);
+        const part = await storage.uploadPart(chunkBuffer, withSignal({
           uploadId: multipart.uploadId,
           key: multipart.key,
           partNumber: index + 1,
-        });
+        }, signal));
         parts.push(part);
       }
 
@@ -79,11 +88,11 @@ async function writeNativeMultipartObject({
       }, 'S3 串行 Multipart 上传完成');
     }
 
-    const result = await storage.completeMultipartUpload({
+    const result = await storage.completeMultipartUpload(withSignal({
       uploadId: multipart.uploadId,
       key: multipart.key,
       parts,
-    });
+    }, signal));
 
     return createStoragePutResult({
       storageKey: result.storageKey,

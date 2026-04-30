@@ -88,7 +88,9 @@ function createFileMigrationService({
     throw new Error('创建文件迁移服务时缺少 storageManager');
   }
 
-  async function prepareMigrationSource(fileRecord, sourceEntry) {
+  async function prepareMigrationSource(fileRecord, sourceEntry, {
+    signal = null,
+  } = {}) {
     const sourceInstanceId = resolveStorageInstanceIdFn(fileRecord);
     const sourceStorageMeta = parseStorageMetaFn(fileRecord.storage_meta);
     const fileSize = Number(fileRecord.size) || 0;
@@ -103,7 +105,9 @@ function createFileMigrationService({
         { totalSize: fileSize },
       );
     } else {
-      const readResult = await sourceEntry.instance.getStreamResponse(fileRecord.storage_key);
+      const readResult = await sourceEntry.instance.getStreamResponse(fileRecord.storage_key, {
+        signal,
+      });
       stream = toNodeReadableFn(readResult.stream);
     }
 
@@ -127,6 +131,7 @@ function createFileMigrationService({
     fileSize,
     targetChannel,
     targetEntry,
+    signal = null,
   } = {}) {
     const writePlan = resolveStorageWritePlanFn({
       storage: targetEntry.instance,
@@ -137,13 +142,18 @@ function createFileMigrationService({
     });
 
     if (writePlan.mode === 'direct') {
-      const storageResult = await targetEntry.instance.put(stream, {
+      const putOptions = {
         id: fileRecord.id,
         fileName: fileRecord.file_name,
         originalName: fileRecord.original_name,
         mimeType: fileRecord.mime_type,
         contentLength: fileSize || undefined,
-      });
+      };
+      if (signal) {
+        putOptions.signal = signal;
+      }
+
+      const storageResult = await targetEntry.instance.put(stream, putOptions);
 
       return {
         storageResult,
@@ -153,7 +163,7 @@ function createFileMigrationService({
       };
     }
 
-    const buffer = await toBufferFn(stream);
+    const buffer = await toBufferFn(stream, { signal });
     return executePlannedBufferWriteFn({
       plan: writePlan,
       storage: targetEntry.instance,
@@ -162,6 +172,7 @@ function createFileMigrationService({
       newFileName: fileRecord.file_name,
       originalName: fileRecord.original_name,
       mimeType: fileRecord.mime_type,
+      signal,
     });
   }
 
@@ -215,6 +226,7 @@ function createFileMigrationService({
     targetChannel,
     targetEntry = validateMigrationTarget(targetChannel, storageManager),
     preserveSource = false,
+    signal = null,
   } = {}) {
     const sourceInstanceId = resolveStorageInstanceIdFn(fileRecord);
 
@@ -227,7 +239,7 @@ function createFileMigrationService({
       return { status: 'failed', reason: '源渠道不存在' };
     }
 
-    const sourceContext = await prepareMigrationSource(fileRecord, sourceEntry);
+    const sourceContext = await prepareMigrationSource(fileRecord, sourceEntry, { signal });
     const lifecycle = createStorageOperationLifecycleFn({
       db,
       applyPendingQuotaEvents,
@@ -245,6 +257,7 @@ function createFileMigrationService({
       fileSize: sourceContext.fileSize,
       targetChannel,
       targetEntry,
+      signal,
     });
 
     const targetCleanupPayload = buildStoragePayloadFromStorageResultFn(targetUploadResult.storageResult, {

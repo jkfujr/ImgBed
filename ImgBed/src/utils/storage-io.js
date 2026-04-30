@@ -1,6 +1,8 @@
 import { Blob } from 'buffer';
 import { Readable } from 'stream';
 
+import { throwIfAborted } from './abort-signal.js';
+
 function isWebReadableStream(value) {
   return value && typeof value.getReader === 'function';
 }
@@ -9,7 +11,10 @@ function isBlobLike(value) {
   return value instanceof Blob || typeof value?.arrayBuffer === 'function';
 }
 
-async function toBuffer(input) {
+async function toBuffer(input, options = {}) {
+  const { signal = null } = options;
+  throwIfAborted(signal);
+
   if (Buffer.isBuffer(input)) {
     return input;
   }
@@ -25,6 +30,7 @@ async function toBuffer(input) {
   if (input instanceof Readable) {
     const chunks = [];
     for await (const chunk of input) {
+      throwIfAborted(signal);
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     return Buffer.concat(chunks);
@@ -34,6 +40,7 @@ async function toBuffer(input) {
     const reader = input.getReader();
     const chunks = [];
     while (true) {
+      throwIfAborted(signal);
       const { done, value } = await reader.read();
       if (done) {
         break;
@@ -44,6 +51,7 @@ async function toBuffer(input) {
   }
 
   if (isBlobLike(input)) {
+    throwIfAborted(signal);
     return Buffer.from(await input.arrayBuffer());
   }
 

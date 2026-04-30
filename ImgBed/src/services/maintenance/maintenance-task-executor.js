@@ -16,6 +16,23 @@ function createTaskSnapshot(taskName, overrides = {}) {
   };
 }
 
+class TaskStopError extends Error {
+  constructor(action, reason) {
+    super(reason || (action === 'cancel' ? '任务已取消' : '任务已暂停'));
+    this.name = 'TaskStopError';
+    this.action = action;
+    this.status = action === 'cancel' ? 'cancelled' : 'paused';
+  }
+}
+
+function createTaskControl() {
+  return {
+    stopAction: null,
+    stopReason: null,
+    abortHandlers: new Set(),
+  };
+}
+
 function createMaintenanceTaskExecutor({
   logger = console,
   wait = waitForDelay,
@@ -36,6 +53,7 @@ function createMaintenanceTaskExecutor({
     const state = {
       definition: taskDefinition,
       runningPromise: null,
+      control: null,
       snapshot: createTaskSnapshot(taskDefinition.name),
     };
 
@@ -51,6 +69,54 @@ function createMaintenanceTaskExecutor({
     return state;
   }
 
+  function buildTaskRuntime(state, taskName, runId) {
+    function getStopRequest() {
+      return state.control?.stopAction
+        ? {
+            action: state.control.stopAction,
+            status: state.control.stopAction === 'cancel' ? 'cancelled' : 'paused',
+            reason: state.control.stopReason,
+          }
+        : null;
+    }
+
+    function throwIfStopRequested() {
+      const stopRequest = getStopRequest();
+      if (stopRequest) {
+        throw new TaskStopError(stopRequest.action, stopRequest.reason);
+      }
+    }
+
+    function addAbortHandler(handler) {
+      if (typeof handler !== 'function' || !state.control) {
+        return () => {};
+      }
+
+      state.control.abortHandlers.add(handler);
+      return () => {
+        state.control?.abortHandlers.delete(handler);
+      };
+    }
+
+    async function processItems(items, processor, options = {}) {
+      return processTaskItems(state.definition, items, processor, {
+        ...options,
+        throwIfStopRequested,
+      });
+    }
+
+    return {
+      logger,
+      taskName,
+      runId,
+      processItems,
+      getStopRequest,
+      isStopRequested: () => Boolean(getStopRequest()),
+      throwIfStopRequested,
+      addAbortHandler,
+    };
+  }
+
   async function processTaskItems(taskDefinition, items, processor, options = {}) {
     const list = Array.isArray(items) ? items : [];
     if (list.length === 0) {
@@ -60,10 +126,14 @@ function createMaintenanceTaskExecutor({
     const concurrency = Math.max(1, Number(options.concurrency ?? taskDefinition.concurrency) || 1);
     const itemDelayMs = Math.max(0, Number(options.itemDelayMs ?? taskDefinition.itemDelayMs) || 0);
     const onResult = typeof options.onResult === 'function' ? options.onResult : null;
+    const throwIfStopRequested = typeof options.throwIfStopRequested === 'function'
+      ? options.throwIfStopRequested
+      : () => {};
     let cursor = 0;
 
     const worker = async () => {
       while (true) {
+        throwIfStopRequested();
         const currentIndex = cursor;
         cursor += 1;
 
@@ -72,12 +142,15 @@ function createMaintenanceTaskExecutor({
         }
 
         const item = list[currentIndex];
+        throwIfStopRequested();
         const result = await processor(item, { index: currentIndex });
+        throwIfStopRequested();
 
         if (onResult) {
           await onResult(result, item, { index: currentIndex });
         }
 
+        throwIfStopRequested();
         if (itemDelayMs > 0) {
           await wait(itemDelayMs);
         }
@@ -91,6 +164,52 @@ function createMaintenanceTaskExecutor({
   function getSnapshot(taskName) {
     const state = taskStates.get(taskName);
     return state ? state.snapshot : null;
+  }
+
+  function requestStop(taskName, {
+    action,
+    reason = null,
+  } = {}) {
+    if (action !== 'pause' && action !== 'cancel') {
+      throw new Error(`不支持的任务停止动作: ${action}`);
+    }
+
+    const state = getTaskState(taskName);
+    if (!state.runningPromise || !state.control) {
+      return state.snapshot;
+    }
+
+    if (!state.control.stopAction) {
+      state.control.stopAction = action;
+      state.control.stopReason = reason || (action === 'cancel' ? '用户取消任务' : '用户暂停任务');
+    }
+
+    for (const handler of state.control.abortHandlers) {
+      try {
+        handler(state.control.stopReason);
+      } catch (error) {
+        logger.warn?.({ taskName, err: error }, '维护任务停止回调执行失败');
+      }
+    }
+
+    const status = action === 'cancel' ? 'cancelled' : 'paused';
+    state.snapshot = {
+      ...state.snapshot,
+      status,
+      error: {
+        name: 'TaskStopError',
+        message: state.control.stopReason,
+      },
+    };
+
+    logger.info?.({
+      taskName,
+      runId: state.snapshot.runId,
+      action,
+      reason: state.control.stopReason,
+    }, '维护任务收到停止请求');
+
+    return state.snapshot;
   }
 
   function start(taskName, input = {}) {
@@ -113,21 +232,34 @@ function createMaintenanceTaskExecutor({
     });
 
     state.snapshot = runningSnapshot;
+    state.control = createTaskControl();
     logger.info?.({ taskName, runId, input }, '维护任务开始');
 
     state.runningPromise = Promise.resolve()
-      .then(() => state.definition.run(input, {
-        logger,
-        taskName,
-        runId,
-        processItems: (items, processor, options = {}) => processTaskItems(
-          state.definition,
-          items,
-          processor,
-          options,
-        ),
-      }))
+      .then(() => state.definition.run(input, buildTaskRuntime(state, taskName, runId)))
       .then((result) => {
+        const stopRequest = state.control?.stopAction
+          ? {
+              status: state.control.stopAction === 'cancel' ? 'cancelled' : 'paused',
+              reason: state.control.stopReason,
+            }
+          : null;
+
+        if (stopRequest) {
+          state.snapshot = {
+            ...runningSnapshot,
+            status: stopRequest.status,
+            endedAt: new Date().toISOString(),
+            result,
+            error: {
+              name: 'TaskStopError',
+              message: stopRequest.reason,
+            },
+          };
+          logger.info?.({ taskName, runId, result }, '维护任务已停止');
+          return;
+        }
+
         state.snapshot = {
           ...runningSnapshot,
           status: 'completed',
@@ -138,6 +270,21 @@ function createMaintenanceTaskExecutor({
         logger.info?.({ taskName, runId, result }, '维护任务完成');
       })
       .catch((error) => {
+        if (error instanceof TaskStopError) {
+          state.snapshot = {
+            ...runningSnapshot,
+            status: error.status,
+            endedAt: new Date().toISOString(),
+            error: {
+              name: error.name,
+              message: error.message,
+            },
+          };
+
+          logger.info?.({ taskName, runId, action: error.action }, '维护任务已停止');
+          return;
+        }
+
         state.snapshot = {
           ...runningSnapshot,
           status: 'failed',
@@ -152,6 +299,7 @@ function createMaintenanceTaskExecutor({
       })
       .finally(() => {
         state.runningPromise = null;
+        state.control = null;
       });
 
     return runningSnapshot;
@@ -161,10 +309,12 @@ function createMaintenanceTaskExecutor({
     registerTask,
     start,
     getSnapshot,
+    requestStop,
   };
 }
 
 export {
+  TaskStopError,
   createMaintenanceTaskExecutor,
   waitForDelay,
 };

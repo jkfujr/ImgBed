@@ -16,9 +16,19 @@ function parsePositiveInteger(value, fallbackValue, maxValue = 500) {
   return Math.min(parsed, maxValue);
 }
 
-function createTaskLogService({ db } = {}) {
+function createTaskLogService({
+  db,
+  channelMigrationTaskService = null,
+} = {}) {
   if (!db) {
     throw new Error('创建任务日志服务时缺少数据库实例');
+  }
+
+  function requireChannelMigrationTaskService() {
+    if (!channelMigrationTaskService) {
+      throw new Error('任务日志服务缺少渠道迁移任务服务');
+    }
+    return channelMigrationTaskService;
   }
 
   return {
@@ -93,6 +103,22 @@ function createTaskLogService({ db } = {}) {
       return {
         deleted: Number(result?.changes || 0),
       };
+    },
+
+    pauseTask(taskId) {
+      return requireChannelMigrationTaskService().stopChannelMigration(taskId, {
+        action: 'pause',
+      });
+    },
+
+    cancelTask(taskId) {
+      return requireChannelMigrationTaskService().stopChannelMigration(taskId, {
+        action: 'cancel',
+      });
+    },
+
+    retryTask(taskId) {
+      return requireChannelMigrationTaskService().retryChannelMigration(taskId);
     },
   };
 }

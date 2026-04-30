@@ -12,6 +12,7 @@ async function migrateFileRecord(fileRecord, {
   applyPendingQuotaEvents,
   logger,
   preserveSource = false,
+  signal = null,
 } = {}) {
   const service = createFileMigrationService({
     db,
@@ -24,6 +25,7 @@ async function migrateFileRecord(fileRecord, {
     targetChannel,
     targetEntry,
     preserveSource,
+    signal,
   });
 }
 
@@ -34,6 +36,7 @@ async function migrateFilesBatch(files, {
   applyPendingQuotaEvents,
   logger,
   preserveSource = false,
+  signal = null,
 } = {}) {
   const service = createFileMigrationService({
     db,
@@ -45,6 +48,7 @@ async function migrateFilesBatch(files, {
   return service.migrateFilesBatch(files, {
     targetChannel,
     preserveSource,
+    signal,
   });
 }
 
