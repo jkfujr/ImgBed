@@ -9,6 +9,7 @@ import { handleChunkedStream, handleRegularStream } from '../services/view/handl
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ForbiddenError, NotFoundError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
+import { getRequestIp } from '../utils/request-ip.js';
 
 const log = createLogger('view');
 const viewApp = express.Router();
@@ -130,7 +131,7 @@ viewApp.get('/:id', asyncHandler(async (req, res, next) => {
     // 记录访问日志（异步，不阻塞响应）
     setImmediate(() => {
         try {
-            const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+            const ip = getRequestIp(req);
             const userAgent = req.headers['user-agent'] || null;
             const referer = req.headers['referer'] || null;
 

@@ -5,6 +5,7 @@ import path from 'path';
 import { resolveAppPath } from './config/app-root.js';
 import { getLastKnownGoodConfig } from './config/index.js';
 import { registerErrorHandlers, notFoundHandler } from './middleware/errorHandler.js';
+import { spaFallbackRateLimiter } from './middleware/rate-limit.js';
 import { sqlite } from './database/index.js';
 import { createLogger } from './utils/logger.js';
 import authRouter from './routes/auth.js';
@@ -55,6 +56,23 @@ function isSpaNavigationRequest(req) {
   }
 
   return path.extname(req.path || '') === '';
+}
+
+function requireSpaNavigationRequest(req, _res, next) {
+  if (!isSpaNavigationRequest(req)) {
+    next('router');
+    return;
+  }
+
+  next();
+}
+
+function sendSpaIndex(req, res, next) {
+  res.sendFile(indexPath, (error) => {
+    if (error) {
+      next(error);
+    }
+  });
 }
 
 app.disable('x-powered-by');
@@ -120,18 +138,9 @@ app.use('/', viewRouter);
 app.use(express.static(staticPath));
 
 // 仅浏览器导航请求使用 SPA 回退
-app.use((req, res, next) => {
-  if (!isSpaNavigationRequest(req)) {
-    next();
-    return;
-  }
-
-  res.sendFile(indexPath, (error) => {
-    if (error) {
-      next(error);
-    }
-  });
-});
+const spaFallbackRouter = express.Router();
+spaFallbackRouter.use(requireSpaNavigationRequest, spaFallbackRateLimiter, sendSpaIndex);
+app.use(spaFallbackRouter);
 
 app.use(notFoundHandler);
 registerErrorHandlers(app);

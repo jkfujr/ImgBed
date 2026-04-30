@@ -75,6 +75,28 @@ test('app.js 会为 API、文件直链和 SPA 导航返回清晰的边界语义'
   assert.equal(adminSpaResponse.statusCode, 200);
   assert.match(adminSpaResponse.body, /<title>ImgBed Test<\/title>/);
 
+  for (let index = 0; index < 120; index += 1) {
+    const response = await requestServer(runtime.server, `/spa-limit-${index}`, {
+      headers: {
+        Accept: 'text/html',
+        'cf-connecting-ip': '203.0.113.55',
+      },
+    });
+    assert.equal(response.statusCode, 200);
+  }
+
+  const limitedSpaResponse = await requestServer(runtime.server, '/spa-limit-overflow', {
+    headers: {
+      Accept: 'text/html',
+      'cf-connecting-ip': '203.0.113.55',
+    },
+  });
+  assert.equal(limitedSpaResponse.statusCode, 429);
+  assert.deepEqual(JSON.parse(limitedSpaResponse.body), {
+    code: 429,
+    message: '请求过于频繁，请稍后重试',
+  });
+
   const loginJsonResponse = await requestServer(runtime.server, '/login', {
     headers: {
       Accept: 'application/json',

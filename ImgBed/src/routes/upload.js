@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/auth.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { guestUploadAuth } from '../middleware/guestUpload.js';
 import { createUploadApplicationService } from '../services/upload/upload-application-service.js';
+import { getRequestIp } from '../utils/request-ip.js';
 import { success } from '../utils/response.js';
 
 const defaultUploadMiddleware = multer({
@@ -33,7 +34,7 @@ function createUploadRouter({
         body: req.body || {},
         file: req.file || null,
         auth: req.auth || null,
-        clientIp: req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown',
+        clientIp: getRequestIp(req),
       });
 
       return res.json(successBuilder(result.data, result.message));

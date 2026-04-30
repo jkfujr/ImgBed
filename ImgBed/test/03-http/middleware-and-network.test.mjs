@@ -6,6 +6,7 @@ import express from 'express';
 import asyncHandler from '../../src/middleware/asyncHandler.js';
 import { cacheMiddleware } from '../../src/middleware/cache.js';
 import { notFoundHandler, registerErrorHandlers } from '../../src/middleware/errorHandler.js';
+import { createRateLimiter } from '../../src/middleware/rate-limit.js';
 import { classifyEntryError } from '../../src/bootstrap/entry-error-policy.js';
 import { createProxyFetcher, normalizeProxyUrl } from '../../src/network/proxy-core.js';
 import {
@@ -14,6 +15,7 @@ import {
   initResponseCache,
 } from '../../src/services/cache/response-cache.js';
 import { ConfigFileError, ValidationError } from '../../src/errors/AppError.js';
+import { firstForwardedIp, getRequestIp } from '../../src/utils/request-ip.js';
 import { success } from '../../src/utils/response.js';
 import { requestServer } from '../helpers/runtime-test-helpers.mjs';
 
@@ -126,6 +128,34 @@ test('createProxyFetcher 会把代理请求边界的远端 I/O 异常标记为�
       return true;
     },
   );
+});
+
+test('request-ip 会按可信代理头顺序解析客户端地址', () => {
+  assert.equal(firstForwardedIp('203.0.113.10, 10.0.0.1'), '203.0.113.10');
+
+  assert.equal(getRequestIp({
+    get(name) {
+      return name === 'cf-connecting-ip' ? '203.0.113.20' : '';
+    },
+    headers: {},
+    ip: '127.0.0.1',
+  }), '203.0.113.20');
+
+  assert.equal(getRequestIp({
+    get(name) {
+      return name === 'x-forwarded-for' ? '203.0.113.30, 10.0.0.1' : '';
+    },
+    headers: {},
+    ip: '127.0.0.1',
+  }), '203.0.113.30');
+
+  assert.equal(getRequestIp({
+    get() {
+      return '';
+    },
+    headers: {},
+    ip: '127.0.0.1',
+  }), '127.0.0.1');
 });
 
 test('getResponseCache 在未初始化时会抛出明确错误', { concurrency: false }, (t) => {
@@ -263,6 +293,35 @@ test('cacheMiddleware 会按身份隔离 GET 缓存，并跳过非 GET 请求', 
   cache.destroy();
   assert.equal(cache.cleanupInterval, null);
   assert.equal(cache.enabled, false);
+});
+
+test('createRateLimiter 超限后返回统一 429 JSON 和标准 RateLimit 头', async (t) => {
+  const appHandle = await startExpressApp((app) => {
+    app.use('/limited', createRateLimiter({
+      windowMs: 60_000,
+      limit: 1,
+      identifier: 'test-limiter',
+      keyPrefix: 'test-limiter',
+    }));
+    app.get('/limited', (_req, res) => res.json(success({ ok: true })));
+  });
+  t.after(() => appHandle.stop());
+
+  const first = await requestServer(appHandle.server, '/limited', {
+    headers: { 'cf-connecting-ip': '203.0.113.40' },
+  });
+  const second = await requestServer(appHandle.server, '/limited', {
+    headers: { 'cf-connecting-ip': '203.0.113.40' },
+  });
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 429);
+  assert.deepEqual(JSON.parse(second.body), {
+    code: 429,
+    message: '请求过于频繁，请稍后重试',
+  });
+  assert.ok(second.headers.ratelimit);
+  assert.equal(second.headers['x-ratelimit-limit'], undefined);
 });
 
 test('asyncHandler、notFoundHandler 和 registerErrorHandlers 会输出一致的 HTTP 错误响应', async (t) => {

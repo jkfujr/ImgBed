@@ -1,6 +1,7 @@
 import { AppError } from '../errors/AppError.js';
 import { verifyApiToken } from '../utils/apiToken.js';
 import { verifyToken } from '../utils/jwt.js';
+import { getRequestIp } from '../utils/request-ip.js';
 import { ErrorResponse } from '../utils/response.js';
 
 const SESSION_INVALID_JWT_REASONS = new Set(['expired', 'signature_invalid', 'malformed']);
@@ -39,10 +40,6 @@ const buildForbiddenResponse = (message) => {
     code: 403,
     message,
   };
-};
-
-const getRequestIp = (req) => {
-  return req.get('x-forwarded-for') || req.get('cf-connecting-ip') || req.ip || 'unknown';
 };
 
 const resolveJwtFailureReason = ({ rawToken, jwtResult }) => {
