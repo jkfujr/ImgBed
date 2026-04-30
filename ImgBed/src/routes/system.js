@@ -4,7 +4,6 @@ import { adminAuth } from '../middleware/auth.js';
 import storageManager from '../storage/manager.js';
 import { sqlite } from '../database/index.js';
 import {
-  freezeFilesByStorageInstance,
   getActiveFilesStats,
   getTodayUploadCount,
   getUploadTrend,
@@ -14,6 +13,7 @@ import { applyStorageConfigChange } from '../services/system/apply-storage-confi
 import { createSystemConfigService } from '../services/system/system-config-service.js';
 import { createStorageConfigService } from '../services/system/storage-config-service.js';
 import { createChannelMigrationTaskService } from '../services/tasks/channel-migration-task.js';
+import { createStorageDeleteFilesTaskService } from '../services/tasks/storage-delete-files-task.js';
 import { createTaskLogService } from '../services/tasks/task-log-service.js';
 import { createMaintenanceService } from '../services/system/maintenance-service.js';
 import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../storage/runtime/default-storage-runtime.js';
@@ -60,18 +60,6 @@ import { createSystemRuntimeRouter } from './system/runtime-router.js';
 import { createSystemDashboardRouter } from './system/dashboard-router.js';
 import { createSystemTaskLogsRouter } from './system/task-logs-router.js';
 
-function createFreezeStorageFiles(db) {
-  if (typeof db.transaction === 'function') {
-    return db.transaction((storageInstanceId) => {
-      freezeFilesByStorageInstance(db, storageInstanceId);
-    });
-  }
-
-  return (storageInstanceId) => {
-    freezeFilesByStorageInstance(db, storageInstanceId);
-  };
-}
-
 function buildSystemDependencies(overrides = {}) {
   const db = overrides.db || sqlite;
   const logger = overrides.logger || createLogger('system');
@@ -111,7 +99,6 @@ function buildSystemDependencies(overrides = {}) {
     applyStorageConfigPatch: overrides.applyStorageConfigPatch || applyStorageConfigPatch,
     validStorageTypes: overrides.validStorageTypes || VALID_STORAGE_TYPES,
     preserveNullConfigKeys: overrides.preserveNullConfigKeys || STORAGE_SENSITIVE_KEYS,
-    freezeStorageFiles: overrides.freezeStorageFiles || createFreezeStorageFiles(db),
     getActiveFilesStats: overrides.getActiveFilesStats || getActiveFilesStats,
     getTodayUploadCount: overrides.getTodayUploadCount || getTodayUploadCount,
     getUploadTrend: overrides.getUploadTrend || getUploadTrend,
@@ -125,24 +112,6 @@ function buildSystemDependencies(overrides = {}) {
     applySystemConfigUpdates: deps.applySystemConfigUpdates,
   });
 
-  deps.storageConfigService = overrides.storageConfigService || createStorageConfigService({
-    readRuntimeConfig: deps.readRuntimeConfig,
-    writeRuntimeConfig: deps.writeRuntimeConfig,
-    storageManager: deps.storageManager,
-    invalidateStorageCaches: deps.invalidateStorageCaches,
-    invalidateFilesCache: deps.invalidateFilesCache,
-    invalidateDashboardCaches: deps.invalidateDashboardCaches,
-    freezeStorageFiles: deps.freezeStorageFiles,
-    updateLoadBalanceConfig: deps.updateLoadBalanceConfig,
-    applyStorageConfigChange: deps.applyStorageConfigChange,
-    validateStorageChannelInput: deps.validateStorageChannelInput,
-    buildNewStorageChannel: deps.buildNewStorageChannel,
-    applyStorageFieldUpdates: deps.applyStorageFieldUpdates,
-    applyStorageConfigPatch: deps.applyStorageConfigPatch,
-    validStorageTypes: deps.validStorageTypes,
-    preserveNullConfigKeys: deps.preserveNullConfigKeys,
-  });
-
   deps.channelMigrationTaskService = overrides.channelMigrationTaskService || createChannelMigrationTaskService({
     db: deps.db,
     storageManager: deps.storageManager,
@@ -153,9 +122,35 @@ function buildSystemDependencies(overrides = {}) {
     invalidateDashboardCaches: deps.invalidateDashboardCaches,
   });
 
+  deps.storageDeleteFilesTaskService = overrides.storageDeleteFilesTaskService || createStorageDeleteFilesTaskService({
+    db: deps.db,
+    storageManager: deps.storageManager,
+    logger: deps.logger,
+    invalidateFilesCache: deps.invalidateFilesCache,
+    invalidateStorageCaches: deps.invalidateStorageCaches,
+    invalidateDashboardCaches: deps.invalidateDashboardCaches,
+  });
+
+  deps.storageConfigService = overrides.storageConfigService || createStorageConfigService({
+    readRuntimeConfig: deps.readRuntimeConfig,
+    writeRuntimeConfig: deps.writeRuntimeConfig,
+    storageManager: deps.storageManager,
+    invalidateStorageCaches: deps.invalidateStorageCaches,
+    updateLoadBalanceConfig: deps.updateLoadBalanceConfig,
+    applyStorageConfigChange: deps.applyStorageConfigChange,
+    storageDeleteFilesTaskService: deps.storageDeleteFilesTaskService,
+    validateStorageChannelInput: deps.validateStorageChannelInput,
+    buildNewStorageChannel: deps.buildNewStorageChannel,
+    applyStorageFieldUpdates: deps.applyStorageFieldUpdates,
+    applyStorageConfigPatch: deps.applyStorageConfigPatch,
+    validStorageTypes: deps.validStorageTypes,
+    preserveNullConfigKeys: deps.preserveNullConfigKeys,
+  });
+
   deps.taskLogService = overrides.taskLogService || createTaskLogService({
     db: deps.db,
     channelMigrationTaskService: deps.channelMigrationTaskService,
+    storageDeleteFilesTaskService: deps.storageDeleteFilesTaskService,
   });
 
   deps.maintenanceService = overrides.maintenanceService || createMaintenanceService({

@@ -4,7 +4,7 @@ import { createOverlayFocusManager } from '../utils/overlay-focus';
 
 const EMPTY_EDIT = { open: false, target: null };
 const EMPTY_MIGRATE = { open: false, target: null, started: null };
-const EMPTY_DELETE = { target: null, saving: false };
+const EMPTY_DELETE = { target: null, saving: false, fileAction: 'freeze' };
 
 /**
  * StorageChannelsPage 核心业务 Hook — 管理渠道列表、操作、弹窗状态
@@ -105,7 +105,7 @@ export function useStorageChannels() {
     if (!deleteState.target) return;
     setDeleteState((prev) => ({ ...prev, saving: true }));
     try {
-      const res = await StorageDocs.remove(deleteState.target.id);
+      const res = await StorageDocs.remove(deleteState.target.id, deleteState.fileAction);
       if (res.code === 0) {
         deleteDialogFocusManager.close(() => setDeleteState(EMPTY_DELETE));
         loadStorages();
@@ -117,9 +117,12 @@ export function useStorageChannels() {
 
   const clearError = () => setError(null);
   const openDeleteDialog = (trigger, target) => {
-    deleteDialogFocusManager.open(trigger, () => setDeleteState({ target, saving: false }));
+    deleteDialogFocusManager.open(trigger, () => setDeleteState({ target, saving: false, fileAction: 'freeze' }));
   };
   const closeDeleteDialog = () => deleteDialogFocusManager.close(() => setDeleteState(EMPTY_DELETE));
+  const setDeleteFileAction = (fileAction) => {
+    setDeleteState((prev) => ({ ...prev, fileAction }));
+  };
 
   const onDialogSuccess = () => {
     closeDialog();
@@ -138,10 +141,11 @@ export function useStorageChannels() {
     migrationTarget: migrationDialog.target,
     migrationStarted: migrationDialog.started,
     deleteTarget: deleteState.target,
+    deleteFileAction: deleteState.fileAction,
     deleting: deleteState.saving,
     loadStorages, openEdit, closeDialog,
     openMigrationDialog, closeMigrationDialog, handleMigrationStarted,
     handleToggle, handleSetDefault, handleDelete,
-    openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
+    openDeleteDialog, closeDeleteDialog, setDeleteFileAction, clearError, onDialogSuccess,
   };
 }

@@ -346,6 +346,22 @@ function freezeFilesByStorageInstance(db, storageInstanceId) {
 }
 
 /**
+ * 将仍属于指定存储实例的单个 active 文件冻结为 channel_deleted。
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} id
+ * @param {string} storageInstanceId
+ */
+function freezeActiveFileByIdAndStorageInstance(db, id, storageInstanceId) {
+  return db.prepare(`
+    UPDATE files
+    SET status = 'channel_deleted'
+    WHERE id = ?
+      AND storage_instance_id = ?
+      AND status = 'active'
+  `).run(id, storageInstanceId);
+}
+
+/**
  * 冻结所有指向当前配置中不存在的存储实例的 active 文件。
  * 用于启动期修复配置与文件索引漂移，避免列表和直链继续暴露失效文件。
  * @param {import('better-sqlite3').Database} db
@@ -439,6 +455,7 @@ export {
   updateActiveFileFields,
   updateFileImageMetadata,
   freezeFilesByStorageInstance,
+  freezeActiveFileByIdAndStorageInstance,
   freezeFilesByMissingStorageInstances,
   moveFilesToDirectory,
   renameFileDirectory,

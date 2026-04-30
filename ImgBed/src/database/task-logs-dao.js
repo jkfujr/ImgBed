@@ -23,6 +23,7 @@ function assertStopTaskStatus(status) {
 
 function createTaskLog(db, {
   taskType,
+  triggerType = 'manual',
   sourceStorageId = null,
   targetStorageId = null,
   totalCount = 0,
@@ -31,13 +32,14 @@ function createTaskLog(db, {
 
   db.prepare(`
     INSERT INTO task_logs (
-      id, task_type, status, source_storage_id, target_storage_id, total_count
+      id, task_type, trigger_type, status, source_storage_id, target_storage_id, total_count
     ) VALUES (
-      @id, @task_type, @status, @source_storage_id, @target_storage_id, @total_count
+      @id, @task_type, @trigger_type, @status, @source_storage_id, @target_storage_id, @total_count
     )
   `).run({
     id,
     task_type: taskType,
+    trigger_type: triggerType,
     status: 'pending',
     source_storage_id: sourceStorageId,
     target_storage_id: targetStorageId,

@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/AppError.js';
+import { normalizeStorageDeleteFileAction } from '../tasks/storage-delete-files-action.js';
 
 const VALID_S3_NON_EMPTY_ACTIONS = new Set(['keep', 'clear_bucket']);
 
@@ -7,11 +8,9 @@ function createStorageConfigService({
   writeRuntimeConfig,
   storageManager,
   invalidateStorageCaches,
-  invalidateFilesCache,
-  invalidateDashboardCaches,
-  freezeStorageFiles,
   updateLoadBalanceConfig,
   applyStorageConfigChange,
+  storageDeleteFilesTaskService,
   validateStorageChannelInput,
   buildNewStorageChannel,
   applyStorageFieldUpdates,
@@ -42,6 +41,13 @@ function createStorageConfigService({
     }
 
     return normalizedAction;
+  }
+
+  function requireStorageDeleteFilesTaskService() {
+    if (!storageDeleteFilesTaskService) {
+      throw new Error('存储配置服务缺少删除渠道文件处理任务服务');
+    }
+    return storageDeleteFilesTaskService;
   }
 
   async function inspectExistingObjects(type, storageConfig) {
@@ -145,7 +151,8 @@ function createStorageConfigService({
       return storage;
     },
 
-    async deleteStorage(id) {
+    async deleteStorage(id, { fileAction } = {}) {
+      const normalizedFileAction = normalizeStorageDeleteFileAction(fileAction);
       const cfg = readRuntimeConfig();
       const storages = ensureStorageConfig(cfg);
 
@@ -157,13 +164,21 @@ function createStorageConfigService({
         throw new NotFoundError(`渠道 "${id}" 不存在`);
       }
 
+      const taskService = requireStorageDeleteFilesTaskService();
+      taskService.assertCanStartStorageDeleteFilesTask({
+        sourceStorageId: id,
+        fileAction: normalizedFileAction,
+      });
+
       cfg.storage.storages = storages.filter((storage) => storage.id !== id);
 
-      freezeStorageFiles(id);
       await applyStorageConfigChange({ cfg, storageManager });
       invalidateStorageCaches();
-      invalidateFilesCache();
-      invalidateDashboardCaches();
+
+      return taskService.startStorageDeleteFilesTask({
+        sourceStorageId: id,
+        fileAction: normalizedFileAction,
+      });
     },
 
     async setDefaultStorage(id) {

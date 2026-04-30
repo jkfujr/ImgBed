@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Box, IconButton, Tooltip, Chip,
   Stack, Alert, Typography,
+  RadioGroup, Radio, FormControlLabel,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
@@ -61,12 +62,12 @@ function UsageProgressBar({ storage, quotaStats }) {
 export default function StorageChannelsPage() {
   const {
     storages, defaultId, loading, error, quotaStats, stats,
-    dialogOpen, editTarget, deleteTarget, deleting,
+    dialogOpen, editTarget, deleteTarget, deleteFileAction, deleting,
     migrationDialogOpen, migrationTarget, migrationStarted,
     loadStorages, openEdit, closeDialog,
     openMigrationDialog, closeMigrationDialog, handleMigrationStarted,
     handleToggle, handleSetDefault, handleDelete,
-    openDeleteDialog, closeDeleteDialog, clearError, onDialogSuccess,
+    openDeleteDialog, closeDeleteDialog, setDeleteFileAction, clearError, onDialogSuccess,
   } = useStorageChannels();
 
   const [typeFilter, setTypeFilter] = useState('all');
@@ -310,7 +311,35 @@ export default function StorageChannelsPage() {
         confirmLoading={deleting}
         confirmText="确认删除"
       >
-        确定要删除渠道「{deleteTarget?.name}」（{deleteTarget?.id}）吗？此操作不可撤销。
+        <Stack spacing={1.5}>
+          <Typography variant="body2">
+            确定要删除渠道「{deleteTarget?.name}」（{deleteTarget?.id}）吗？此操作不可撤销。
+          </Typography>
+          <Alert severity="warning">
+            以下两种方式都不会删除远端存储对象，只处理数据库中的渠道配置与文件记录。
+          </Alert>
+          <RadioGroup
+            value={deleteFileAction}
+            onChange={(event) => setDeleteFileAction(event.target.value)}
+          >
+            <FormControlLabel
+              value="freeze"
+              control={<Radio />}
+              label="仅删除渠道"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mt: -0.5, mb: 1 }}>
+              删除渠道配置后，后台自动冻结该渠道仍 active 的文件。
+            </Typography>
+            <FormControlLabel
+              value="delete_records"
+              control={<Radio />}
+              label="删除渠道并清理渠道相关数据库文件"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mt: -0.5 }}>
+              删除渠道配置后，后台自动清理该渠道文件索引与分片记录。
+            </Typography>
+          </RadioGroup>
+        </Stack>
       </ConfirmDialog>
     </Box>
   );

@@ -70,8 +70,10 @@ function createSystemStoragesRouter({
   }));
 
   router.delete('/storages/:id', asyncHandler(async (req, res) => {
-    await storageConfigService.deleteStorage(req.params.id);
-    return res.json(success(null, '存储渠道已删除，关联文件已冻结'));
+    const result = await storageConfigService.deleteStorage(req.params.id, {
+      fileAction: req.query.file_action,
+    });
+    return res.json(success(result, '存储渠道已删除，文件处理任务已启动'));
   }));
 
   router.post('/storages/:id/migrate', asyncHandler(async (req, res) => {

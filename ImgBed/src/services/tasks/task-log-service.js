@@ -7,6 +7,8 @@ import {
   listTaskLogItems,
   listTaskLogs,
 } from '../../database/task-logs-dao.js';
+import { CHANNEL_MIGRATION_TASK_TYPE } from './channel-migration-task.js';
+import { STORAGE_DELETE_FILES_TASK_TYPE } from './storage-delete-files-task.js';
 
 function parsePositiveInteger(value, fallbackValue, maxValue = 500) {
   const parsed = Number.parseInt(value ?? fallbackValue, 10);
@@ -19,6 +21,7 @@ function parsePositiveInteger(value, fallbackValue, maxValue = 500) {
 function createTaskLogService({
   db,
   channelMigrationTaskService = null,
+  storageDeleteFilesTaskService = null,
 } = {}) {
   if (!db) {
     throw new Error('创建任务日志服务时缺少数据库实例');
@@ -29,6 +32,13 @@ function createTaskLogService({
       throw new Error('任务日志服务缺少渠道迁移任务服务');
     }
     return channelMigrationTaskService;
+  }
+
+  function requireStorageDeleteFilesTaskService() {
+    if (!storageDeleteFilesTaskService) {
+      throw new Error('任务日志服务缺少删除渠道文件处理任务服务');
+    }
+    return storageDeleteFilesTaskService;
   }
 
   return {
@@ -112,9 +122,22 @@ function createTaskLogService({
     },
 
     cancelTask(taskId) {
-      return requireChannelMigrationTaskService().stopChannelMigration(taskId, {
-        action: 'cancel',
-      });
+      const task = getTaskLogById(db, taskId);
+      if (!task) {
+        throw new NotFoundError('任务日志不存在');
+      }
+
+      if (task.task_type === CHANNEL_MIGRATION_TASK_TYPE) {
+        return requireChannelMigrationTaskService().stopChannelMigration(taskId, {
+          action: 'cancel',
+        });
+      }
+
+      if (task.task_type === STORAGE_DELETE_FILES_TASK_TYPE) {
+        return requireStorageDeleteFilesTaskService().cancelStorageDeleteFilesTask(taskId);
+      }
+
+      throw new ValidationError('不支持取消该任务类型');
     },
 
     resumeTask(taskId) {

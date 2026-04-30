@@ -156,7 +156,9 @@ export const StorageDocs = {
   }),
   create: (data) => api.post('/api/system/storages', data),
   update: (id, data) => api.put(`/api/system/storages/${id}`, data),
-  remove: (id) => api.delete(`/api/system/storages/${id}`),
+  remove: (id, fileAction) => api.delete(`/api/system/storages/${id}`, {
+    params: { file_action: fileAction },
+  }),
   migrate: (id, data) => api.post(`/api/system/storages/${id}/migrate`, data),
   setDefault: (id) => api.put(`/api/system/storages/${id}/default`),
   toggle: (id) => api.put(`/api/system/storages/${id}/toggle`),

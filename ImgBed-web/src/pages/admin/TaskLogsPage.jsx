@@ -59,10 +59,22 @@ const ITEM_STATUS_LABELS = {
   cancelled: '已取消',
 };
 
+const TASK_TYPE_LABELS = {
+  channel_migration: '渠道迁移',
+  storage_delete_files: '渠道文件处理',
+};
+
+const TRIGGER_TYPE_LABELS = {
+  manual: '手动',
+  automatic: '自动',
+};
+
 const CONTROLLABLE_STATUSES = new Set(['pending', 'running']);
 const RESUMABLE_STATUSES = new Set(['paused']);
 const CANCELLABLE_STATUSES = new Set(['pending', 'running', 'paused']);
 const RETRYABLE_STATUSES = new Set(['failed', 'partial_failed', 'cancelled']);
+const CHANNEL_MIGRATION_TASK_TYPE = 'channel_migration';
+const STORAGE_DELETE_FILES_TASK_TYPE = 'storage_delete_files';
 const DETAIL_PAGE_SIZE = 200;
 
 function createEmptyDetailItems(pageSize = DETAIL_PAGE_SIZE) {
@@ -354,73 +366,85 @@ export default function TaskLogsPage() {
     </Stack>
   );
 
-  const renderTaskActionButtons = useCallback((row) => (
-    <Stack direction="row" spacing={0.5} alignItems="center">
-      {CONTROLLABLE_STATUSES.has(row.status) && (
-        <Tooltip title="暂停任务">
-          <span>
-            <IconButton
-              size="small"
-              color="warning"
-              disabled={loading}
-              onClick={() => runTaskAction(row, 'pause')}
-            >
-              <PauseCircleIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
-      {RESUMABLE_STATUSES.has(row.status) && (
-        <Tooltip title="继续任务">
-          <span>
-            <IconButton
-              size="small"
-              color="success"
-              disabled={loading}
-              onClick={() => runTaskAction(row, 'resume')}
-            >
-              <PlayCircleIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
-      {CANCELLABLE_STATUSES.has(row.status) && (
-        <Tooltip title="取消任务">
-          <span>
-            <IconButton
-              size="small"
-              color="error"
-              disabled={loading}
-              onClick={() => runTaskAction(row, 'cancel')}
-            >
-              <CancelIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
-      {RETRYABLE_STATUSES.has(row.status) && (
-        <Tooltip title="重试任务">
-          <span>
-            <IconButton
-              size="small"
-              color="primary"
-              disabled={loading}
-              onClick={() => runTaskAction(row, 'retry')}
-            >
-              <ReplayIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
-    </Stack>
-  ), [loading, runTaskAction]);
+  const renderTaskActionButtons = useCallback((row) => {
+    const isChannelMigration = row.task_type === CHANNEL_MIGRATION_TASK_TYPE;
+    const isStorageDeleteFiles = row.task_type === STORAGE_DELETE_FILES_TASK_TYPE;
+
+    return (
+      <Stack direction="row" spacing={0.5} alignItems="center">
+        {isChannelMigration && CONTROLLABLE_STATUSES.has(row.status) && (
+          <Tooltip title="暂停任务">
+            <span>
+              <IconButton
+                size="small"
+                color="warning"
+                disabled={loading}
+                onClick={() => runTaskAction(row, 'pause')}
+              >
+                <PauseCircleIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        {isChannelMigration && RESUMABLE_STATUSES.has(row.status) && (
+          <Tooltip title="继续任务">
+            <span>
+              <IconButton
+                size="small"
+                color="success"
+                disabled={loading}
+                onClick={() => runTaskAction(row, 'resume')}
+              >
+                <PlayCircleIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        {((isChannelMigration && CANCELLABLE_STATUSES.has(row.status))
+          || (isStorageDeleteFiles && CONTROLLABLE_STATUSES.has(row.status))) && (
+          <Tooltip title="取消任务">
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                disabled={loading}
+                onClick={() => runTaskAction(row, 'cancel')}
+              >
+                <CancelIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        {isChannelMigration && RETRYABLE_STATUSES.has(row.status) && (
+          <Tooltip title="重试任务">
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                disabled={loading}
+                onClick={() => runTaskAction(row, 'retry')}
+              >
+                <ReplayIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+      </Stack>
+    );
+  }, [loading, runTaskAction]);
 
   const columns = useMemo(() => [
     {
       field: 'task_type',
       headerName: '任务类型',
       width: 150,
-      valueGetter: (value) => value === 'channel_migration' ? '渠道迁移' : value,
+      valueGetter: (value) => TASK_TYPE_LABELS[value] || value,
+    },
+    {
+      field: 'trigger_type',
+      headerName: '来源',
+      width: 100,
+      valueGetter: (value) => TRIGGER_TYPE_LABELS[value] || value || '-',
     },
     {
       field: 'status',
@@ -569,6 +593,8 @@ export default function TaskLogsPage() {
               {detailTab === 'overview' && (
                 <Stack spacing={1}>
                   <Typography variant="body2">任务 ID：{detail.task.id}</Typography>
+                  <Typography variant="body2">任务类型：{TASK_TYPE_LABELS[detail.task.task_type] || detail.task.task_type}</Typography>
+                  <Typography variant="body2">来源：{TRIGGER_TYPE_LABELS[detail.task.trigger_type] || detail.task.trigger_type || '-'}</Typography>
                   <Typography variant="body2">状态：{STATUS_LABELS[detail.task.status] || detail.task.status}</Typography>
                   <Typography variant="body2">进度：{progressValue(detail.task).toFixed(0)}%</Typography>
                   <Typography variant="body2">

@@ -128,7 +128,7 @@ test('createSystemRouter 会使用注入依赖完成装配，而不是直接依�
       async updateStorage() {
         return { id: 's3-1', type: 's3', config: {} };
       },
-      async deleteStorage() {},
+      async deleteStorage(_id, _options) {},
       async setDefaultStorage() {},
       async toggleStorage() {
         return true;
@@ -297,7 +297,10 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       async updateStorage() {
         return { id: 's3-1', type: 's3', config: {} };
       },
-      async deleteStorage() {},
+      async deleteStorage(id, options) {
+        serviceCalls.push({ deleteStorage: { id, options } });
+        return { taskId: 'delete-task-1', status: 'processing', fileAction: options.fileAction };
+      },
       async setDefaultStorage() {},
       async toggleStorage() {
         return true;
@@ -346,6 +349,9 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       target_channel: 's3-2',
     },
   });
+  const deleteResponse = await requestJson(appHandle, '/storages/s3-1?file_action=freeze', {
+    method: 'DELETE',
+  });
 
   assert.equal(storagesResponse.status, 200);
   assert.equal(storagesResponse.body.data.list[0].config.secretAccessKey, '***');
@@ -358,6 +364,12 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
   assert.equal(updateLoadBalanceResponse.status, 200);
   assert.equal(migrateResponse.body.message, '渠道迁移任务已启动');
   assert.deepEqual(migrateResponse.body.data, { taskId: 'task-1', status: 'processing' });
+  assert.equal(deleteResponse.body.message, '存储渠道已删除，文件处理任务已启动');
+  assert.deepEqual(deleteResponse.body.data, {
+    taskId: 'delete-task-1',
+    status: 'processing',
+    fileAction: 'freeze',
+  });
   assert.deepEqual(serviceCalls, [
     { type: 's3', config: { region: 'ap-southeast-1' } },
     { updateLoadBalance: { strategy: 'weighted' } },
@@ -376,6 +388,14 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       migrate: {
         sourceChannel: 's3-1',
         targetChannel: 's3-2',
+      },
+    },
+    {
+      deleteStorage: {
+        id: 's3-1',
+        options: {
+          fileAction: 'freeze',
+        },
       },
     },
   ]);
@@ -478,6 +498,64 @@ test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason'
       },
     },
   });
+});
+
+test('createSystemStoragesRouter 删除渠道会透传缺失 file_action 的 400 错误', async (t) => {
+  const passthroughCache = createPassthroughCache();
+  const appHandle = await startRouterApp(createSystemStoragesRouter({
+    storagesListCache: passthroughCache,
+    storagesStatsCache: passthroughCache,
+    loadBalanceCache: passthroughCache,
+    quotaStatsCache: passthroughCache,
+    readRuntimeConfig: () => ({
+      storage: {
+        default: 's3-1',
+        storages: [],
+      },
+    }),
+    sanitizeStorageChannel: (storage) => storage,
+    summarizeStorages: () => ({ total: 0, enabled: 0, allowUpload: 0, byType: {} }),
+    storageManager: {
+      getAllQuotaStats() {
+        return {};
+      },
+      getUsageStats() {
+        return {};
+      },
+    },
+    storageConfigService: {
+      async testStorageConnection() {
+        return { ok: true };
+      },
+      async updateLoadBalance() {},
+      async createStorage() {
+        return { id: 's3-1', type: 's3', config: {} };
+      },
+      async updateStorage() {
+        return { id: 's3-1', type: 's3', config: {} };
+      },
+      async deleteStorage() {
+        throw new ValidationError('file_action 参数必须是 freeze 或 delete_records');
+      },
+      async setDefaultStorage() {},
+      async toggleStorage() {
+        return true;
+      },
+    },
+    channelMigrationTaskService: {
+      startChannelMigration() {
+        return { taskId: 'task-1', status: 'processing' };
+      },
+    },
+  }));
+  t.after(() => appHandle.stop());
+
+  const response = await requestJson(appHandle, '/storages/s3-1', {
+    method: 'DELETE',
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.message, 'file_action 参数必须是 freeze 或 delete_records');
 });
 
 test('createSystemMaintenanceRouter 会返回 processing 与容量历史数据', async (t) => {

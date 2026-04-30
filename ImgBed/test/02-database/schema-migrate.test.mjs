@@ -6,7 +6,7 @@ import { initSchema } from '../../src/database/schema.js';
 import { getTableColumns, hasColumn, hasTable } from '../../src/database/schema-utils.js';
 import { createEmptyDb, listTableNames, listTriggerNames } from '../helpers/database-test-helpers.mjs';
 
-test('initSchema 会建立当前 v3 所需的全部核心数据表', (t) => {
+test('initSchema 会建立当前 v4 所需的全部核心数据表', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -59,6 +59,7 @@ test('schema-utils 可以识别数据表和字段存在性', (t) => {
       'updated_at',
     ],
   );
+  assert.equal(hasColumn(db, 'task_logs', 'trigger_type'), true);
 });
 
 test('当前 schema 只包含 updated_at 维护触发器，不包含配额跨表触发器', (t) => {
@@ -81,7 +82,7 @@ test('当前 schema 只包含 updated_at 维护触发器，不包含配额跨表
   );
 });
 
-test('runMigrations 不做旧版迁移，只验证当前 v3 结构并登记 schema_migrations', (t) => {
+test('runMigrations 会验证当前 v4 结构并登记 schema_migrations', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -90,6 +91,56 @@ test('runMigrations 不做旧版迁移，只验证当前 v3 结构并登记 sche
 
   const rows = db.prepare('SELECT version FROM schema_migrations ORDER BY version ASC').all();
   assert.deepEqual(rows, [{ version: SCHEMA_VERSION }]);
+});
+
+test('runMigrations 会为旧 task_logs 自动补充 trigger_type 字段', (t) => {
+  const db = createEmptyDb();
+  t.after(() => db.close());
+
+  initSchema(db);
+  db.exec('DROP TABLE task_log_items');
+  db.exec('DROP TABLE task_logs');
+  db.exec(`
+    CREATE TABLE task_logs (
+      id TEXT PRIMARY KEY,
+      task_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      source_storage_id TEXT,
+      target_storage_id TEXT,
+      total_count INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      skipped_count INTEGER NOT NULL DEFAULT 0,
+      error_summary TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      started_at DATETIME,
+      ended_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec(`
+    CREATE TABLE task_log_items (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      file_id TEXT,
+      status TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (task_id) REFERENCES task_logs(id) ON DELETE CASCADE
+    )
+  `);
+  db.prepare(`
+    INSERT INTO task_logs (id, task_type, status)
+    VALUES ('task-old-1', 'channel_migration', 'completed')
+  `).run();
+
+  runMigrations(db);
+
+  const row = db.prepare('SELECT trigger_type FROM task_logs WHERE id = ?').get('task-old-1');
+  assert.equal(hasColumn(db, 'task_logs', 'trigger_type'), true);
+  assert.equal(row.trigger_type, 'manual');
 });
 
 test('runMigrations 会把历史访问日志空管理员标记收口为普通访问', (t) => {
@@ -129,7 +180,7 @@ test('runMigrations 在发现已废弃数据表时会拒绝继续登记', (t) =>
   assert.throws(() => runMigrations(db), /storage_channels/);
 });
 
-test('runMigrations 在发现缺失的 v3 字段时会拒绝继续登记', (t) => {
+test('runMigrations 在发现缺失的 v4 字段时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -154,7 +205,7 @@ test('runMigrations 在发现缺失的 v3 字段时会拒绝继续登记', (t) =
   assert.throws(() => runMigrations(db), /storage_operations\.retry_count/);
 });
 
-test('runMigrations 在发现缺失的 v3 任务日志表时会拒绝继续登记', (t) => {
+test('runMigrations 在发现缺失的 v4 任务日志表时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 

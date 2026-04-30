@@ -7,6 +7,7 @@ export function createTaskLogsSchema(db) {
     CREATE TABLE IF NOT EXISTS task_logs (
       id TEXT PRIMARY KEY,
       task_type TEXT NOT NULL,
+      trigger_type TEXT NOT NULL DEFAULT 'manual',
       status TEXT NOT NULL,
       source_storage_id TEXT,
       target_storage_id TEXT,

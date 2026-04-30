@@ -366,6 +366,7 @@ function createChannelMigrationTaskService({
       const total = countActiveFilesByStorageInstance(db, sourceChannel);
       const taskId = createTaskLog(db, {
         taskType: CHANNEL_MIGRATION_TASK_TYPE,
+        triggerType: 'manual',
         sourceStorageId: sourceChannel,
         targetStorageId: targetChannel,
         totalCount: total,

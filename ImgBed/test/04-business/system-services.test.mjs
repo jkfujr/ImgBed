@@ -113,19 +113,30 @@ function createStorageConfigFixture(overrides = {}) {
     invalidateStorageCaches: () => {
       calls.push('invalidateStorages');
     },
-    invalidateFilesCache: () => {
-      calls.push('invalidateFiles');
-    },
-    invalidateDashboardCaches: () => {
-      calls.push('invalidateDashboard');
-    },
-    freezeStorageFiles: (storageId) => {
-      calls.push(`freeze:${storageId}`);
-    },
     updateLoadBalanceConfig,
     applyStorageConfigChange: async ({ cfg }) => {
       calls.push('applyStorageConfigChange');
       appliedConfigs.push(structuredClone(cfg));
+    },
+    storageDeleteFilesTaskService: {
+      assertCanStartStorageDeleteFilesTask(payload) {
+        calls.push({ assertCanStartStorageDeleteFilesTask: payload });
+        if (payload.fileAction !== 'freeze' && payload.fileAction !== 'delete_records') {
+          throw new ValidationError('file_action 参数必须是 freeze 或 delete_records');
+        }
+        return payload.fileAction;
+      },
+      startStorageDeleteFilesTask(payload) {
+        calls.push({ startStorageDeleteFilesTask: payload });
+        if (typeof overrides.startStorageDeleteFilesTask === 'function') {
+          return overrides.startStorageDeleteFilesTask(payload);
+        }
+        return {
+          taskId: 'task-delete-files-1',
+          status: 'processing',
+          fileAction: payload.fileAction,
+        };
+      },
     },
     validateStorageChannelInput,
     buildNewStorageChannel,
@@ -392,32 +403,64 @@ test('deleteStorage 会拒绝删除当前默认渠道', async () => {
   const fixture = createStorageConfigFixture();
 
   await assert.rejects(
-    fixture.service.deleteStorage('s3-1'),
+    fixture.service.deleteStorage('s3-1', { fileAction: 'freeze' }),
     (error) => {
       assert.equal(error instanceof ValidationError, true);
       assert.equal(error.message, '不能删除当前默认渠道，请先切换默认渠道');
       return true;
     },
   );
+
+  assert.deepEqual(fixture.calls, []);
 });
 
-test('deleteStorage 会按 freeze -> apply -> invalidate 顺序执行统一编排', async () => {
+test('deleteStorage 会删除渠道配置并启动自动文件处理任务', async () => {
   const runtimeConfig = createRuntimeConfig();
   runtimeConfig.storage.default = 's3-1';
 
   const fixture = createStorageConfigFixture({ runtimeConfig });
 
-  await fixture.service.deleteStorage('local-1');
+  const result = await fixture.service.deleteStorage('local-1', { fileAction: 'freeze' });
 
   assert.deepEqual(fixture.calls, [
-    'freeze:local-1',
+    {
+      assertCanStartStorageDeleteFilesTask: {
+        sourceStorageId: 'local-1',
+        fileAction: 'freeze',
+      },
+    },
     'applyStorageConfigChange',
     'invalidateStorages',
-    'invalidateFiles',
-    'invalidateDashboard',
+    {
+      startStorageDeleteFilesTask: {
+        sourceStorageId: 'local-1',
+        fileAction: 'freeze',
+      },
+    },
   ]);
+  assert.deepEqual(result, {
+    taskId: 'task-delete-files-1',
+    status: 'processing',
+    fileAction: 'freeze',
+  });
   assert.equal(fixture.appliedConfigs[0].storage.storages.length, 1);
   assert.equal(fixture.appliedConfigs[0].storage.storages[0].id, 's3-1');
+});
+
+test('deleteStorage 会在非法 fileAction 时拒绝且不写配置', async () => {
+  const fixture = createStorageConfigFixture();
+
+  await assert.rejects(
+    fixture.service.deleteStorage('local-1', { fileAction: 'bad-action' }),
+    (error) => {
+      assert.equal(error instanceof ValidationError, true);
+      assert.equal(error.message, 'file_action 参数必须是 freeze 或 delete_records');
+      return true;
+    },
+  );
+
+  assert.deepEqual(fixture.calls, []);
+  assert.equal(fixture.getRuntimeConfig().storage.storages.length, 2);
 });
 
 test('setDefaultStorage 与 toggleStorage 会复用统一写回链', async () => {
