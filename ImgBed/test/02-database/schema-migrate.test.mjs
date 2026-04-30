@@ -6,7 +6,7 @@ import { initSchema } from '../../src/database/schema.js';
 import { getTableColumns, hasColumn, hasTable } from '../../src/database/schema-utils.js';
 import { createEmptyDb, listTableNames, listTriggerNames } from '../helpers/database-test-helpers.mjs';
 
-test('initSchema 会建立当前 v4 所需的全部核心数据表', (t) => {
+test('initSchema 会建立当前 v5 所需的全部核心数据表', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -60,6 +60,34 @@ test('schema-utils 可以识别数据表和字段存在性', (t) => {
     ],
   );
   assert.equal(hasColumn(db, 'task_logs', 'trigger_type'), true);
+  assert.deepEqual(
+    db.prepare(`
+      SELECT name, sql
+      FROM sqlite_master
+      WHERE type = 'index'
+        AND tbl_name = 'api_tokens'
+        AND name NOT LIKE 'sqlite_autoindex_%'
+      ORDER BY name ASC
+    `).all().map((row) => ({ name: row.name, sql: row.sql })),
+    [
+      {
+        name: 'idx_api_tokens_created_at',
+        sql: 'CREATE INDEX idx_api_tokens_created_at ON api_tokens(created_at DESC)',
+      },
+      {
+        name: 'idx_api_tokens_expires_at',
+        sql: 'CREATE INDEX idx_api_tokens_expires_at ON api_tokens(expires_at)',
+      },
+      {
+        name: 'idx_api_tokens_status',
+        sql: 'CREATE INDEX idx_api_tokens_status ON api_tokens(status)',
+      },
+      {
+        name: 'idx_api_tokens_token_prefix',
+        sql: 'CREATE INDEX idx_api_tokens_token_prefix ON api_tokens(token_prefix)',
+      },
+    ],
+  );
 });
 
 test('当前 schema 只包含 updated_at 维护触发器，不包含配额跨表触发器', (t) => {
@@ -82,7 +110,7 @@ test('当前 schema 只包含 updated_at 维护触发器，不包含配额跨表
   );
 });
 
-test('runMigrations 会验证当前 v4 结构并登记 schema_migrations', (t) => {
+test('runMigrations 会验证当前 v5 结构并登记 schema_migrations', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -91,6 +119,27 @@ test('runMigrations 会验证当前 v4 结构并登记 schema_migrations', (t) =
 
   const rows = db.prepare('SELECT version FROM schema_migrations ORDER BY version ASC').all();
   assert.deepEqual(rows, [{ version: SCHEMA_VERSION }]);
+});
+
+test('runMigrations 会把旧 api_tokens token_hash 唯一索引改为 token_prefix 查询索引', (t) => {
+  const db = createEmptyDb();
+  t.after(() => db.close());
+
+  initSchema(db);
+  db.prepare('DROP INDEX IF EXISTS idx_api_tokens_token_prefix').run();
+  db.prepare('CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash)').run();
+
+  runMigrations(db);
+
+  const indexes = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index' AND tbl_name = 'api_tokens'
+    ORDER BY name ASC
+  `).all().map((row) => row.name);
+
+  assert.equal(indexes.includes('idx_api_tokens_token_hash'), false);
+  assert.equal(indexes.includes('idx_api_tokens_token_prefix'), true);
 });
 
 test('runMigrations 会为旧 task_logs 自动补充 trigger_type 字段', (t) => {
@@ -180,7 +229,7 @@ test('runMigrations 在发现已废弃数据表时会拒绝继续登记', (t) =>
   assert.throws(() => runMigrations(db), /storage_channels/);
 });
 
-test('runMigrations 在发现缺失的 v4 字段时会拒绝继续登记', (t) => {
+test('runMigrations 在发现缺失的 v5 字段时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 
@@ -205,7 +254,7 @@ test('runMigrations 在发现缺失的 v4 字段时会拒绝继续登记', (t) =
   assert.throws(() => runMigrations(db), /storage_operations\.retry_count/);
 });
 
-test('runMigrations 在发现缺失的 v4 任务日志表时会拒绝继续登记', (t) => {
+test('runMigrations 在发现缺失的 v5 任务日志表时会拒绝继续登记', (t) => {
   const db = createEmptyDb();
   t.after(() => db.close());
 

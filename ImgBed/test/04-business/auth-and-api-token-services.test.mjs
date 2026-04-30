@@ -100,3 +100,15 @@ test('createTokenRecord 会固定写入 active 状态、admin 创建者并序列
   assert.match(record.updated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   assert.equal(record.created_at, record.updated_at);
 });
+
+test('hashApiToken 会使用 scrypt 格式并支持恒定时间校验', () => {
+  const tokenHash = apiTokenUtils.hashApiToken('ib_test.secret', {
+    randomBytes: () => Buffer.alloc(16, 0x22),
+  });
+
+  assert.match(tokenHash, /^scrypt\$1\$/);
+  assert.equal(tokenHash.includes('sha256'), false);
+  assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.secret', tokenHash), true);
+  assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.wrong', tokenHash), false);
+  assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.secret', 'bad-hash'), false);
+});

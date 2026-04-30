@@ -3,7 +3,7 @@ import { hasColumn, hasTable } from './schema-utils.js';
 
 const log = createLogger('database:migrate');
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 function versionLabel() {
   return `v${SCHEMA_VERSION}`;
@@ -40,9 +40,17 @@ function migrateTaskLogTriggerType(db) {
   }
 }
 
+function migrateApiTokenPrefixIndex(db) {
+  if (hasTable(db, 'api_tokens')) {
+    db.prepare('DROP INDEX IF EXISTS idx_api_tokens_token_hash').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_api_tokens_token_prefix ON api_tokens(token_prefix)').run();
+  }
+}
+
 function validateSchema(db) {
   assertTableExists(db, 'files');
   assertTableExists(db, 'chunks');
+  assertTableExists(db, 'api_tokens');
   assertTableExists(db, 'storage_operations');
   assertTableExists(db, 'task_logs');
   assertTableExists(db, 'task_log_items');
@@ -53,6 +61,8 @@ function validateSchema(db) {
   assertSchemaColumn(db, 'task_logs', 'error_summary');
   assertSchemaColumn(db, 'task_log_items', 'attempt_count');
   assertSchemaColumn(db, 'task_log_items', 'last_error');
+  assertSchemaColumn(db, 'api_tokens', 'token_prefix');
+  assertSchemaColumn(db, 'api_tokens', 'token_hash');
   assertSchemaColumn(db, 'storage_operations', 'retry_count');
   assertSchemaColumn(db, 'storage_operations', 'source_storage_id');
   assertSchemaColumn(db, 'storage_operations', 'target_storage_id');
@@ -90,6 +100,7 @@ export function runMigrations(db) {
     )`);
 
     migrateTaskLogTriggerType(db);
+    migrateApiTokenPrefixIndex(db);
     validateSchema(db);
     cleanupRemovedStorageTypes(db);
     cleanupAccessLogAdminFlag(db);
