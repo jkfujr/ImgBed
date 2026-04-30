@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUpload } from './useUpload';
 import { ALLOWED_IMAGE_EXTENSIONS } from '../utils/constants';
 import { ROOT_DIR } from '../admin/filesAdminShared';
+import { PublicAPI } from '../api';
 
 const createFileEntry = (file) => ({
   id: Math.random().toString(36).slice(2),
@@ -43,12 +44,7 @@ export function useHomeUpload() {
         open: true,
         onSubmit: (password) => {
           setPasswordDialog({ open: false, onSubmit: null });
-          if (password) {
-            sessionStorage.setItem('uploadPassword', password);
-            resolve(password);
-          } else {
-            resolve(null);
-          }
+          resolve(password || null);
         }
       });
     });
@@ -124,24 +120,24 @@ export function useHomeUpload() {
     // 在上传过程中同步统计结果
     let successCount = 0;
     let errorCount = 0;
-    let uploadPassword = null;
+    let hasGuestUploadTicket = false;
 
     for (const entry of pending) {
       patchEntry(entry.id, { status: 'uploading' });
       try {
-        const result = await upload(entry.file, { uploadPassword, directory: ROOT_DIR });
+        const result = await upload(entry.file, { directory: ROOT_DIR });
 
         if (result.success) {
           const fullUrl = window.location.origin + result.data.url;
           patchEntry(entry.id, { status: 'done', result: { ...result.data, fullUrl } });
           successCount++;
-        } else if (result.needPassword && !uploadPassword) {
+        } else if (result.needPassword && !hasGuestUploadTicket) {
           // 需要密码且尚未输入
           const password = await showPasswordDialog();
           if (password) {
-            uploadPassword = password;
-            // 使用密码重试当前文件
-            const retryResult = await upload(entry.file, { uploadPassword, directory: ROOT_DIR });
+            await PublicAPI.createGuestUploadTicket({ password });
+            hasGuestUploadTicket = true;
+            const retryResult = await upload(entry.file, { directory: ROOT_DIR });
             if (retryResult.success) {
               const fullUrl = window.location.origin + retryResult.data.url;
               patchEntry(entry.id, { status: 'done', result: { ...retryResult.data, fullUrl } });

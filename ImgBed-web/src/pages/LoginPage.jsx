@@ -107,10 +107,13 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      sessionStorage.setItem('uploadPassword', guestPassword.trim());
+      const res = await PublicAPI.createGuestUploadTicket({ password: guestPassword.trim() });
+      if (res.code !== 0) {
+        throw new Error(res.message || '访客上传密码验证失败');
+      }
       navigate('/');
-    } catch {
-      setError('保存密码失败');
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || '访客上传密码验证失败');
     } finally {
       setLoading(false);
     }

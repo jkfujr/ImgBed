@@ -37,17 +37,10 @@ export default function HomePage() {
           return;
         }
 
-        // 检查是否已有访客密码
-        const savedPassword = sessionStorage.getItem('uploadPassword');
-        if (savedPassword) {
-          setCheckingAuth(false);
-          return;
-        }
-
         // 获取访客上传配置
         const res = await PublicAPI.getGuestUploadConfig();
-        if (res.code === 0 && res.data.requirePassword) {
-          // 需要访客密码且未输入，重定向到登录页
+        if (res.code === 0 && res.data.requirePassword && !res.data.hasGuestUploadTicket) {
+          // 需要访客票据且当前请求未携带有效票据，重定向到登录页
           navigate('/login?tab=guest');
           return;
         }

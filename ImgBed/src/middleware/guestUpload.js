@@ -1,17 +1,10 @@
-import { timingSafeEqual } from 'crypto';
 import { readRuntimeConfig } from '../config/index.js';
+import {
+  GUEST_UPLOAD_TICKET_COOKIE,
+  verifyGuestUploadTicket,
+} from '../services/auth/guest-upload-ticket.js';
+import { readCookie } from '../utils/cookies.js';
 import { ErrorResponse, send401WithBodyConsumption } from '../utils/response.js';
-
-function isUploadPasswordValid(providedPassword, uploadPassword) {
-  const providedBuffer = Buffer.from(providedPassword, 'utf8');
-  const expectedBuffer = Buffer.from(uploadPassword, 'utf8');
-
-  if (providedBuffer.length !== expectedBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(providedBuffer, expectedBuffer);
-}
 
 /**
  * 访客上传中间件
@@ -39,16 +32,11 @@ export const guestUploadAuth = async (req, res, next) => {
 
   // 开启了访客上传，检查是否设置了上传密码
   if (uploadPassword) {
-    // 只从请求头获取密码（multipart/form-data 的 body 需要 multer 解析，此时还未解析）
-    const providedPassword = req.get('X-Upload-Password');
+    const ticket = readCookie(req, GUEST_UPLOAD_TICKET_COOKIE);
+    const hasValidTicket = await verifyGuestUploadTicket(ticket, uploadPassword);
 
-    if (!providedPassword) {
+    if (!hasValidTicket) {
       send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_REQUIRED);
-      return;
-    }
-
-    if (!isUploadPasswordValid(providedPassword, uploadPassword)) {
-      send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
       return;
     }
   }

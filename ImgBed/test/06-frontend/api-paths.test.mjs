@@ -5,6 +5,7 @@ import {
   api,
   buildFileApiPath,
   FileDocs,
+  UploadDocs,
 } from '../../../ImgBed-web/src/api.js';
 
 test('buildFileApiPath 会对中文文件 id 进行路径编码', () => {
@@ -51,4 +52,29 @@ test('FileDocs.update 与 FileDocs.delete 会使用编码后的文件路径', as
       },
     },
   ]);
+});
+
+test('UploadDocs.upload 不再发送访客上传密码请求头', async () => {
+  const calls = [];
+  const originalPost = api.post;
+  const file = new Blob(['demo'], { type: 'image/png' });
+
+  api.post = async (url, payload, options) => {
+    calls.push({ url, payload, options });
+    return { code: 0 };
+  };
+
+  try {
+    await UploadDocs.upload(file, {
+      directory: '/',
+      uploadPassword: 'legacy-secret',
+    });
+  } finally {
+    api.post = originalPost;
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/upload');
+  assert.equal(calls[0].options.headers['X-Upload-Password'], undefined);
+  assert.equal(calls[0].options.headers['Content-Type'], 'multipart/form-data');
 });

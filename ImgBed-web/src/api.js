@@ -136,10 +136,6 @@ export const UploadDocs = {
 
     const headers = { 'Content-Type': 'multipart/form-data' };
 
-    if (options.uploadPassword) {
-      headers['X-Upload-Password'] = options.uploadPassword;
-    }
-
     return api.post('/api/upload', formData, {
       headers,
       onUploadProgress: options.onUploadProgress,
@@ -206,6 +202,7 @@ export const DashboardAPI = {
 
 export const PublicAPI = {
   getGuestUploadConfig: () => api.get('/api/public/guest-upload-config'),
+  createGuestUploadTicket: (payload) => api.post('/api/public/guest-upload-ticket', payload),
 };
 
 export default api;

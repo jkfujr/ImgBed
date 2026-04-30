@@ -15,6 +15,7 @@ const configModule = await import(resolveProjectModuleUrl('src', 'config', 'inde
 configModule.loadStartupConfig();
 
 const { validateTokenInput, createTokenRecord } = await import(resolveProjectModuleUrl('src', 'services', 'api-tokens', 'create-token.js'));
+const guestUploadTicket = await import(resolveProjectModuleUrl('src', 'services', 'auth', 'guest-upload-ticket.js'));
 const apiTokenUtils = await import(resolveProjectModuleUrl('src', 'utils', 'apiToken.js'));
 
 test('verifyAdminCredentials 支持哈希密码并兼容旧版明文配置', async () => {
@@ -111,4 +112,14 @@ test('hashApiToken 会使用 scrypt 格式并支持恒定时间校验', () => {
   assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.secret', tokenHash), true);
   assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.wrong', tokenHash), false);
   assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.secret', 'bad-hash'), false);
+});
+
+test('访客上传票据会绑定密码版本并拒绝错误密码', async () => {
+  const token = await guestUploadTicket.createGuestUploadTicket('guest-secret');
+
+  assert.equal(guestUploadTicket.isGuestUploadPasswordValid('guest-secret', 'guest-secret'), true);
+  assert.equal(guestUploadTicket.isGuestUploadPasswordValid('wrong-secret', 'guest-secret'), false);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'guest-secret'), true);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'guest-secret-next'), false);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket('bad-token', 'guest-secret'), false);
 });

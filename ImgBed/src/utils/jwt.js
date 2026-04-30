@@ -67,8 +67,8 @@ function classifyJwtVerificationError(error) {
   };
 }
 
-async function signToken(payload) {
-  const expiresIn = getJwtSettings().expiresIn || '7d';
+async function signToken(payload, options = {}) {
+  const expiresIn = options.expiresIn || getJwtSettings().expiresIn || '7d';
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
