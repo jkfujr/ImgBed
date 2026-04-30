@@ -45,6 +45,8 @@ test('loadStartupConfig 会创建默认配置并建立最近一次有效快照',
   assert.equal(startupConfig.jwt.secret.length, 128);
   assert.equal(startupConfig.admin.password, undefined);
   assert.equal(typeof startupConfig.admin.passwordHash, 'string');
+  assert.equal(typeof startupConfig.security.guestUploadTicketRevision, 'string');
+  assert.equal(startupConfig.security.guestUploadTicketRevision.length, 32);
   assert.equal(lastKnownGood.jwt.secret, startupConfig.jwt.secret);
   assert.equal(fixture.loggerDouble.records.info.length >= 2, true);
 });
@@ -101,6 +103,27 @@ test('writeRuntimeConfig 会持久化配置并刷新最近一次有效快照', (
   assert.equal(persistedConfig.admin.password, undefined);
   assert.equal(typeof persistedConfig.admin.passwordHash, 'string');
   assert.equal(fixture.repository.getLastKnownGoodConfig().jwt.secret, 'next-secret-value');
+});
+
+test('loadStartupConfig 会为旧配置补齐访客上传票据 revision', (t) => {
+  const fixture = createRepositoryFixture();
+  t.after(() => cleanupPath(fixture.appRoot));
+
+  const legacyConfig = buildDefaultConfig({
+    jwtSecret: 'legacy-secret',
+    randomBytes: () => Buffer.alloc(16, 0x22),
+  });
+  delete legacyConfig.security.guestUploadTicketRevision;
+
+  fs.mkdirSync(path.dirname(fixture.configPath), { recursive: true });
+  fs.writeFileSync(fixture.configPath, JSON.stringify(legacyConfig, null, 2), 'utf8');
+
+  const startupConfig = fixture.repository.loadStartupConfig();
+  const persistedConfig = JSON.parse(fs.readFileSync(fixture.configPath, 'utf8'));
+
+  assert.equal(typeof startupConfig.security.guestUploadTicketRevision, 'string');
+  assert.equal(startupConfig.security.guestUploadTicketRevision.length, 32);
+  assert.equal(persistedConfig.security.guestUploadTicketRevision, startupConfig.security.guestUploadTicketRevision);
 });
 
 test('loadStartupConfig 会自动迁移旧版管理员明文密码配置', (t) => {

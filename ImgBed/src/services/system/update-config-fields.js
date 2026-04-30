@@ -2,6 +2,7 @@
  * 更新系统配置字段
  */
 
+import { createGuestUploadTicketRevision } from '../../config/config-loader.js';
 import { normalizeMaxDirectoryPathLength } from '../../config/files-config.js';
 
 function applySystemConfigUpdates(cfg, body = {}) {
@@ -15,7 +16,11 @@ function applySystemConfigUpdates(cfg, body = {}) {
       cfg.security.guestUploadEnabled = Boolean(body.security.guestUploadEnabled);
     }
     if (body.security.uploadPassword !== undefined) {
-      cfg.security.uploadPassword = String(body.security.uploadPassword);
+      const nextUploadPassword = String(body.security.uploadPassword);
+      if (nextUploadPassword !== String(cfg.security.uploadPassword || '')) {
+        cfg.security.guestUploadTicketRevision = createGuestUploadTicketRevision();
+      }
+      cfg.security.uploadPassword = nextUploadPassword;
     }
   }
 

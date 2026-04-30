@@ -16,9 +16,9 @@ function isSecureRequest(req) {
   return req.secure || req.get('x-forwarded-proto') === 'https';
 }
 
-async function hasValidGuestUploadTicket(req, uploadPassword) {
+async function hasValidGuestUploadTicket(req, ticketRevision) {
   const ticket = readCookie(req, GUEST_UPLOAD_TICKET_COOKIE);
-  return verifyGuestUploadTicket(ticket, uploadPassword);
+  return verifyGuestUploadTicket(ticket, ticketRevision);
 }
 
 /**
@@ -29,8 +29,9 @@ publicApp.get('/guest-upload-config', async (req, res) => {
   const cfg = readRuntimeConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const requirePassword = guestUploadEnabled && !!cfg.security?.uploadPassword;
+  const ticketRevision = cfg.security.guestUploadTicketRevision;
   const hasGuestUploadTicket = requirePassword
-    ? await hasValidGuestUploadTicket(req, cfg.security.uploadPassword)
+    ? await hasValidGuestUploadTicket(req, ticketRevision)
     : false;
 
   return res.json(success({
@@ -44,6 +45,7 @@ publicApp.post('/guest-upload-ticket', async (req, res) => {
   const cfg = readRuntimeConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const uploadPassword = cfg.security?.uploadPassword || '';
+  const ticketRevision = cfg.security.guestUploadTicketRevision;
 
   if (!guestUploadEnabled) {
     return res.status(401).json(ErrorResponse.UNAUTHORIZED_GUEST_DISABLED);
@@ -58,7 +60,7 @@ publicApp.post('/guest-upload-ticket', async (req, res) => {
     return res.status(401).json(ErrorResponse.UNAUTHORIZED_PASSWORD_WRONG);
   }
 
-  const ticket = await createGuestUploadTicket(uploadPassword);
+  const ticket = await createGuestUploadTicket(ticketRevision);
   res.setHeader('Set-Cookie', serializeCookie(GUEST_UPLOAD_TICKET_COOKIE, ticket, {
     httpOnly: true,
     sameSite: 'Lax',

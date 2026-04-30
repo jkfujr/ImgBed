@@ -114,12 +114,12 @@ test('hashApiToken 会使用 scrypt 格式并支持恒定时间校验', () => {
   assert.equal(apiTokenUtils.verifyApiTokenHash('ib_test.secret', 'bad-hash'), false);
 });
 
-test('访客上传票据会绑定密码版本并拒绝错误密码', async () => {
-  const token = await guestUploadTicket.createGuestUploadTicket('guest-secret');
+test('访客上传票据会绑定 revision 并拒绝错误密码', async () => {
+  const token = await guestUploadTicket.createGuestUploadTicket('revision-1');
 
   assert.equal(guestUploadTicket.isGuestUploadPasswordValid('guest-secret', 'guest-secret'), true);
   assert.equal(guestUploadTicket.isGuestUploadPasswordValid('wrong-secret', 'guest-secret'), false);
-  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'guest-secret'), true);
-  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'guest-secret-next'), false);
-  assert.equal(await guestUploadTicket.verifyGuestUploadTicket('bad-token', 'guest-secret'), false);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'revision-1'), true);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket(token, 'revision-2'), false);
+  assert.equal(await guestUploadTicket.verifyGuestUploadTicket('bad-token', 'revision-1'), false);
 });

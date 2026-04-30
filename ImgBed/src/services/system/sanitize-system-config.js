@@ -33,6 +33,10 @@ function sanitizeSystemConfig(config) {
     delete sanitized.admin.passwordHash;
   }
 
+  if (sanitized.security) {
+    delete sanitized.security.guestUploadTicketRevision;
+  }
+
   if (Array.isArray(sanitized.storage?.storages)) {
     sanitized.storage.storages = sanitizeStorageChannels(sanitized.storage.storages);
   }

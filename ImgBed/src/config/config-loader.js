@@ -8,6 +8,7 @@ import { DEFAULT_MAX_DIRECTORY_PATH_LENGTH } from './files-config.js';
 
 const DEFAULT_CONFIG_CACHE_TTL_MS = 5000;
 const LOCAL_TEST_JWT_SECRET = 'dev-secret-for-local-tests-only';
+const GUEST_UPLOAD_TICKET_REVISION_LENGTH = 32;
 
 function cloneConfig(value) {
   return structuredClone(value);
@@ -28,6 +29,10 @@ function deepFreeze(value) {
 
 export function generateRandomString(length, randomBytes = crypto.randomBytes) {
   return randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
+}
+
+export function createGuestUploadTicketRevision(randomBytes = crypto.randomBytes) {
+  return generateRandomString(GUEST_UPLOAD_TICKET_REVISION_LENGTH, randomBytes);
 }
 
 export function buildDefaultConfig({ jwtSecret, randomBytes = crypto.randomBytes } = {}) {
@@ -68,6 +73,7 @@ export function buildDefaultConfig({ jwtSecret, randomBytes = crypto.randomBytes
       corsOrigin: '*',
       guestUploadEnabled: false,
       uploadPassword: '',
+      guestUploadTicketRevision: createGuestUploadTicketRevision(randomBytes),
     },
     files: {
       maxDirectoryPathLength: DEFAULT_MAX_DIRECTORY_PATH_LENGTH,
@@ -120,8 +126,12 @@ function createFreshConfig(randomBytes) {
 
 function normalizeSensitiveConfig(config, randomBytes) {
   const { adminConfig, changed } = normalizeAdminPasswordConfig(config?.admin, { randomBytes });
+  const securityConfig = config?.security || {};
+  const hasGuestUploadTicketRevision = typeof securityConfig.guestUploadTicketRevision === 'string'
+    && securityConfig.guestUploadTicketRevision.length > 0;
+  const securityChanged = !hasGuestUploadTicketRevision;
 
-  if (!changed) {
+  if (!changed && !securityChanged) {
     return {
       config,
       changed: false,
@@ -132,6 +142,12 @@ function normalizeSensitiveConfig(config, randomBytes) {
     config: {
       ...config,
       admin: adminConfig,
+      security: {
+        ...securityConfig,
+        guestUploadTicketRevision: hasGuestUploadTicketRevision
+          ? securityConfig.guestUploadTicketRevision
+          : createGuestUploadTicketRevision(randomBytes),
+      },
     },
     changed: true,
   };

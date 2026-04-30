@@ -14,6 +14,7 @@ export const guestUploadAuth = async (req, res, next) => {
   const cfg = readRuntimeConfig();
   const guestUploadEnabled = cfg.security?.guestUploadEnabled || false;
   const uploadPassword = cfg.security?.uploadPassword || '';
+  const ticketRevision = cfg.security.guestUploadTicketRevision;
 
   // 检查是否有有效的 Bearer Token
   const authHeader = req.get('Authorization');
@@ -33,7 +34,7 @@ export const guestUploadAuth = async (req, res, next) => {
   // 开启了访客上传，检查是否设置了上传密码
   if (uploadPassword) {
     const ticket = readCookie(req, GUEST_UPLOAD_TICKET_COOKIE);
-    const hasValidTicket = await verifyGuestUploadTicket(ticket, uploadPassword);
+    const hasValidTicket = await verifyGuestUploadTicket(ticket, ticketRevision);
 
     if (!hasValidTicket) {
       send401WithBodyConsumption(req, res, ErrorResponse.UNAUTHORIZED_PASSWORD_REQUIRED);

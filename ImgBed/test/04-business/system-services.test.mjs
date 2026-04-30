@@ -175,6 +175,7 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
   const maskedConfig = sanitizeSystemConfig({
     jwt: { secret: 'jwt-secret' },
     admin: { username: 'admin', password: 'plain', passwordHash: 'hash' },
+    security: { guestUploadTicketRevision: 'revision-secret' },
     storage: { storages: [storage] },
   });
 
@@ -188,6 +189,7 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
   assert.equal(maskedConfig.jwt.secret, '******');
   assert.equal(maskedConfig.admin.password, undefined);
   assert.equal(maskedConfig.admin.passwordHash, undefined);
+  assert.equal(maskedConfig.security.guestUploadTicketRevision, undefined);
 });
 
 test('createSystemConfigService 会写回配置并触发系统配置缓存失效', () => {
@@ -254,6 +256,38 @@ test('applySystemConfigUpdates 会更新文件目录路径长度限制', () => {
   });
 
   assert.equal(config.files.maxDirectoryPathLength, 4096);
+});
+
+test('applySystemConfigUpdates 会在访客上传密码变化时轮换票据 revision', () => {
+  const config = {
+    security: {
+      uploadPassword: 'old-password',
+      guestUploadTicketRevision: 'old-revision',
+    },
+  };
+
+  applySystemConfigUpdates(config, {
+    security: {
+      corsOrigin: 'https://example.com',
+    },
+  });
+  assert.equal(config.security.guestUploadTicketRevision, 'old-revision');
+
+  applySystemConfigUpdates(config, {
+    security: {
+      uploadPassword: 'old-password',
+    },
+  });
+  assert.equal(config.security.guestUploadTicketRevision, 'old-revision');
+
+  applySystemConfigUpdates(config, {
+    security: {
+      uploadPassword: 'new-password',
+    },
+  });
+  assert.equal(config.security.uploadPassword, 'new-password');
+  assert.equal(config.security.guestUploadTicketRevision.length, 32);
+  assert.notEqual(config.security.guestUploadTicketRevision, 'old-revision');
 });
 
 test('createStorage 会走统一编排链并归一化新渠道配置', async () => {
