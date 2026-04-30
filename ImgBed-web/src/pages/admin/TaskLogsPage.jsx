@@ -28,6 +28,7 @@ import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { TaskLogDocs } from '../../api';
+import { formatUtcDatabaseDate } from '../../utils/formatters';
 
 const STATUS_LABELS = {
   pending: '等待中',
@@ -102,8 +103,15 @@ function createEmptyDetailState() {
 }
 
 function formatDate(value) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return formatUtcDatabaseDate(value, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
 }
 
 function progressValue(row) {

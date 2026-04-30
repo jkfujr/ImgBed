@@ -5,14 +5,20 @@
  */
 export function fmtDate(str) {
   if (!str) return '-';
-  // SQLite 的 CURRENT_TIMESTAMP 返回 UTC 时间，格式如 "2026-04-18 02:02:30"
-  // 如果字符串不包含时区信息（没有 'Z' 或 '+'/'-' 时区偏移），则视为 UTC 时间
-  let dateStr = str;
-  if (!/Z|[+-]\d{2}:\d{2}$/.test(str)) {
-    // 添加 'Z' 后缀表示这是 UTC 时间
-    dateStr = str.replace(' ', 'T') + 'Z';
-  }
-  return new Date(dateStr).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' });
+  return formatUtcDatabaseDate(str, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+export function normalizeUtcDatabaseDate(value) {
+  if (typeof value !== 'string') return value;
+  if (/Z|[+-]\d{2}:?\d{2}$/.test(value)) return value;
+  return `${value.replace(' ', 'T')}Z`;
+}
+
+export function formatUtcDatabaseDate(value, options = { dateStyle: 'short', timeStyle: 'short' }) {
+  if (!value) return '-';
+  const date = new Date(normalizeUtcDatabaseDate(value));
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('zh-CN', options);
 }
 
 /**
