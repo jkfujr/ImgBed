@@ -2,6 +2,8 @@
  * 更新系统配置字段
  */
 
+import { normalizeMaxDirectoryPathLength } from '../../config/files-config.js';
+
 function applySystemConfigUpdates(cfg, body = {}) {
   if (body.security !== undefined) {
     cfg.security = cfg.security || {};
@@ -27,6 +29,7 @@ function applySystemConfigUpdates(cfg, body = {}) {
     cfg.server.port = Number(body.server.port);
   }
 
+  updateFilesConfig(cfg, body.files);
   updateUploadConfig(cfg, body.upload);
 
   if (body.performance !== undefined) {
@@ -39,6 +42,16 @@ function applySystemConfigUpdates(cfg, body = {}) {
         minPartSize: 5242880,
       };
     }
+  }
+}
+
+function updateFilesConfig(cfg, filesBody) {
+  if (!filesBody) return;
+
+  cfg.files = cfg.files || {};
+
+  if (filesBody.maxDirectoryPathLength !== undefined) {
+    cfg.files.maxDirectoryPathLength = normalizeMaxDirectoryPathLength(filesBody.maxDirectoryPathLength);
   }
 }
 
@@ -111,6 +124,7 @@ function applyStorageFieldUpdates(existing, body) {
 
 export {
   applySystemConfigUpdates,
+  updateFilesConfig,
   updateUploadConfig,
   applyStorageFieldUpdates,
 };

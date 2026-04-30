@@ -16,7 +16,10 @@ import {
 import { createSystemConfigService } from '../../src/services/system/system-config-service.js';
 import { createMaintenanceService } from '../../src/services/system/maintenance-service.js';
 import { createStorageConfigService } from '../../src/services/system/storage-config-service.js';
-import { applyStorageFieldUpdates } from '../../src/services/system/update-config-fields.js';
+import {
+  applyStorageFieldUpdates,
+  applySystemConfigUpdates,
+} from '../../src/services/system/update-config-fields.js';
 import { updateLoadBalanceConfig } from '../../src/services/system/update-load-balance.js';
 
 function createRuntimeConfig() {
@@ -204,6 +207,26 @@ test('createSystemConfigService 会写回配置并触发系统配置缓存失效
     'writeRuntimeConfig',
     'invalidateSystemConfigCache',
   ]);
+});
+
+test('applySystemConfigUpdates 会更新文件目录路径长度限制', () => {
+  const config = {};
+
+  applySystemConfigUpdates(config, {
+    files: {
+      maxDirectoryPathLength: '2048',
+    },
+  });
+
+  assert.equal(config.files.maxDirectoryPathLength, 2048);
+
+  applySystemConfigUpdates(config, {
+    files: {
+      maxDirectoryPathLength: '0',
+    },
+  });
+
+  assert.equal(config.files.maxDirectoryPathLength, 4096);
 });
 
 test('createStorage 会走统一编排链并归一化新渠道配置', async () => {

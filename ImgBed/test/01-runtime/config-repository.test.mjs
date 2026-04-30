@@ -41,6 +41,7 @@ test('loadStartupConfig 会创建默认配置并建立最近一次有效快照',
 
   assert.equal(fs.existsSync(fixture.configPath), true);
   assert.equal(startupConfig.storage.default, 'local-1');
+  assert.equal(startupConfig.files.maxDirectoryPathLength, 4096);
   assert.equal(startupConfig.jwt.secret.length, 128);
   assert.equal(startupConfig.admin.password, undefined);
   assert.equal(typeof startupConfig.admin.passwordHash, 'string');

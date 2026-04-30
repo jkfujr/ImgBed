@@ -4,6 +4,7 @@ import path from 'path';
 
 import { ConfigFileError } from '../errors/AppError.js';
 import { hashAdminPassword, normalizeAdminPasswordConfig } from '../utils/admin-password.js';
+import { DEFAULT_MAX_DIRECTORY_PATH_LENGTH } from './files-config.js';
 
 const DEFAULT_CONFIG_CACHE_TTL_MS = 5000;
 const LOCAL_TEST_JWT_SECRET = 'dev-secret-for-local-tests-only';
@@ -67,6 +68,9 @@ export function buildDefaultConfig({ jwtSecret, randomBytes = crypto.randomBytes
       corsOrigin: '*',
       guestUploadEnabled: false,
       uploadPassword: '',
+    },
+    files: {
+      maxDirectoryPathLength: DEFAULT_MAX_DIRECTORY_PATH_LENGTH,
     },
     upload: {
       quotaCheckMode: 'auto',
