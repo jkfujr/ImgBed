@@ -2,7 +2,11 @@
 
 一个基于 [MarSeventh/CloudFlare-ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) 重构的自用图床程序, 移除 CloudFlare 部署, 重写了前端。
 
----
+## 截图
+<img width="3840" height="1838" alt="截图_2026-04-30_11-18-40" src="https://github.com/user-attachments/assets/5d3a32e1-9643-4688-a0f8-691d4c55b17f" />
+<img width="3840" height="1838" alt="截图_2026-04-30_11-19-40" src="https://github.com/user-attachments/assets/72f1ef5c-9435-4464-9c46-20156ad15159" />
+<img width="3840" height="1838" alt="截图_2026-04-30_11-22-14" src="https://github.com/user-attachments/assets/33154ab2-f935-41f4-b37e-b2fff62e6997" />
+<img width="3840" height="1838" alt="截图_2026-04-30_11-20-44" src="https://github.com/user-attachments/assets/3c7da724-2d6d-42cb-9696-810d95dee2a8" />
 
 ## 快速开始
 
@@ -48,7 +52,6 @@ npm start
 
 - 用户名: `admin`
 - 密码: `admin`
----
 
 ## 感谢
 
