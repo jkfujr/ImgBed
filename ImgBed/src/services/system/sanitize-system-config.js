@@ -1,4 +1,4 @@
-const STORAGE_SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader'];
+const STORAGE_SENSITIVE_KEYS = ['secretAccessKey', 'botToken', 'token', 'webhookUrl', 'authHeader', 'password'];
 
 function sanitizeStorageChannel(storage = {}) {
   const nextStorage = {

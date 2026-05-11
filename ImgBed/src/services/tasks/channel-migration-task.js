@@ -20,13 +20,13 @@ import {
 import { createFileMigrationService, validateMigrationTarget } from '../files/migrate-file.js';
 import { defaultMaintenanceTaskExecutor } from '../maintenance/default-maintenance-task-executor.js';
 import { TaskStopError } from '../maintenance/maintenance-task-executor.js';
+import { WRITABLE_STORAGE_TYPES } from '../../storage/writable-types.js';
 
 const CHANNEL_MIGRATION_TASK_NAME = 'channel-migration';
 const CHANNEL_MIGRATION_TASK_TYPE = 'channel_migration';
 const CHANNEL_MIGRATION_BATCH_SIZE = 100;
 const CHANNEL_MIGRATION_MAX_ATTEMPTS = 3;
 const CHANNEL_MIGRATION_ITEM_TIMEOUT_MS = 5 * 60 * 1000;
-const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
 const CHANNEL_MIGRATION_STOP_MESSAGES = {
   pause: '用户暂停任务',
   cancel: '用户取消任务',

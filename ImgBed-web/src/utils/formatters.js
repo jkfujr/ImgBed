@@ -66,7 +66,8 @@ export function channelTypeLabel(channel) {
     s3: 'S3',
     telegram: 'Telegram',
     discord: 'Discord',
-    huggingface: 'HuggingFace'
+    huggingface: 'HuggingFace',
+    webdav: 'WebDAV'
   };
   return map[channel] || channel || '-';
 }

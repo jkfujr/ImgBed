@@ -26,9 +26,9 @@ import {
 } from './storage-artifacts.js';
 import { updateFileMigrationFields } from '../../database/files-dao.js';
 import { applyPendingQuotaEvents as defaultApplyPendingQuotaEvents } from '../../storage/runtime/default-storage-runtime.js';
+import { WRITABLE_STORAGE_TYPES } from '../../storage/writable-types.js';
 
 const log = createLogger('migrate-file');
-const WRITABLE_STORAGE_TYPES = new Set(['local', 's3', 'huggingface']);
 
 function createFilesError(status, message) {
   const error = new Error(message);

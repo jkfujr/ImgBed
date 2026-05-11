@@ -7,6 +7,7 @@ export const TYPE_COLORS = {
   telegram: 'info',
   discord: 'secondary',
   huggingface: 'warning',
+  webdav: 'success',
 };
 
 /**
@@ -40,6 +41,13 @@ export const CHANNEL_SCHEMAS = {
     { key: 'token',      label: 'API Token',            required: true, sensitive: true },
     { key: 'pathPrefix', label: '路径前缀' },
     { key: 'branch',     label: '分支（默认 main）' },
+  ],
+  webdav: [
+    { key: 'endpoint', label: 'WebDAV 地址', required: true, helperText: '示例：https://dav.example.com/remote.php/dav/files/user' },
+    { key: 'username', label: '用户名', helperText: '可选，留空表示匿名访问' },
+    { key: 'password', label: '密码', sensitive: true, helperText: '可选，留空表示匿名访问或编辑时不修改' },
+    { key: 'pathPrefix', label: '路径前缀', helperText: '可选，文件存储的子目录前缀。示例：images/ 或 uploads/2024/' },
+    { key: 'publicUrl', label: '公共访问 URL', helperText: '可选，用于生成公开访问链接，不影响后端代理访问' },
   ],
 };
 

@@ -15,8 +15,7 @@ import {
 } from '@mui/material';
 import { StorageDocs } from '../../api';
 import logger from '../../utils/logger';
-
-const WRITABLE_TYPES = new Set(['local', 's3', 'huggingface']);
+import { WRITABLE_STORAGE_TYPES } from '../../utils/storageTypes';
 
 export default function ChannelMigrationDialog({
   open,
@@ -33,7 +32,7 @@ export default function ChannelMigrationDialog({
     storage.id !== sourceChannel?.id
     && storage.enabled
     && storage.allowUpload
-    && WRITABLE_TYPES.has(storage.type)
+    && WRITABLE_STORAGE_TYPES.has(storage.type)
   )), [sourceChannel, storages]);
 
   useEffect(() => {

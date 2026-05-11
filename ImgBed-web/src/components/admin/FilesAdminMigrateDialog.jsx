@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import { FileDocs, StorageDocs } from '../../api';
 import logger from '../../utils/logger';
+import { WRITABLE_STORAGE_TYPES } from '../../utils/storageTypes';
 
 export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess }) {
   const [targetChannel, setTargetChannel] = useState('');
@@ -17,7 +18,7 @@ export default function FilesAdminMigrateDialog({ open, ids, onClose, onSuccess 
       const res = await StorageDocs.list();
       if (res.code === 0) {
         const writable = (res.data.list || []).filter(
-          (s) => s.enabled && s.allowUpload && ['local', 's3', 'huggingface'].includes(s.type)
+          (s) => s.enabled && s.allowUpload && WRITABLE_STORAGE_TYPES.has(s.type)
         );
         setAvailableChannels(writable);
       }

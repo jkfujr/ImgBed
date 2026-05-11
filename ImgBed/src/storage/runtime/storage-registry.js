@@ -5,6 +5,7 @@ import HuggingFaceStorage from '../huggingface.js';
 import LocalStorage from '../local.js';
 import S3Storage from '../s3.js';
 import TelegramStorage from '../telegram.js';
+import WebDAVStorage from '../webdav.js';
 
 const log = createLogger('storage');
 
@@ -14,6 +15,7 @@ const STORAGE_DRIVERS = new Map([
   ['telegram', TelegramStorage],
   ['discord', DiscordStorage],
   ['huggingface', HuggingFaceStorage],
+  ['webdav', WebDAVStorage],
 ]);
 
 function resolveStorageDriver(type) {
