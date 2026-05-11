@@ -1,47 +1,6 @@
 import { DataGrid } from '@mui/x-data-grid';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import { fmtSize } from '../../../utils/formatters';
-import { BORDER_RADIUS } from '../../../utils/constants';
-
-function getUsageLevel(usedBytes, quotaLimitGB) {
-  if (!quotaLimitGB) return { level: 'normal', color: 'success', percent: 0 };
-
-  const percent = (usedBytes / (quotaLimitGB * 1024 ** 3)) * 100;
-
-  if (percent >= 90) {
-    return { level: 'danger', color: 'error', percent };
-  } else if (percent >= 80) {
-    return { level: 'warning', color: 'warning', percent };
-  } else {
-    return { level: 'normal', color: 'success', percent };
-  }
-}
-
-function UsageProgressBar({ usedBytes, quotaLimitGB }) {
-  const usage = getUsageLevel(usedBytes, quotaLimitGB);
-
-  return (
-    <Box sx={{ width: '100%' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-        <Typography variant="body2" sx={{ minWidth: 50 }}>
-          {usage.percent.toFixed(1)}%
-        </Typography>
-        <LinearProgress
-          variant="determinate"
-          value={Math.min(usage.percent, 100)}
-          color={usage.color}
-          sx={{ flexGrow: 1, height: 8, borderRadius: BORDER_RADIUS.sm }}
-        />
-      </Box>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        {fmtSize(usedBytes)} / {quotaLimitGB ? `${quotaLimitGB} GB` : '无限制'}
-      </Typography>
-    </Box>
-  );
-}
+import StorageUsageProgress from '../../common/StorageUsageProgress';
 
 export default function StorageDataGrid({ storages, quotaStats }) {
   const columns = [
@@ -67,9 +26,10 @@ export default function StorageDataGrid({ storages, quotaStats }) {
       renderCell: (params) => {
         const usedBytes = quotaStats[params.row.id] || 0;
         return (
-          <UsageProgressBar
+          <StorageUsageProgress
             usedBytes={usedBytes}
-            quotaLimitGB={params.row.quota_limit_gb}
+            quotaLimitGB={params.row.quotaLimitGB}
+            disableThresholdPercent={params.row.disableThresholdPercent}
           />
         );
       },
@@ -87,7 +47,7 @@ export default function StorageDataGrid({ storages, quotaStats }) {
       ),
     },
     {
-      field: 'allow_upload',
+      field: 'allowUpload',
       headerName: '允许上传',
       width: 100,
       renderCell: (params) => (
@@ -105,8 +65,9 @@ export default function StorageDataGrid({ storages, quotaStats }) {
     name: storage.name,
     type: storage.type,
     enabled: storage.enabled,
-    allow_upload: storage.allow_upload,
-    quota_limit_gb: storage.quota_limit_gb,
+    allowUpload: storage.allowUpload,
+    quotaLimitGB: storage.quotaLimitGB,
+    disableThresholdPercent: storage.disableThresholdPercent,
   }));
 
   return (

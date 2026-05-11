@@ -12,52 +12,15 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
 import ToggleOffIcon from '@mui/icons-material/ToggleOff';
-import LinearProgress from '@mui/material/LinearProgress';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import ChannelDialog from '../../components/common/ChannelDialog';
 import ChannelMigrationDialog from '../../components/common/ChannelMigrationDialog';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
-import { TYPE_COLORS, VALID_TYPES, BORDER_RADIUS } from '../../utils/constants';
-import { bytesToGB, calculateQuotaPercent } from '../../utils/formatters';
+import StorageUsageProgress from '../../components/common/StorageUsageProgress';
+import { TYPE_COLORS, VALID_TYPES } from '../../utils/constants';
 import { useStorageChannels } from '../../hooks/useStorageChannels';
-
-/** 容量使用进度条组件 */
-function UsageProgressBar({ storage, quotaStats }) {
-  const quotaLimitGB = storage.quotaLimitGB;
-  if (!quotaLimitGB || quotaLimitGB <= 0) {
-    return <Typography variant="body2" color="text.secondary">无限制</Typography>;
-  }
-
-  const usedBytes = quotaStats[storage.id] || 0;
-  const usedGB = bytesToGB(usedBytes);
-  const percent = calculateQuotaPercent(usedBytes, quotaLimitGB);
-  const thresholdPercent = storage.disableThresholdPercent ?? 95;
-
-  let color = 'primary';
-  if (percent >= thresholdPercent) color = 'error';
-  else if (percent > 70) color = 'warning';
-
-  return (
-    <Box sx={{ width: '100%', minWidth: 180 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography variant="body2" sx={{ minWidth: 45 }}>
-          {percent.toFixed(1)}%
-        </Typography>
-        <LinearProgress
-          variant="determinate"
-          value={Math.min(percent, 100)}
-          color={color}
-          sx={{ flexGrow: 1, height: 6, borderRadius: BORDER_RADIUS.sm }}
-        />
-      </Box>
-      <Typography variant="caption" color="text.secondary">
-        {usedGB.toFixed(2)} GB / {quotaLimitGB} GB
-      </Typography>
-    </Box>
-  );
-}
 
 export default function StorageChannelsPage() {
   const {
@@ -146,7 +109,11 @@ export default function StorageChannelsPage() {
       minWidth: 220,
       sortable: false,
       renderCell: (params) => (
-        <UsageProgressBar storage={params.row} quotaStats={quotaStats} />
+        <StorageUsageProgress
+          usedBytes={quotaStats[params.row.id] || 0}
+          quotaLimitGB={params.row.quotaLimitGB}
+          disableThresholdPercent={params.row.disableThresholdPercent}
+        />
       ),
     },
     {
