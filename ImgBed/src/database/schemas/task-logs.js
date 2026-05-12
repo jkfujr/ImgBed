@@ -42,6 +42,9 @@ export function createTaskLogsSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_task_log_items_status ON task_log_items(status);
     CREATE INDEX IF NOT EXISTS idx_task_log_items_file_id ON task_log_items(file_id);
 
+    CREATE INDEX IF NOT EXISTS idx_task_logs_status_type_created ON task_logs(status, task_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_log_items_task_status_created ON task_log_items(task_id, status, created_at ASC);
+
     CREATE TRIGGER IF NOT EXISTS update_task_logs_updated_at
       AFTER UPDATE ON task_logs
       BEGIN

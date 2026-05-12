@@ -119,8 +119,9 @@ function getActiveFilesStats(db) {
 function getTodayUploadCount(db) {
   const row = db.prepare(
     `SELECT COUNT(*) AS count FROM files
-     WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
-     AND status = 'active'`
+     WHERE created_at >= DATE('now', 'localtime')
+       AND created_at < DATE('now', 'localtime', '+1 day')
+       AND status = 'active'`
   ).get();
   return Number(row?.count || 0);
 }

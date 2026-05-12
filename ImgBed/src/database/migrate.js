@@ -47,6 +47,15 @@ function migrateApiTokenPrefixIndex(db) {
   }
 }
 
+function migratePerformanceIndexes(db) {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_directories_parent_id ON directories(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_files_directory ON files(directory);
+    CREATE INDEX IF NOT EXISTS idx_task_logs_status_type_created ON task_logs(status, task_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_log_items_task_status_created ON task_log_items(task_id, status, created_at ASC);
+  `);
+}
+
 function validateSchema(db) {
   assertTableExists(db, 'files');
   assertTableExists(db, 'chunks');
@@ -101,6 +110,7 @@ export function runMigrations(db) {
 
     migrateTaskLogTriggerType(db);
     migrateApiTokenPrefixIndex(db);
+    migratePerformanceIndexes(db);
     validateSchema(db);
     cleanupRemovedStorageTypes(db);
     cleanupAccessLogAdminFlag(db);

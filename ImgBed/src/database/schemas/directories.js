@@ -13,6 +13,8 @@ export function createDirectoriesSchema(db) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE INDEX IF NOT EXISTS idx_directories_parent_id ON directories(parent_id);
+
     CREATE TRIGGER IF NOT EXISTS update_directories_updated_at
       AFTER UPDATE ON directories
       BEGIN

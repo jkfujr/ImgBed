@@ -57,6 +57,7 @@ export function createFilesSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_files_status_storage_instance ON files(status, storage_instance_id);
     CREATE INDEX IF NOT EXISTS idx_files_uploader ON files(uploader_type, uploader_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_name_search ON files(file_name COLLATE NOCASE);
+    CREATE INDEX IF NOT EXISTS idx_files_directory ON files(directory);
 
     CREATE TRIGGER IF NOT EXISTS update_files_updated_at
       AFTER UPDATE ON files
