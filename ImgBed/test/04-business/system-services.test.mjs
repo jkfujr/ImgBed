@@ -167,6 +167,7 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
       token: 'token',
       webhookUrl: 'https://example.com/hook',
       authHeader: 'Bearer token',
+      password: 'dav-password',
       keep: 'safe',
     },
   };
@@ -185,11 +186,37 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
   assert.equal(maskedStorage.config.token, '***');
   assert.equal(maskedStorage.config.webhookUrl, '***');
   assert.equal(maskedStorage.config.authHeader, '***');
+  assert.equal(maskedStorage.config.password, '***');
   assert.equal(maskedStorage.config.keep, 'safe');
   assert.equal(maskedConfig.jwt.secret, '******');
   assert.equal(maskedConfig.admin.password, undefined);
   assert.equal(maskedConfig.admin.passwordHash, undefined);
   assert.equal(maskedConfig.security.guestUploadTicketRevision, undefined);
+});
+
+test('webdav 是合法存储类型，且密码空 patch 会保留原值', async () => {
+  assert.equal(VALID_STORAGE_TYPES.includes('webdav'), true);
+  assert.equal(validateStorageChannelInput({
+    id: 'webdav-1',
+    type: 'webdav',
+    name: 'WebDAV 渠道',
+  }), null);
+
+  const patched = applyStorageConfigPatch({
+    endpoint: 'https://dav.example.com',
+    username: 'user',
+    password: 'old-password',
+  }, {
+    password: null,
+    pathPrefix: 'images',
+  }, 'webdav', STORAGE_SENSITIVE_KEYS);
+
+  assert.deepEqual(patched, {
+    endpoint: 'https://dav.example.com',
+    username: 'user',
+    password: 'old-password',
+    pathPrefix: 'images',
+  });
 });
 
 test('createSystemConfigService 会写回配置并触发系统配置缓存失效', () => {

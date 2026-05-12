@@ -100,7 +100,7 @@ class WebDAVStorage extends StorageProvider {
         signal: signal || undefined,
       }, 'mkcol');
 
-      if (response.ok || response.status === 405 || response.status === 409) {
+      if (response.ok || response.status === 405) {
         continue;
       }
 
@@ -200,7 +200,7 @@ class WebDAVStorage extends StorageProvider {
         signal: AbortSignal.timeout(10000),
       }, 'testConnection');
 
-      if (response.ok || response.status === 404 || response.status === 405) {
+      if (response.ok || response.status === 405) {
         return { ok: true, message: 'WebDAV 连接成功' };
       }
 

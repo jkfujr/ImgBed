@@ -197,12 +197,26 @@ test('validateMigrationTarget 会覆盖 400、404、403 边界', () => {
     (error) => error.status === 403 && /不支持写入/.test(error.message),
   );
 
-  assert.throws(
+  assert.doesNotThrow(
     () => validateMigrationTarget('target-webdav', {
       getStorageMeta() {
         return {
           id: 'target-webdav',
           type: 'webdav',
+        };
+      },
+      isUploadAllowed() {
+        return true;
+      },
+    }),
+  );
+
+  assert.throws(
+    () => validateMigrationTarget('target-telegram', {
+      getStorageMeta() {
+        return {
+          id: 'target-telegram',
+          type: 'telegram',
         };
       },
       isUploadAllowed() {
