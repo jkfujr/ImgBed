@@ -12,6 +12,8 @@ export function createApplicationRuntime({
   initQuotaEventsArchive,
   initArchiveScheduler,
   stopArchiveScheduler,
+  initAccessLogBuffer,
+  stopAccessLogBuffer,
   storageManager,
   loadApp,
   createLogger,
@@ -88,6 +90,13 @@ export function createApplicationRuntime({
       scheduleHour: archiveConfig.scheduleHour || 3,
     });
 
+    const accessLogBufferConfig = runtimeConfig.performance?.accessLogBuffer || {};
+    initAccessLogBuffer({
+      enabled: accessLogBufferConfig.enabled !== false,
+      maxSize: accessLogBufferConfig.maxSize || 100,
+      flushInterval: accessLogBufferConfig.flushInterval || 5000,
+    });
+
     await storageManager.initialize();
     await storageManager.startMaintenance();
 
@@ -116,6 +125,7 @@ export function createApplicationRuntime({
 
       storageManager.stopMaintenance();
       stopArchiveScheduler();
+      stopAccessLogBuffer();
       destroyResponseCache();
 
       server.close(async () => {

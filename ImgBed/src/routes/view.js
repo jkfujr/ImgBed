@@ -1,11 +1,12 @@
 import express from 'express';
 import crypto from 'crypto';
 import { sqlite } from '../database/index.js';
-import { getActiveFileById, insertAccessLog } from '../database/files-dao.js';
+import { getActiveFileById } from '../database/files-dao.js';
 import { getLastKnownGoodConfig } from '../config/index.js';
 import storageManager from '../storage/manager.js';
 import { resolveFileStorage, parseRangeHeader } from '../services/view/resolve-file-storage.js';
 import { handleChunkedStream, handleRegularStream } from '../services/view/handle-stream.js';
+import { getAccessLogBuffer } from '../services/view/access-log-buffer.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ForbiddenError, NotFoundError } from '../errors/AppError.js';
 import { createLogger } from '../utils/logger.js';
@@ -138,7 +139,7 @@ viewApp.get('/:id', asyncHandler(async (req, res, next) => {
             // 检测是否为管理员访问（通过 Authorization header 或 referer 包含 /admin）
             const isAdmin = !!(req.headers['authorization'] || (referer && referer.includes('/admin')));
 
-            insertAccessLog(sqlite, {
+            getAccessLogBuffer().add({
                 fileId: id,
                 ip,
                 userAgent,

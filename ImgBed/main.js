@@ -64,6 +64,7 @@ async function createRuntime() {
     responseCacheModule,
     filesDaoModule,
     storageManagerModule,
+    accessLogBufferModule,
   ] = await Promise.all([
     import('./src/database/index.js'),
     import('./src/database/migrate.js'),
@@ -73,6 +74,7 @@ async function createRuntime() {
     import('./src/services/cache/response-cache.js'),
     import('./src/database/files-dao.js'),
     import('./src/storage/manager.js'),
+    import('./src/services/view/access-log-buffer.js'),
   ]);
 
   return createApplicationRuntime({
@@ -86,6 +88,8 @@ async function createRuntime() {
     initQuotaEventsArchive: quotaArchiveModule.initQuotaEventsArchive,
     initArchiveScheduler: archiveSchedulerModule.initArchiveScheduler,
     stopArchiveScheduler: archiveSchedulerModule.stopArchiveScheduler,
+    initAccessLogBuffer: accessLogBufferModule.initAccessLogBuffer,
+    stopAccessLogBuffer: accessLogBufferModule.stopAccessLogBuffer,
     storageManager: storageManagerModule.default,
     loadApp: async () => {
       const { default: app } = await import('./src/app.js');
