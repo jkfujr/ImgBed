@@ -3,6 +3,7 @@ import { createLogger } from '../utils/logger.js';
 import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
 import { createStorageChunkPutResult, createStoragePutResult, createStorageReadResultFromResponse } from './contract.js';
 import { toBuffer } from '../utils/storage-io.js';
+import { fetchWithProxy } from '../network/proxy.js';
 
 const log = createLogger('huggingface');
 
@@ -16,6 +17,7 @@ class HuggingFaceStorage extends StorageProvider {
         this.token = config.token;
         this.repo = config.repo;
         this.baseURL = `https://huggingface.co/api/datasets/${this.repo}`;
+        this.proxyUrl = config.proxyUrl || '';
         this.defaultHeaders = {
             'Authorization': `Bearer ${this.token}`,
             'Content-Type': 'application/json'
@@ -24,7 +26,7 @@ class HuggingFaceStorage extends StorageProvider {
 
     async requestHuggingFace(url, options = {}, source = 'request') {
         try {
-            return await fetch(url, options);
+            return await fetchWithProxy(url, options, this.proxyUrl);
         } catch (error) {
             throw normalizeRemoteIoProcessError(error, {
                 source: `storage:huggingface:${source}`,

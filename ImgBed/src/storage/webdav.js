@@ -3,6 +3,7 @@ import { createStoragePutResult, createStorageReadResultFromResponse } from './c
 import { normalizeRemoteIoProcessError } from '../bootstrap/entry-error-policy.js';
 import { toBuffer } from '../utils/storage-io.js';
 import { wrapTestConnection } from './storage-error-helper.js';
+import { fetchWithProxy } from '../network/proxy.js';
 
 function trimSlashes(value) {
   return String(value || '').replace(/^\/+|\/+$/g, '');
@@ -50,6 +51,7 @@ class WebDAVStorage extends StorageProvider {
     this.password = config.password || '';
     this.pathPrefix = trimSlashes(config.pathPrefix || '');
     this.publicUrl = config.publicUrl ? String(config.publicUrl).replace(/\/+$/g, '') : '';
+    this.proxyUrl = config.proxyUrl || '';
   }
 
   _buildHeaders(extraHeaders = {}) {
@@ -74,10 +76,14 @@ class WebDAVStorage extends StorageProvider {
 
   async _request(storageKey, options = {}, source = 'request') {
     try {
-      return await fetch(this._buildUrl(storageKey), {
-        ...options,
-        headers: this._buildHeaders(options.headers || {}),
-      });
+      return await fetchWithProxy(
+        this._buildUrl(storageKey),
+        {
+          ...options,
+          headers: this._buildHeaders(options.headers || {}),
+        },
+        this.proxyUrl
+      );
     } catch (error) {
       throw normalizeRemoteIoProcessError(error, {
         source: `storage:webdav:${source}`,
