@@ -1,5 +1,5 @@
 import {
-  Box, TextField, InputAdornment, IconButton, FormControlLabel, Switch
+  Box, TextField, InputAdornment, IconButton, FormControlLabel, Switch, Tooltip
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -8,7 +8,16 @@ import { CHANNEL_SCHEMAS } from '../../utils/constants';
 /**
  * ChannelDialog 步骤2 — 类型特有 config 字段
  */
-export default function ChannelFormConfig({ form, setConfigField, showSensitive, setShowSensitive, editTarget }) {
+export default function ChannelFormConfig({
+  form,
+  setConfigField,
+  showSensitive,
+  editTarget,
+  onToggleSensitive,
+  revealLoadingKey,
+}) {
+  const isEmptySensitiveValue = (value) => value === '' || value === undefined || value === null;
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {(CHANNEL_SCHEMAS[form.type] || []).map((field) => {
@@ -41,10 +50,21 @@ export default function ChannelFormConfig({ form, setConfigField, showSensitive,
             InputProps={field.sensitive ? {
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() =>
-                    setShowSensitive((p) => ({ ...p, [field.key]: !p[field.key] }))}>
-                    {showSensitive[field.key] ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                  </IconButton>
+                  <Tooltip title={
+                    showSensitive[field.key]
+                      ? '隐藏'
+                      : (editTarget && isEmptySensitiveValue(form.config[field.key]) ? '查看已保存密钥' : '显示')
+                  }>
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={revealLoadingKey === field.key}
+                        onClick={() => onToggleSensitive(field)}
+                      >
+                        {showSensitive[field.key] ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </InputAdornment>
               ),
             } : undefined}

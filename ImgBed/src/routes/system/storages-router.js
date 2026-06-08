@@ -1,7 +1,26 @@
 import express from 'express';
 
+import { AuthError, ForbiddenError } from '../../errors/AppError.js';
 import asyncHandler from '../../middleware/asyncHandler.js';
+import { isSensitiveConfigRevealPayload } from '../../services/auth/sensitive-reveal.js';
 import { success } from '../../utils/response.js';
+import { verifyToken as defaultVerifyToken } from '../../utils/jwt.js';
+
+async function verifySensitiveRevealToken(req, verifyToken) {
+  const token = req.get('X-Sensitive-Reveal-Token');
+  if (!token) {
+    throw new AuthError('需要二次校验后才能查看敏感配置');
+  }
+
+  const result = await verifyToken(token);
+  if (!result.ok) {
+    throw new AuthError('二次校验已过期，请重新验证');
+  }
+
+  if (!isSensitiveConfigRevealPayload(result.payload)) {
+    throw new ForbiddenError('二次校验令牌用途无效');
+  }
+}
 
 function createSystemStoragesRouter({
   storagesListCache,
@@ -14,6 +33,7 @@ function createSystemStoragesRouter({
   storageManager,
   storageConfigService,
   channelMigrationTaskService,
+  verifyToken = defaultVerifyToken,
 } = {}) {
   const router = express.Router();
 
@@ -37,8 +57,7 @@ function createSystemStoragesRouter({
   }));
 
   router.post('/storages/test', asyncHandler(async (req, res) => {
-    const { type, config: storageConfig } = req.body || {};
-    const result = await storageConfigService.testStorageConnection(type, storageConfig || {});
+    const result = await storageConfigService.testStorageConnection(req.body || {});
     return res.json(success(result, '连接成功'));
   }));
 
@@ -67,6 +86,12 @@ function createSystemStoragesRouter({
   router.put('/storages/:id', asyncHandler(async (req, res) => {
     const storage = await storageConfigService.updateStorage(req.params.id, req.body || {});
     return res.json(success(sanitizeStorageChannel(storage), '存储渠道已更新'));
+  }));
+
+  router.post('/storages/:id/config/reveal', asyncHandler(async (req, res) => {
+    await verifySensitiveRevealToken(req, verifyToken);
+    const result = storageConfigService.revealStorageConfigValue(req.params.id, req.body?.key);
+    return res.json(success(result, '获取成功'));
   }));
 
   router.delete('/storages/:id', asyncHandler(async (req, res) => {

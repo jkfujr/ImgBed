@@ -92,6 +92,7 @@ export const AuthDocs = {
   login: (data) => api.post('/api/auth/login', data),
   me: () => api.get('/api/auth/me'),
   logout: () => api.post('/api/auth/logout'),
+  reauth: (payload) => api.post('/api/auth/reauth', payload),
   changePassword: (payload) => api.put('/api/auth/password', payload),
 };
 
@@ -159,6 +160,11 @@ export const StorageDocs = {
   setDefault: (id) => api.put(`/api/system/storages/${id}/default`),
   toggle: (id) => api.put(`/api/system/storages/${id}/toggle`),
   test: (data) => api.post('/api/system/storages/test', data),
+  revealConfig: (id, payload, token) => api.post(`/api/system/storages/${id}/config/reveal`, payload, {
+    headers: {
+      'X-Sensitive-Reveal-Token': token,
+    },
+  }),
   getLoadBalance: (force = false) => api.get('/api/system/load-balance', {
     params: force ? { force: 'true' } : {}
   }),

@@ -99,6 +99,7 @@ function buildSystemDependencies(overrides = {}) {
     applyStorageConfigPatch: overrides.applyStorageConfigPatch || applyStorageConfigPatch,
     validStorageTypes: overrides.validStorageTypes || VALID_STORAGE_TYPES,
     preserveNullConfigKeys: overrides.preserveNullConfigKeys || STORAGE_SENSITIVE_KEYS,
+    storageSensitiveKeys: overrides.storageSensitiveKeys || STORAGE_SENSITIVE_KEYS,
     getActiveFilesStats: overrides.getActiveFilesStats || getActiveFilesStats,
     getTodayUploadCount: overrides.getTodayUploadCount || getTodayUploadCount,
     getUploadTrend: overrides.getUploadTrend || getUploadTrend,
@@ -145,6 +146,7 @@ function buildSystemDependencies(overrides = {}) {
     applyStorageConfigPatch: deps.applyStorageConfigPatch,
     validStorageTypes: deps.validStorageTypes,
     preserveNullConfigKeys: deps.preserveNullConfigKeys,
+    storageSensitiveKeys: deps.storageSensitiveKeys,
   });
 
   deps.taskLogService = overrides.taskLogService || createTaskLogService({

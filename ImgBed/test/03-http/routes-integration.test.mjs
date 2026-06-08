@@ -89,6 +89,23 @@ test('认证、公开配置与访客上传边界会按当前路由装配返回�
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: 'root', password: 'root-pass-next' }),
       });
+      const nextToken = relogin.body.data.token;
+      const reauthWrongPassword = await requestJson('/api/auth/reauth', {
+        method: 'POST',
+        headers: {
+          Authorization: \`Bearer \${nextToken}\`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: 'root', password: 'root-pass' }),
+      });
+      const reauth = await requestJson('/api/auth/reauth', {
+        method: 'POST',
+        headers: {
+          Authorization: \`Bearer \${nextToken}\`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: 'root', password: 'root-pass-next' }),
+      });
 
       const guestDisabled = await requestJson('/api/public/guest-upload-config');
       const uploadDisabled = await requestJson('/api/upload', {
@@ -163,6 +180,8 @@ test('认证、公开配置与访客上传边界会按当前路由装配返回�
         changePassword,
         runtimeConfigAfterPasswordChange,
         relogin,
+        reauthWrongPassword,
+        reauth,
         guestDisabled,
         uploadDisabled,
         guestEnabled,
@@ -205,6 +224,10 @@ test('认证、公开配置与访客上传边界会按当前路由装配返回�
   assert.equal(typeof payload.runtimeConfigAfterPasswordChange.admin.passwordHash, 'string');
   assert.equal(payload.relogin.status, 200);
   assert.equal(payload.relogin.body.data.username, 'root');
+  assert.equal(payload.reauthWrongPassword.status, 401);
+  assert.equal(payload.reauth.status, 200);
+  assert.equal(payload.reauth.body.data.expiresIn, '10m');
+  assert.equal(typeof payload.reauth.body.data.token, 'string');
 
   assert.equal(payload.guestDisabled.status, 200);
   assert.deepEqual(payload.guestDisabled.body.data, {

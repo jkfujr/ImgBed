@@ -1,5 +1,10 @@
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/AppError.js';
 import { normalizeStorageDeleteFileAction } from '../tasks/storage-delete-files-action.js';
+import {
+  STORAGE_SENSITIVE_KEYS,
+  isStorageSensitiveKey,
+  mergeStorageConfigForSensitiveTest,
+} from './sanitize-system-config.js';
 
 const VALID_S3_NON_EMPTY_ACTIONS = new Set(['keep', 'clear_bucket']);
 
@@ -17,6 +22,7 @@ function createStorageConfigService({
   applyStorageConfigPatch,
   validStorageTypes = [],
   preserveNullConfigKeys = [],
+  storageSensitiveKeys = STORAGE_SENSITIVE_KEYS,
 } = {}) {
   function ensureStorageConfig(cfg) {
     cfg.storage = cfg.storage || {};
@@ -50,6 +56,40 @@ function createStorageConfigService({
     return storageDeleteFilesTaskService;
   }
 
+  function findStorageById(id) {
+    const cfg = readRuntimeConfig();
+    const storages = ensureStorageConfig(cfg);
+    return storages.find((storage) => storage.id === id) || null;
+  }
+
+  function resolveExistingStorageForTest(id, type, storageConfig) {
+    if (!id) {
+      return storageConfig;
+    }
+
+    const existingStorage = findStorageById(id);
+    if (!existingStorage) {
+      throw new NotFoundError(`渠道 "${id}" 不存在`);
+    }
+
+    if (existingStorage.type !== type) {
+      throw new ValidationError(`渠道 "${id}" 的类型不是 ${type}`);
+    }
+
+    const mergedConfig = mergeStorageConfigForSensitiveTest(
+      existingStorage.config || {},
+      storageConfig || {},
+      storageSensitiveKeys,
+    );
+
+    return applyStorageConfigPatch(
+      existingStorage.config,
+      mergedConfig,
+      type,
+      [],
+    );
+  }
+
   async function inspectExistingObjects(type, storageConfig) {
     if (typeof storageManager.inspectExistingObjects === 'function') {
       return storageManager.inspectExistingObjects(type, storageConfig);
@@ -65,17 +105,34 @@ function createStorageConfigService({
   }
 
   return {
-    async testStorageConnection(type, storageConfig = {}) {
+    async testStorageConnection({ id = null, type, config: storageConfig = {} } = {}) {
       if (!type || !validStorageTypes.includes(type)) {
         throw new ValidationError(`不支持的存储类型: ${type}`);
       }
 
-      const result = await storageManager.testConnection(type, storageConfig);
+      const resolvedConfig = resolveExistingStorageForTest(id, type, storageConfig);
+      const result = await storageManager.testConnection(type, resolvedConfig);
       if (!result.ok) {
         throw new ValidationError(result.message);
       }
 
       return result;
+    },
+
+    revealStorageConfigValue(id, key) {
+      if (!isStorageSensitiveKey(key, storageSensitiveKeys)) {
+        throw new ValidationError('只能查看敏感配置字段');
+      }
+
+      const storage = findStorageById(id);
+      if (!storage) {
+        throw new NotFoundError(`渠道 "${id}" 不存在`);
+      }
+
+      return {
+        key,
+        value: storage.config?.[key] ?? '',
+      };
     },
 
     async updateLoadBalance(body = {}) {

@@ -14,7 +14,7 @@ process.env.IMGBED_APP_ROOT = appRoot;
 const configModule = await import(resolveProjectModuleUrl('src', 'config', 'index.js'));
 configModule.loadStartupConfig();
 
-const { ConflictError, ValidationError } = await import(resolveProjectModuleUrl('src', 'errors', 'AppError.js'));
+const { ConflictError, NotFoundError, ValidationError } = await import(resolveProjectModuleUrl('src', 'errors', 'AppError.js'));
 const { notFoundHandler, registerErrorHandlers } = await import(resolveProjectModuleUrl('src', 'middleware', 'errorHandler.js'));
 const { createSystemRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system.js'));
 const { createSystemConfigRouter } = await import(resolveProjectModuleUrl('src', 'routes', 'system', 'config-router.js'));
@@ -283,9 +283,13 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       },
     },
     storageConfigService: {
-      async testStorageConnection(type, config) {
-        serviceCalls.push({ type, config });
+      async testStorageConnection(payload) {
+        serviceCalls.push({ testStorageConnection: payload });
         return { ok: true };
+      },
+      revealStorageConfigValue(id, key) {
+        serviceCalls.push({ revealStorageConfigValue: { id, key } });
+        return { key, value: 'secret' };
       },
       async updateLoadBalance(body) {
         serviceCalls.push({ updateLoadBalance: body });
@@ -319,6 +323,7 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
   const testResponse = await requestJson(appHandle, '/storages/test', {
     method: 'POST',
     json: {
+      id: 's3-1',
       type: 's3',
       config: { region: 'ap-southeast-1' },
     },
@@ -371,7 +376,7 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
     fileAction: 'freeze',
   });
   assert.deepEqual(serviceCalls, [
-    { type: 's3', config: { region: 'ap-southeast-1' } },
+    { testStorageConnection: { id: 's3-1', type: 's3', config: { region: 'ap-southeast-1' } } },
     { updateLoadBalance: { strategy: 'weighted' } },
     {
       createStorage: {
@@ -399,6 +404,116 @@ test('createSystemStoragesRouter 会输出掩码后的渠道列表并复用注�
       },
     },
   ]);
+});
+
+test('createSystemStoragesRouter reveal 接口会校验短期令牌并只返回指定敏感字段', async (t) => {
+  const passthroughCache = createPassthroughCache();
+  const serviceCalls = [];
+  const appHandle = await startRouterApp(createSystemStoragesRouter({
+    storagesListCache: passthroughCache,
+    storagesStatsCache: passthroughCache,
+    loadBalanceCache: passthroughCache,
+    quotaStatsCache: passthroughCache,
+    readRuntimeConfig: () => ({
+      storage: {
+        default: 's3-1',
+        storages: [
+          { id: 's3-1', type: 's3', config: { secretAccessKey: 'secret' } },
+        ],
+      },
+    }),
+    sanitizeStorageChannel: (storage) => storage,
+    summarizeStorages: () => ({ total: 1, enabled: 1, allowUpload: 1, byType: { s3: 1 } }),
+    storageManager: {
+      getAllQuotaStats() {
+        return {};
+      },
+      getUsageStats() {
+        return {};
+      },
+    },
+    storageConfigService: {
+      async testStorageConnection() {
+        return { ok: true };
+      },
+      async updateLoadBalance() {},
+      async createStorage() {
+        return { id: 's3-1', type: 's3', config: {} };
+      },
+      async updateStorage() {
+        return { id: 's3-1', type: 's3', config: {} };
+      },
+      async deleteStorage() {},
+      async setDefaultStorage() {},
+      async toggleStorage() {
+        return true;
+      },
+      revealStorageConfigValue(id, key) {
+        if (key === 'pathStyle') {
+          throw new ValidationError('只能查看敏感配置字段');
+        }
+        if (id === 'missing') {
+          throw new NotFoundError('渠道 "missing" 不存在');
+        }
+        serviceCalls.push({ id, key });
+        return { key, value: 'secret' };
+      },
+    },
+    channelMigrationTaskService: {
+      startChannelMigration() {
+        return { taskId: 'task-1', status: 'processing' };
+      },
+    },
+    verifyToken: async (token) => {
+      if (token === 'expired') {
+        return { ok: false, reason: 'expired' };
+      }
+      if (token === 'wrong-purpose') {
+        return { ok: true, payload: { role: 'admin', purpose: 'login' } };
+      }
+      return { ok: true, payload: { role: 'admin', purpose: 'sensitive_config_reveal' } };
+    },
+  }));
+  t.after(() => appHandle.stop());
+
+  const missingTokenResponse = await requestJson(appHandle, '/storages/s3-1/config/reveal', {
+    method: 'POST',
+    json: { key: 'secretAccessKey' },
+  });
+  const expiredTokenResponse = await requestJson(appHandle, '/storages/s3-1/config/reveal', {
+    method: 'POST',
+    headers: { 'X-Sensitive-Reveal-Token': 'expired' },
+    json: { key: 'secretAccessKey' },
+  });
+  const wrongPurposeResponse = await requestJson(appHandle, '/storages/s3-1/config/reveal', {
+    method: 'POST',
+    headers: { 'X-Sensitive-Reveal-Token': 'wrong-purpose' },
+    json: { key: 'secretAccessKey' },
+  });
+  const successResponse = await requestJson(appHandle, '/storages/s3-1/config/reveal', {
+    method: 'POST',
+    headers: { 'X-Sensitive-Reveal-Token': 'reveal-token' },
+    json: { key: 'secretAccessKey' },
+  });
+  const nonSensitiveKeyResponse = await requestJson(appHandle, '/storages/s3-1/config/reveal', {
+    method: 'POST',
+    headers: { 'X-Sensitive-Reveal-Token': 'reveal-token' },
+    json: { key: 'pathStyle' },
+  });
+  const missingStorageResponse = await requestJson(appHandle, '/storages/missing/config/reveal', {
+    method: 'POST',
+    headers: { 'X-Sensitive-Reveal-Token': 'reveal-token' },
+    json: { key: 'secretAccessKey' },
+  });
+
+  assert.equal(missingTokenResponse.status, 401);
+  assert.equal(expiredTokenResponse.status, 401);
+  assert.equal(wrongPurposeResponse.status, 403);
+  assert.equal(successResponse.status, 200);
+  assert.equal(nonSensitiveKeyResponse.status, 400);
+  assert.equal(missingStorageResponse.status, 404);
+  assert.deepEqual(successResponse.body.data, { key: 'secretAccessKey', value: 'secret' });
+  assert.deepEqual(serviceCalls, [{ id: 's3-1', key: 'secretAccessKey' }]);
 });
 
 test('createSystemStoragesRouter 会透传新增 S3 时的 409 冲突与 reason', async (t) => {

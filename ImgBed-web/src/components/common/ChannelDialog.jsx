@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, FormControl, InputLabel, Select, MenuItem,
-  Box, Typography, Alert, CircularProgress,
+  Box, Typography, Alert, CircularProgress, TextField,
   Accordion, AccordionSummary, AccordionDetails, Chip, Stack
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { VALID_TYPES, CHANNEL_SCHEMAS } from '../../utils/constants';
-import { StorageDocs } from '../../api';
+import { AuthDocs, StorageDocs } from '../../api';
+import { useAuth } from '../../hooks/useAuth';
 import ChannelFormGeneral from './ChannelFormGeneral';
 import ChannelFormConfig from './ChannelFormConfig';
 import {
@@ -31,6 +32,31 @@ const EMPTY_FORM = {
   maxLimitMB: 100,
   config: {},
 };
+const REVEAL_TOKEN_STORAGE_KEY = 'sensitive_config_reveal_token';
+
+function readRevealToken() {
+  try {
+    return sessionStorage.getItem(REVEAL_TOKEN_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeRevealToken(token) {
+  try {
+    sessionStorage.setItem(REVEAL_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // 浏览器禁用 sessionStorage 时只影响本次免重复校验。
+  }
+}
+
+function clearRevealToken() {
+  try {
+    sessionStorage.removeItem(REVEAL_TOKEN_STORAGE_KEY);
+  } catch {
+    // 清理失败不阻断用户重新校验。
+  }
+}
 
 /** 从 editTarget 构造表单初始值 */
 function buildEditForm(target) {
@@ -101,6 +127,7 @@ function ExistingObjectsPreview({ existingObjects }) {
 }
 
 export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) {
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showSensitive, setShowSensitive] = useState({});
@@ -108,6 +135,15 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
   const [formError, setFormError] = useState(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [revealDialog, setRevealDialog] = useState({
+    open: false,
+    key: '',
+    username: '',
+    password: '',
+    error: '',
+    loading: false,
+  });
+  const [revealLoadingKey, setRevealLoadingKey] = useState('');
   const [s3ConfirmOpen, setS3ConfirmOpen] = useState(false);
   const [s3ExistingObjects, setS3ExistingObjects] = useState(null);
 
@@ -118,10 +154,19 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
       setShowSensitive({});
       setFormError(null);
       setTestResult(null);
+      setRevealDialog({
+        open: false,
+        key: '',
+        username: user?.username || '',
+        password: '',
+        error: '',
+        loading: false,
+      });
+      setRevealLoadingKey('');
       setS3ConfirmOpen(false);
       setS3ExistingObjects(null);
     }
-  }, [open, editTarget]);
+  }, [open, editTarget, user?.username]);
 
   const setField = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setConfigField = (key, val) => setForm((f) => ({ ...f, config: { ...f.config, [key]: val } }));
@@ -129,6 +174,8 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
   const handleClose = () => {
     setFormError(null);
     setTestResult(null);
+    setRevealDialog((current) => ({ ...current, open: false, password: '', error: '', loading: false }));
+    setRevealLoadingKey('');
     setS3ConfirmOpen(false);
     setS3ExistingObjects(null);
     onClose();
@@ -208,12 +255,124 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await StorageDocs.test({ type: form.type, config: form.config });
+      const res = await StorageDocs.test({
+        id: editTarget ? form.id : undefined,
+        type: form.type,
+        config: form.config,
+      });
       setTestResult({ ok: res.code === 0, message: res.message });
     } catch (e) {
       setTestResult({ ok: false, message: e.response?.data?.message || e.message || '测试失败' });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const isEmptySensitiveValue = (value) => value === '' || value === undefined || value === null;
+
+  const openRevealDialog = (key, error = '') => {
+    setRevealDialog({
+      open: true,
+      key,
+      username: user?.username || '',
+      password: '',
+      error,
+      loading: false,
+    });
+  };
+
+  const revealStoredConfig = async (key, token) => {
+    setRevealLoadingKey(key);
+    try {
+      const res = await StorageDocs.revealConfig(form.id, { key }, token);
+      if (res.code !== 0) {
+        throw new Error(res.message || '查看敏感配置失败');
+      }
+      setConfigField(key, res.data?.value ?? '');
+      setShowSensitive((current) => ({ ...current, [key]: true }));
+    } finally {
+      setRevealLoadingKey('');
+    }
+  };
+
+  const handleToggleSensitive = async (field) => {
+    const key = field.key;
+    if (showSensitive[key]) {
+      setShowSensitive((current) => ({ ...current, [key]: false }));
+      return;
+    }
+
+    if (!editTarget || !isEmptySensitiveValue(form.config[key])) {
+      setShowSensitive((current) => ({ ...current, [key]: true }));
+      return;
+    }
+
+    const token = readRevealToken();
+    if (!token) {
+      openRevealDialog(key);
+      return;
+    }
+
+    try {
+      await revealStoredConfig(key, token);
+    } catch (error) {
+      const message = error.response?.data?.message || error.message || '查看敏感配置失败';
+      clearRevealToken();
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        openRevealDialog(key, message);
+        return;
+      }
+      setFormError(message);
+    }
+  };
+
+  const handleRevealDialogClose = () => {
+    if (revealDialog.loading) {
+      return;
+    }
+    setRevealDialog((current) => ({
+      ...current,
+      open: false,
+      password: '',
+      error: '',
+    }));
+  };
+
+  const setRevealDialogField = (key, value) => {
+    setRevealDialog((current) => ({
+      ...current,
+      [key]: value,
+      error: '',
+    }));
+  };
+
+  const handleRevealSubmit = async () => {
+    setRevealDialog((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const res = await AuthDocs.reauth({
+        username: revealDialog.username,
+        password: revealDialog.password,
+      });
+      if (res.code !== 0 || !res.data?.token) {
+        throw new Error(res.message || '二次校验失败');
+      }
+
+      writeRevealToken(res.data.token);
+      await revealStoredConfig(revealDialog.key, res.data.token);
+      setRevealDialog((current) => ({
+        ...current,
+        open: false,
+        password: '',
+        error: '',
+        loading: false,
+      }));
+    } catch (error) {
+      clearRevealToken();
+      setRevealDialog((current) => ({
+        ...current,
+        error: error.response?.data?.message || error.message || '二次校验失败',
+        loading: false,
+      }));
     }
   };
 
@@ -254,8 +413,9 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
             form={form}
             setConfigField={setConfigField}
             showSensitive={showSensitive}
-            setShowSensitive={setShowSensitive}
             editTarget={editTarget}
+            onToggleSensitive={handleToggleSensitive}
+            revealLoadingKey={revealLoadingKey}
           />
         )}
       </DialogContent>
@@ -275,6 +435,55 @@ export default function ChannelDialog({ open, onClose, editTarget, onSuccess }) 
           </Button>
         )}
       </DialogActions>
+
+      <Dialog
+        open={revealDialog.open}
+        onClose={handleRevealDialogClose}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>二次校验</DialogTitle>
+        <DialogContent dividers>
+          {revealDialog.error && <Alert severity="error" sx={{ mb: 2 }}>{revealDialog.error}</Alert>}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            查看已保存密钥需要重新输入管理员账号密码，校验通过后 10 分钟内有效。
+          </Typography>
+          <Stack spacing={2}>
+            <TextField
+              label="管理员账号"
+              size="small"
+              value={revealDialog.username}
+              disabled={revealDialog.loading}
+              onChange={(event) => setRevealDialogField('username', event.target.value)}
+            />
+            <TextField
+              label="管理员密码"
+              type="password"
+              size="small"
+              value={revealDialog.password}
+              disabled={revealDialog.loading}
+              onChange={(event) => setRevealDialogField('password', event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && revealDialog.username && revealDialog.password) {
+                  void handleRevealSubmit();
+                }
+              }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleRevealDialogClose} disabled={revealDialog.loading}>
+            取消
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleRevealSubmit}
+            disabled={revealDialog.loading || !revealDialog.username || !revealDialog.password}
+          >
+            {revealDialog.loading ? <CircularProgress size={18} color="inherit" /> : '校验并查看'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={s3ConfirmOpen}

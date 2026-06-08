@@ -3,6 +3,10 @@ import { getLastKnownGoodConfig, readRuntimeConfig, writeRuntimeConfig } from '.
 import { signToken } from '../utils/jwt.js';
 import { adminAuth } from '../middleware/auth.js';
 import { verifyAdminCredentials } from '../services/auth/verify-credentials.js';
+import {
+  SENSITIVE_CONFIG_REVEAL_EXPIRES_IN,
+  createSensitiveConfigRevealPayload,
+} from '../services/auth/sensitive-reveal.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import { ValidationError, AuthError } from '../errors/AppError.js';
 import { success } from '../utils/response.js';
@@ -64,6 +68,37 @@ authApp.get('/me', adminAuth, asyncHandler(async (req, res) => {
  */
 authApp.post('/logout', adminAuth, asyncHandler(async (_req, res) => {
   return res.json(success({}, '登出成功'));
+}));
+
+/**
+ * 敏感配置查看二次校验
+ * POST /api/auth/reauth
+ */
+authApp.post('/reauth', adminAuth, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const { username, password } = body;
+
+  if (!username || !password) {
+    throw new ValidationError('用户名或密码不可为空');
+  }
+
+  const config = getLastKnownGoodConfig();
+  const adminConfig = config.admin || {};
+  const isValid = await verifyAdminCredentials(username, password, adminConfig);
+
+  if (!isValid) {
+    throw new AuthError('用户名或密码不正确');
+  }
+
+  const token = await signToken(
+    createSensitiveConfigRevealPayload(username),
+    { expiresIn: SENSITIVE_CONFIG_REVEAL_EXPIRES_IN },
+  );
+
+  return res.json(success({
+    token,
+    expiresIn: SENSITIVE_CONFIG_REVEAL_EXPIRES_IN,
+  }, '二次校验成功'));
 }));
 
 /**

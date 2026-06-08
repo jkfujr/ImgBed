@@ -10,6 +10,8 @@ import {
 } from '../../src/services/system/create-storage-channel.js';
 import {
   STORAGE_SENSITIVE_KEYS,
+  isSensitiveConfigPlaceholder,
+  mergeStorageConfigForSensitiveTest,
   sanitizeStorageChannel,
   sanitizeSystemConfig,
 } from '../../src/services/system/sanitize-system-config.js';
@@ -144,6 +146,7 @@ function createStorageConfigFixture(overrides = {}) {
     applyStorageConfigPatch,
     validStorageTypes: VALID_STORAGE_TYPES,
     preserveNullConfigKeys: STORAGE_SENSITIVE_KEYS,
+    storageSensitiveKeys: STORAGE_SENSITIVE_KEYS,
   });
 
   return {
@@ -192,6 +195,29 @@ test('sanitizeStorageChannel 与 sanitizeSystemConfig 会共用同一套敏感�
   assert.equal(maskedConfig.admin.password, undefined);
   assert.equal(maskedConfig.admin.passwordHash, undefined);
   assert.equal(maskedConfig.security.guestUploadTicketRevision, undefined);
+});
+
+test('敏感配置占位判断与测试配置合并会复用同一套规则', () => {
+  assert.equal(isSensitiveConfigPlaceholder(''), true);
+  assert.equal(isSensitiveConfigPlaceholder(null), true);
+  assert.equal(isSensitiveConfigPlaceholder(undefined), true);
+  assert.equal(isSensitiveConfigPlaceholder('***'), true);
+  assert.equal(isSensitiveConfigPlaceholder('real-secret'), false);
+
+  const merged = mergeStorageConfigForSensitiveTest({
+    secretAccessKey: 'old-secret',
+    token: 'old-token',
+  }, {
+    secretAccessKey: '',
+    token: 'new-token',
+    endpoint: 'http://example.test',
+  }, STORAGE_SENSITIVE_KEYS);
+
+  assert.deepEqual(merged, {
+    secretAccessKey: 'old-secret',
+    token: 'new-token',
+    endpoint: 'http://example.test',
+  });
 });
 
 test('webdav 是合法存储类型，且密码空 patch 会保留原值', async () => {
@@ -339,6 +365,61 @@ test('createStorage 会走统一编排链并归一化新渠道配置', async () 
     'applyStorageConfigChange',
     'invalidateStorages',
   ]);
+});
+
+test('testStorageConnection 会为已有渠道合并旧敏感字段并保留当前非敏感输入', async () => {
+  const fixture = createStorageConfigFixture();
+
+  const oldSecretResult = await fixture.service.testStorageConnection({
+    id: 's3-1',
+    type: 's3',
+    config: {
+      secretAccessKey: '',
+      pathStyle: 'true',
+      region: 'openlist',
+    },
+  });
+  const newSecretResult = await fixture.service.testStorageConnection({
+    id: 's3-1',
+    type: 's3',
+    config: {
+      secretAccessKey: 'secret-2',
+      pathStyle: false,
+    },
+  });
+
+  assert.equal(oldSecretResult.config.secretAccessKey, 'secret-1');
+  assert.equal(oldSecretResult.config.pathStyle, true);
+  assert.equal(oldSecretResult.config.region, 'openlist');
+  assert.equal(newSecretResult.config.secretAccessKey, 'secret-2');
+  assert.equal(newSecretResult.config.pathStyle, false);
+  assert.deepEqual(fixture.calls, [
+    'testConnection:s3',
+    'testConnection:s3',
+  ]);
+});
+
+test('revealStorageConfigValue 只允许读取已有渠道的敏感字段', () => {
+  const fixture = createStorageConfigFixture();
+
+  assert.deepEqual(
+    fixture.service.revealStorageConfigValue('s3-1', 'secretAccessKey'),
+    { key: 'secretAccessKey', value: 'secret-1' },
+  );
+
+  assert.throws(
+    () => fixture.service.revealStorageConfigValue('s3-1', 'pathStyle'),
+    (error) => {
+      assert.equal(error instanceof ValidationError, true);
+      assert.equal(error.message, '只能查看敏感配置字段');
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => fixture.service.revealStorageConfigValue('missing', 'secretAccessKey'),
+    /渠道 "missing" 不存在/,
+  );
 });
 
 test('createStorage 在 S3 bucket 非空且未指定动作时会返回带 reason 的冲突错误', async () => {
