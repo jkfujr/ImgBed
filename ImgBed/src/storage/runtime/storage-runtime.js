@@ -6,6 +6,7 @@ class StorageRuntime {
     uploadSelector,
     recoveryService,
     maintenanceScheduler,
+    disableExceededUploadChannels = async () => ({ disabledIds: [] }),
   } = {}) {
     this._registry = registry;
     this._quotaProjectionService = quotaProjectionService;
@@ -13,6 +14,7 @@ class StorageRuntime {
     this._uploadSelector = uploadSelector;
     this._recoveryService = recoveryService;
     this._maintenanceScheduler = maintenanceScheduler;
+    this._disableExceededUploadChannels = disableExceededUploadChannels;
     this._initializePromise = null;
     this._isInitialized = false;
   }
@@ -44,6 +46,7 @@ class StorageRuntime {
       }
 
       await this._recoveryService.recoverPendingOperations();
+      await this._disableExceededUploadChannels();
       this._isInitialized = true;
     })();
 

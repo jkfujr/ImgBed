@@ -19,6 +19,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import GenericToolbar from '../../components/common/GenericToolbar';
 import GenericDataGrid from '../../components/common/GenericDataGrid';
 import StorageUsageProgress from '../../components/common/StorageUsageProgress';
+import { buildStorageUsageDisplay } from '../../components/common/storageUsage.js';
 import { TYPE_COLORS, VALID_TYPES } from '../../utils/constants';
 import { useStorageChannels } from '../../hooks/useStorageChannels';
 
@@ -47,6 +48,13 @@ export default function StorageChannelsPage() {
 
     return result;
   }, [storages, typeFilter]);
+
+  const getUsedBytes = (row) => quotaStats[row.id] ?? row.usedBytes ?? 0;
+  const isQuotaStopped = (row) => buildStorageUsageDisplay({
+    usedBytes: getUsedBytes(row),
+    quotaLimitGB: row.quotaLimitGB,
+    disableThresholdPercent: row.disableThresholdPercent,
+  }).thresholdReached;
 
   // DataGrid 列定义
   const columns = [
@@ -88,19 +96,25 @@ export default function StorageChannelsPage() {
       field: 'status',
       headerName: '状态',
       width: 140,
-      renderCell: (params) => (
-        <Stack direction="row" spacing={0.5}>
-          <Chip
-            label={params.row.enabled ? '已启用' : '已禁用'}
-            size="small"
-            color={params.row.enabled ? 'success' : 'default'}
-            variant="outlined"
-          />
-          {params.row.allowUpload && (
-            <Chip label="可上传" size="small" color="primary" variant="outlined" />
-          )}
-        </Stack>
-      ),
+      renderCell: (params) => {
+        const quotaStopped = isQuotaStopped(params.row);
+        return (
+          <Stack direction="row" spacing={0.5}>
+            <Chip
+              label={params.row.enabled ? '已启用' : '已禁用'}
+              size="small"
+              color={params.row.enabled ? 'success' : 'default'}
+              variant="outlined"
+            />
+            {quotaStopped && (
+              <Chip label="容量停用" size="small" color="error" variant="outlined" />
+            )}
+            {params.row.allowUpload && !quotaStopped && (
+              <Chip label="可上传" size="small" color="primary" variant="outlined" />
+            )}
+          </Stack>
+        );
+      },
     },
     {
       field: 'usage',
@@ -110,7 +124,7 @@ export default function StorageChannelsPage() {
       sortable: false,
       renderCell: (params) => (
         <StorageUsageProgress
-          usedBytes={quotaStats[params.row.id] || 0}
+          usedBytes={getUsedBytes(params.row)}
           quotaLimitGB={params.row.quotaLimitGB}
           disableThresholdPercent={params.row.disableThresholdPercent}
         />

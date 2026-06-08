@@ -8,6 +8,7 @@ import { StorageMaintenanceScheduler } from './storage-maintenance-scheduler.js'
 import { StoragePolicyService } from './storage-policy-service.js';
 import { StorageRegistry } from './storage-registry.js';
 import { StorageRuntime } from './storage-runtime.js';
+import { StorageUploadAutoDisableService } from './storage-upload-auto-disable-service.js';
 import { UploadSelector } from './upload-selector.js';
 
 function createStorageRuntime({
@@ -21,9 +22,22 @@ function createStorageRuntime({
     initialConfig: config.storage || {},
     initialUploadConfig: config.upload || {},
   });
+  let autoDisableService = null;
+  const disableExceededUploadChannels = async (storageIds = null) => {
+    try {
+      if (!autoDisableService) {
+        return { disabledIds: [] };
+      }
+      return await autoDisableService.disableExceededUploadChannels(storageIds);
+    } catch (err) {
+      logger.error({ err, storageIds }, '容量阈值自动关闭上传失败');
+      return { disabledIds: [] };
+    }
+  };
   const quotaProjectionService = new QuotaProjectionService({
     db,
     logger,
+    onQuotaChanged: ({ storageIds }) => disableExceededUploadChannels(storageIds),
   });
   const storagePolicyService = new StoragePolicyService({
     registry,
@@ -60,6 +74,14 @@ function createStorageRuntime({
     uploadSelector,
     recoveryService,
     maintenanceScheduler,
+    disableExceededUploadChannels,
+  });
+  autoDisableService = new StorageUploadAutoDisableService({
+    storageManager: {
+      reload: () => registry.reload(),
+    },
+    quotaProjectionService,
+    logger,
   });
 
   return {

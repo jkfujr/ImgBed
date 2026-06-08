@@ -12,6 +12,10 @@ function getStorageUsageColor(percent, disableThresholdPercent = DEFAULT_DISABLE
   return 'primary';
 }
 
+function isQuotaThresholdReached(percent, disableThresholdPercent = DEFAULT_DISABLE_THRESHOLD_PERCENT) {
+  return percent >= disableThresholdPercent;
+}
+
 function buildStorageUsageDisplay({
   usedBytes,
   quotaLimitGB,
@@ -20,6 +24,7 @@ function buildStorageUsageDisplay({
   if (!isQuotaLimited(quotaLimitGB)) {
     return {
       limited: false,
+      thresholdReached: false,
       text: `${fmtSize(usedBytes)} / 无限制`,
     };
   }
@@ -29,6 +34,7 @@ function buildStorageUsageDisplay({
   return {
     limited: true,
     percent,
+    thresholdReached: isQuotaThresholdReached(percent, disableThresholdPercent),
     color: getStorageUsageColor(percent, disableThresholdPercent),
     text: `${fmtSize(usedBytes)} / ${quotaLimitGB} GB`,
   };
@@ -37,5 +43,6 @@ function buildStorageUsageDisplay({
 export {
   buildStorageUsageDisplay,
   getStorageUsageColor,
+  isQuotaThresholdReached,
   isQuotaLimited,
 };

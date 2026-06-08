@@ -1,8 +1,16 @@
 import { DataGrid } from '@mui/x-data-grid';
 import Chip from '@mui/material/Chip';
 import StorageUsageProgress from '../../common/StorageUsageProgress';
+import { buildStorageUsageDisplay } from '../../common/storageUsage.js';
 
-export default function StorageDataGrid({ storages, quotaStats }) {
+export default function StorageDataGrid({ storages, quotaStats = {} }) {
+  const getUsedBytes = (row) => quotaStats[row.id] ?? row.usedBytes ?? 0;
+  const isQuotaStopped = (row) => buildStorageUsageDisplay({
+    usedBytes: getUsedBytes(row),
+    quotaLimitGB: row.quotaLimitGB,
+    disableThresholdPercent: row.disableThresholdPercent,
+  }).thresholdReached;
+
   const columns = [
     {
       field: 'name',
@@ -24,10 +32,9 @@ export default function StorageDataGrid({ storages, quotaStats }) {
       flex: 2,
       minWidth: 250,
       renderCell: (params) => {
-        const usedBytes = quotaStats[params.row.id] || 0;
         return (
           <StorageUsageProgress
-            usedBytes={usedBytes}
+            usedBytes={getUsedBytes(params.row)}
             quotaLimitGB={params.row.quotaLimitGB}
             disableThresholdPercent={params.row.disableThresholdPercent}
           />
@@ -50,13 +57,16 @@ export default function StorageDataGrid({ storages, quotaStats }) {
       field: 'allowUpload',
       headerName: '允许上传',
       width: 100,
-      renderCell: (params) => (
-        <Chip
-          label={params.value ? '允许' : '禁止'}
-          size="small"
-          color={params.value ? 'primary' : 'default'}
-        />
-      ),
+      renderCell: (params) => {
+        const quotaStopped = isQuotaStopped(params.row);
+        return (
+          <Chip
+            label={quotaStopped ? '容量停用' : (params.value ? '允许' : '禁止')}
+            size="small"
+            color={quotaStopped ? 'error' : (params.value ? 'primary' : 'default')}
+          />
+        );
+      },
     },
   ];
 
@@ -68,6 +78,7 @@ export default function StorageDataGrid({ storages, quotaStats }) {
     allowUpload: storage.allowUpload,
     quotaLimitGB: storage.quotaLimitGB,
     disableThresholdPercent: storage.disableThresholdPercent,
+    usedBytes: storage.usedBytes,
   }));
 
   return (

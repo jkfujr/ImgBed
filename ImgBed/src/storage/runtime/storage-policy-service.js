@@ -1,3 +1,5 @@
+import { isQuotaThresholdReached } from './quota-threshold.js';
+
 class StoragePolicyService {
   constructor({
     registry,
@@ -13,16 +15,8 @@ class StoragePolicyService {
       return true;
     }
 
-    if (!entry.quotaLimitGB || entry.quotaLimitGB <= 0) {
-      return false;
-    }
-
     const usedBytes = this.quotaProjectionService.getUsedBytes(storageId);
-    const limitBytes = entry.quotaLimitGB * 1024 * 1024 * 1024;
-    const thresholdPercent = entry.disableThresholdPercent || 95;
-    const thresholdBytes = limitBytes * (thresholdPercent / 100);
-
-    return usedBytes >= thresholdBytes;
+    return isQuotaThresholdReached(entry, usedBytes);
   }
 
   isUploadAllowed(storageId) {

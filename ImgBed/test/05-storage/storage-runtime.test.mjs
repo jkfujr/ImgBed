@@ -178,6 +178,82 @@ test('StorageRuntime.initialize 会按固定顺序执行且具备幂等性', asy
   ]);
 });
 
+test('StorageRuntime.initialize 会在恢复结束后执行容量阈值自动禁用检查', async () => {
+  const calls = [];
+  const runtime = new StorageRuntime({
+    registry: {
+      async reload() {
+        calls.push('registry.reload');
+      },
+      getStorage() {
+        return null;
+      },
+      getStorageMeta() {
+        return null;
+      },
+      getDefaultStorageId() {
+        return null;
+      },
+    },
+    quotaProjectionService: {
+      async loadQuotaFromCache() {
+        calls.push('quota.loadQuotaFromCache');
+      },
+      async initUsageStats() {
+        calls.push('quota.initUsageStats');
+      },
+      async applyPendingQuotaEvents() {
+        calls.push('quota.applyPendingQuotaEvents');
+      },
+      async verifyQuotaConsistency() {
+        calls.push('quota.verifyQuotaConsistency');
+        return { consistent: true };
+      },
+      async rebuildAllQuotaStats() {
+        calls.push('quota.rebuildAllQuotaStats');
+      },
+    },
+    storagePolicyService: {
+      isUploadAllowed() {
+        return true;
+      },
+      getEffectiveUploadLimits() {
+        return {};
+      },
+    },
+    uploadSelector: {
+      selectUploadChannel() {
+        return 'storage-1';
+      },
+    },
+    recoveryService: {
+      async recoverPendingOperations() {
+        calls.push('recovery.recoverPendingOperations');
+      },
+    },
+    maintenanceScheduler: {
+      async start() {},
+      stop() {},
+      async refresh() {},
+    },
+    async disableExceededUploadChannels() {
+      calls.push('disableExceededUploadChannels');
+    },
+  });
+
+  await runtime.initialize();
+
+  assert.deepEqual(calls, [
+    'registry.reload',
+    'quota.loadQuotaFromCache',
+    'quota.initUsageStats',
+    'quota.applyPendingQuotaEvents',
+    'quota.verifyQuotaConsistency',
+    'recovery.recoverPendingOperations',
+    'disableExceededUploadChannels',
+  ]);
+});
+
 test('StorageRuntime.reload 与 startMaintenance 会分别委托维护器行为', async () => {
   const calls = [];
   const runtime = new StorageRuntime({

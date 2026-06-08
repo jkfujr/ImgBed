@@ -3,11 +3,24 @@ import { createLogger } from '../../utils/logger.js';
 const log = createLogger('storage');
 
 class QuotaProjectionService {
-    constructor({ db, logger = log } = {}) {
+    constructor({ db, logger = log, onQuotaChanged = null } = {}) {
         this.db = db;
         this.log = logger;
+        this.onQuotaChanged = onQuotaChanged;
         this.quotaProjection = new Map();
         this.usageStats = new Map();
+    }
+
+    async notifyQuotaChanged(storageIds, reason) {
+        if (typeof this.onQuotaChanged !== 'function' || !Array.isArray(storageIds) || storageIds.length === 0) {
+            return;
+        }
+
+        try {
+            await this.onQuotaChanged({ storageIds, reason });
+        } catch (err) {
+            this.log.error({ err, storageIds, reason }, '容量变更后自动关闭上传检查失败');
+        }
     }
 
     async loadQuotaFromCache() {
@@ -203,7 +216,10 @@ class QuotaProjectionService {
                 throw projectionErr;
             }
 
-            return { applied: rows.length, storageIds: [...affectedStorageIds] };
+            const storageIds = [...affectedStorageIds];
+            await this.notifyQuotaChanged(storageIds, 'quota_events');
+
+            return { applied: rows.length, storageIds };
         } catch (err) {
             this.log.error({ err }, '应用待处理容量事件失败');
             throw err;
@@ -270,6 +286,7 @@ class QuotaProjectionService {
             this.usageStats = nextUsageStats;
 
             this.log.info({ count: historyRecords.length }, '已重建容量投影');
+            await this.notifyQuotaChanged([...nextProjection.keys()], 'quota_rebuild');
         } catch (err) {
             this.log.error({ err }, '重建容量投影失败');
         }

@@ -131,6 +131,58 @@ test('QuotaProjectionService 会应用待处理容量事件并同步写入缓存
   });
 });
 
+test('QuotaProjectionService 容量变更回调失败不会回滚已应用事件', async (t) => {
+  const db = createQuotaDb();
+  t.after(() => db.close());
+
+  insertQuotaEvent(db, {
+    operationId: 'op-upload-callback',
+    fileId: 'file-callback',
+    storageId: 'storage-callback',
+    eventType: 'upload',
+    bytesDelta: 456,
+    fileCountDelta: 1,
+    idempotencyKey: 'quota-key-upload-callback',
+  });
+
+  const service = new QuotaProjectionService({
+    db,
+    logger: {
+      info() {},
+      warn() {},
+      error() {},
+    },
+    async onQuotaChanged({ storageIds, reason }) {
+      assert.deepEqual(storageIds, ['storage-callback']);
+      assert.equal(reason, 'quota_events');
+      throw new Error('callback failed');
+    },
+  });
+
+  const result = await service.applyPendingQuotaEvents({ operationId: 'op-upload-callback' });
+  const cacheRow = db.prepare(`
+    SELECT storage_id, used_bytes, file_count
+    FROM storage_quota_cache
+    WHERE storage_id = ?
+  `).get('storage-callback');
+  const appliedCount = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM storage_quota_events
+    WHERE operation_id = ? AND applied_at IS NOT NULL
+  `).get('op-upload-callback').count;
+
+  assert.deepEqual(result, {
+    applied: 1,
+    storageIds: ['storage-callback'],
+  });
+  assert.deepEqual(cacheRow, {
+    storage_id: 'storage-callback',
+    used_bytes: 456,
+    file_count: 1,
+  });
+  assert.equal(appliedCount, 1);
+});
+
 test('QuotaProjectionService 在删除事件使文件数归零时会移除缓存行', async (t) => {
   const db = createQuotaDb();
   t.after(() => db.close());
@@ -297,6 +349,35 @@ test('QuotaProjectionService 可以按 files 真值重建容量缓存并通过�
       fileCount: 1,
     },
   });
+});
+
+test('QuotaProjectionService 重建容量后会通知全部有用量的渠道', async (t) => {
+  const db = createQuotaDb();
+  t.after(() => db.close());
+  const callbackCalls = [];
+
+  insertFile(db, buildFileRecord({
+    id: 'file-rebuild-callback-a',
+    size: 100,
+    storage_instance_id: 'storage-a',
+  }));
+  insertFile(db, buildFileRecord({
+    id: 'file-rebuild-callback-b',
+    size: 200,
+    storage_instance_id: 'storage-b',
+  }));
+
+  const service = new QuotaProjectionService({
+    db,
+    async onQuotaChanged(payload) {
+      callbackCalls.push(payload);
+    },
+  });
+  await service.rebuildAllQuotaStats();
+
+  assert.equal(callbackCalls.length, 1);
+  assert.deepEqual([...callbackCalls[0].storageIds].sort(), ['storage-a', 'storage-b']);
+  assert.equal(callbackCalls[0].reason, 'quota_rebuild');
 });
 
 test('QuotaProjectionService 会报告 mismatch、cache_orphan 和 cache_missing 三类不一致', async (t) => {

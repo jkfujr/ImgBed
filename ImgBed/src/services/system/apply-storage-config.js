@@ -17,4 +17,7 @@ async function applyStorageConfigChange({ cfg, storageManager }) {
   await storageManager.reload();
 }
 
-export { applyStorageConfigChange, };
+export {
+  applyStorageConfigChange,
+  normalizeStorageConfig,
+};

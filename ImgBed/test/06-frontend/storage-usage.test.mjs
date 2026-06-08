@@ -14,6 +14,7 @@ test('buildStorageUsageDisplay 会在无限容量时显示已用大小', () => {
     }),
     {
       limited: false,
+      thresholdReached: false,
       text: '1.00 GB / 无限制',
     },
   );
@@ -28,8 +29,26 @@ test('buildStorageUsageDisplay 会在有限容量时显示百分比和容量上�
     {
       limited: true,
       percent: 50,
+      thresholdReached: false,
       color: 'primary',
       text: '1.00 GB / 2 GB',
+    },
+  );
+});
+
+test('buildStorageUsageDisplay 会标记达到停用阈值的容量状态', () => {
+  assert.deepEqual(
+    buildStorageUsageDisplay({
+      usedBytes: 95 * 1024 ** 3,
+      quotaLimitGB: 100,
+      disableThresholdPercent: 95,
+    }),
+    {
+      limited: true,
+      percent: 95,
+      thresholdReached: true,
+      color: 'error',
+      text: '95.00 GB / 100 GB',
     },
   );
 });
