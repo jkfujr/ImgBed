@@ -1,4 +1,5 @@
 import { ValidationError } from '../../errors/AppError.js';
+import { buildLocalDayUtcRangeCondition } from '../../database/sqlite-time.js';
 
 function createDashboardService({
   db,
@@ -14,11 +15,11 @@ function createDashboardService({
       const todayUploads = getTodayUploadCount(db);
       const config = readRuntimeConfig();
       const storageSummary = summarizeStorages(config.storage?.storages || []);
+      const todayAccessCondition = buildLocalDayUtcRangeCondition('created_at');
 
       const todayAccessResult = db.prepare(`
         SELECT COUNT(*) as count FROM access_logs
-        WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')
-          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+        WHERE ${todayAccessCondition}
       `).get();
 
       return {
@@ -44,14 +45,19 @@ function createDashboardService({
     },
 
     getAccessStats() {
+      const todayAccessCondition = buildLocalDayUtcRangeCondition('created_at');
+      const sevenDayAccessCondition = buildLocalDayUtcRangeCondition('access_logs.created_at', {
+        startDayOffset: -6,
+        endDayOffset: 1,
+      });
+
       // 合并查询：今日访问数和独立访客数
       const todayStats = db.prepare(`
         SELECT
           COUNT(*) as todayAccess,
           COUNT(DISTINCT ip) as todayVisitors
         FROM access_logs
-        WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')
-          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+        WHERE ${todayAccessCondition}
           AND is_admin = 0
       `).get();
 
@@ -63,8 +69,7 @@ function createDashboardService({
           COUNT(access_logs.id) as accessCount
         FROM access_logs
         INNER JOIN files ON access_logs.file_id = files.id
-        WHERE access_logs.created_at >= datetime('now', 'localtime', 'start of day', '-6 days', 'utc')
-          AND access_logs.created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+        WHERE ${sevenDayAccessCondition}
           AND access_logs.is_admin = 0
           AND files.status = 'active'
         GROUP BY access_logs.file_id
@@ -77,8 +82,7 @@ function createDashboardService({
           DATE(created_at, 'localtime') as date,
           COUNT(*) as accessCount
         FROM access_logs
-        WHERE created_at >= datetime('now', 'localtime', 'start of day', '-6 days', 'utc')
-          AND created_at < datetime('now', 'localtime', 'start of day', '+1 day', 'utc')
+        WHERE ${sevenDayAccessCondition}
           AND is_admin = 0
         GROUP BY DATE(created_at, 'localtime')
         ORDER BY date ASC

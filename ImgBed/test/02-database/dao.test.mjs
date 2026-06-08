@@ -160,6 +160,68 @@ test('files-dao 可以完成文件插入、读取、统计与元数据更新', (
   assert.equal(countImageFilesForMetadataRebuild(db, false), 0);
 });
 
+test('files-dao 按本地自然日统计今日上传和上传趋势', (t) => {
+  const db = createTestDb();
+  t.after(() => db.close());
+
+  const todayStart = db.prepare("SELECT datetime('now', 'localtime', 'start of day', 'utc') AS value").get().value;
+  const beforeToday = db.prepare("SELECT datetime('now', 'localtime', 'start of day', '-1 second', 'utc') AS value").get().value;
+  const sevenDayStart = db.prepare("SELECT datetime('now', 'localtime', 'start of day', '-6 days', 'utc') AS value").get().value;
+  const beforeSevenDayStart = db.prepare("SELECT datetime('now', 'localtime', 'start of day', '-6 days', '-1 second', 'utc') AS value").get().value;
+
+  insertFile(db, buildFileRecord({
+    id: 'file-today',
+    size: 10,
+  }));
+  insertFile(db, buildFileRecord({
+    id: 'file-before-today',
+    size: 20,
+  }));
+  insertFile(db, buildFileRecord({
+    id: 'file-seven-day-start',
+    size: 30,
+  }));
+  insertFile(db, buildFileRecord({
+    id: 'file-before-seven-day-start',
+    size: 40,
+  }));
+  insertFile(db, buildFileRecord({
+    id: 'file-inactive-today',
+    size: 50,
+    status: 'channel_deleted',
+  }));
+
+  const updateCreatedAt = db.prepare('UPDATE files SET created_at = ? WHERE id = ?');
+  updateCreatedAt.run(todayStart, 'file-today');
+  updateCreatedAt.run(beforeToday, 'file-before-today');
+  updateCreatedAt.run(sevenDayStart, 'file-seven-day-start');
+  updateCreatedAt.run(beforeSevenDayStart, 'file-before-seven-day-start');
+  updateCreatedAt.run(todayStart, 'file-inactive-today');
+
+  assert.equal(getTodayUploadCount(db), 1);
+  assert.deepEqual(getUploadTrend(db, 7).map((row) => ({
+    date: row.date,
+    fileCount: row.fileCount,
+    totalSize: row.totalSize,
+  })), [
+    {
+      date: db.prepare("SELECT DATE(?, 'localtime') AS value").get(sevenDayStart).value,
+      fileCount: 1,
+      totalSize: 30,
+    },
+    {
+      date: db.prepare("SELECT DATE(?, 'localtime') AS value").get(beforeToday).value,
+      fileCount: 1,
+      totalSize: 20,
+    },
+    {
+      date: db.prepare("SELECT DATE(?, 'localtime') AS value").get(todayStart).value,
+      fileCount: 1,
+      totalSize: 10,
+    },
+  ]);
+});
+
 test('files-dao 可以完成目录迁移、冻结和访问日志写入', (t) => {
   const db = createTestDb();
   t.after(() => db.close());

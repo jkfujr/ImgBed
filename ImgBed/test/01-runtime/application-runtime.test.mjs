@@ -77,6 +77,8 @@ test('createApplicationRuntime.start 会按顺序执行启动依赖并启动 HTT
     initQuotaEventsArchive: (options) => calls.push(`initQuotaEventsArchive:${JSON.stringify(options)}`),
     initArchiveScheduler: (options) => calls.push(`initArchiveScheduler:${JSON.stringify(options)}`),
     stopArchiveScheduler: () => calls.push('stopArchiveScheduler'),
+    initAccessLogBuffer: (options) => calls.push(`initAccessLogBuffer:${JSON.stringify(options)}`),
+    stopAccessLogBuffer: () => calls.push('stopAccessLogBuffer'),
     storageManager: {
       async initialize() {
         calls.push('storageManager.initialize');
@@ -115,6 +117,7 @@ test('createApplicationRuntime.start 会按顺序执行启动依赖并启动 HTT
     'initResponseCache:{"enabled":true,"ttlSeconds":30,"maxKeys":200}',
     'initQuotaEventsArchive:{"enabled":true,"retentionDays":7,"batchSize":100,"maxBatchesPerRun":2}',
     'initArchiveScheduler:{"enabled":true,"scheduleHour":4}',
+    'initAccessLogBuffer:{"enabled":true,"maxSize":100,"flushInterval":5000}',
     'storageManager.initialize',
     'storageManager.startMaintenance',
     'loadApp',
@@ -122,6 +125,7 @@ test('createApplicationRuntime.start 会按顺序执行启动依赖并启动 HTT
     'server.on:error',
     'storageManager.stopMaintenance',
     'stopArchiveScheduler',
+    'stopAccessLogBuffer',
     'destroyResponseCache',
     'server.close',
     'flushLogs',

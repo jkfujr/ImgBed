@@ -1,3 +1,5 @@
+import { buildLocalDayUtcRangeCondition } from './sqlite-time.js';
+
 /**
  * files 表的数据访问层（DAO）。
  *
@@ -117,10 +119,10 @@ function getActiveFilesStats(db) {
  * @returns {number}
  */
 function getTodayUploadCount(db) {
+  const todayCondition = buildLocalDayUtcRangeCondition('created_at');
   const row = db.prepare(
     `SELECT COUNT(*) AS count FROM files
-     WHERE created_at >= DATE('now', 'localtime')
-       AND created_at < DATE('now', 'localtime', '+1 day')
+     WHERE ${todayCondition}
        AND status = 'active'`
   ).get();
   return Number(row?.count || 0);
@@ -133,13 +135,17 @@ function getTodayUploadCount(db) {
  * @returns {Array<{ date: string, fileCount: number, totalSize: number }>}
  */
 function getUploadTrend(db, days) {
+  const trendCondition = buildLocalDayUtcRangeCondition('created_at', {
+    startDayOffset: 1 - Number(days),
+    endDayOffset: 1,
+  });
   return db.prepare(`
     SELECT
       DATE(created_at, 'localtime') AS date,
       COUNT(*) AS fileCount,
       COALESCE(SUM(size), 0) AS totalSize
     FROM files
-    WHERE created_at >= datetime('now', 'localtime', '-${days} days')
+    WHERE ${trendCondition}
       AND status = 'active'
     GROUP BY DATE(created_at, 'localtime')
     ORDER BY date ASC
